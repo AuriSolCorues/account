@@ -45,11 +45,15 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
+import com.copy.account.data.model.initialGroups
 import com.copy.account.ui.components.accountTopBarColors
+import com.copy.account.BuildConfig
+import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -280,5 +284,21 @@ internal fun LazyItemScope.GroupManageItem(
             TextButton(onClick = rename) { Text("改名") }
             if (!fixed) TextButton(onClick = delete) { Text("删除", color = MaterialTheme.colorScheme.error) }
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun GroupManageScreenPreview() {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+        GroupManageScreen(
+            groups = initialGroups,
+            onBack = {},
+            onAddGroup = { "custom-preview" },
+            onRenameGroup = { _, _ -> },
+            onDeleteGroup = {},
+            accountCount = { 2 },
+            onMoveCustomGroup = { _, _ -> }
+        )
     }
 }

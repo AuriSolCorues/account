@@ -1,5 +1,6 @@
 package com.copy.account.feature.accounts
 
+import android.annotation.SuppressLint
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -54,6 +55,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.copy.account.core.crypto.totpCode
@@ -61,10 +63,14 @@ import com.copy.account.core.security.copyToClipboard
 import com.copy.account.data.model.Account
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
+import com.copy.account.data.model.initialAccounts
+import com.copy.account.data.model.initialGroups
 import com.copy.account.ui.components.EmptyState
 import com.copy.account.ui.components.SensitiveValueRow
 import com.copy.account.ui.components.accountTopBarColors
 import com.copy.account.ui.components.rememberClock
+import com.copy.account.BuildConfig
+import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
 import kotlinx.coroutines.delay
 
@@ -213,6 +219,7 @@ internal fun HomeScreen(
     }
 }
 
+@SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 internal fun GroupSidebar(
     groups: List<Group>,
@@ -374,5 +381,26 @@ internal fun ActionSheetRow(text: String, muted: Boolean = false, onClick: () ->
         Box(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
             Text(text, color = if (muted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun HomeScreenPreview() {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+        HomeScreen(
+            accounts = initialAccounts,
+            groups = initialGroups,
+            selectedGroupId = "default",
+            clipboardClearSeconds = 30,
+            onGroupSelected = {},
+            onNewAccount = {},
+            onEditAccount = {},
+            onTemplateNew = {},
+            onDeleteAccount = {},
+            onManageGroups = {},
+            onOpenSettings = {},
+            onOpenDetail = {}
+        )
     }
 }

@@ -53,8 +53,8 @@
 
 ### 主题
 
-- 设置中提供始终深色、始终浅色、跟随系统；默认始终深色，切换后立即生效。
-- 默认主题同时提供深色和浅色色板，并保留 `themeId` 供后续增加主题。
+- 设置中提供始终深色、始终浅色、跟随系统；默认值由 `gradle.properties` 的 `account.defaultThemeMode` 配置（`dark`/`light`/`system`，当前为 `light`），经 `BuildConfig.DEFAULT_THEME_MODE` 注入 `MainActivity`/`AccountApp`/`AppSettings` 三处默认值，切换后立即生效。已安装用户的 DataStore 选择优先。
+- 提供绿色/蓝色两套内置配色，以及可导入的 JSONC 自定义主题（`customThemeJson`/`customThemes`，解析见 `ui/theme/Theme.kt`）。
 - 语言默认使用 `zh-CN`，保留 `languageTag` 供后续增加语言资源。
 - 界面只使用文字、颜色、Compose 组件和 Material 矢量图标，不引入图片资源。
 
@@ -62,8 +62,8 @@
 
 - 仅支持一种完整加密备份：扩展名为 `.acc`，文件内容为 JSON。
 - `.acc` 根节点严格只有两个同级字段：`passwordVault` 和 `appSettings`。不兼容旧版 `ACCOUNTBOX_BACKUP_13` 密文，也不再导出旧版明文格式。
-- `passwordVault` 是 Base64 加密数据，内部打包格式版本、KDF 参数、随机盐、随机 IV、认证标签及加密后的自定义分组、账号、自定义字段、隐藏字段标记和单个 TOTP；默认分组和动态密码分组均由账号状态派生，不单独保存。
-- `appSettings` 是可读、可手工编辑的软件设置，保存主题模式、配色/语言标识、自动锁定时长、剪贴板清除时长和允许截图开关；不做完整性校验。
+- `passwordVault` 是 Base64 加密数据，内部打包格式版本、KDF 参数（PBKDF2-HMAC-SHA256、300,000 次迭代）、随机盐、随机 IV、认证标签及加密后的自定义分组、账号、自定义字段、隐藏字段标记和单个 TOTP；默认分组和动态密码分组均由账号状态派生，不单独保存。
+- `appSettings` 是可读、可手工编辑的软件设置，保存主题模式、配色、语言标识、自定义主题、自动锁定时长、剪贴板清除时长和允许截图开关；不做完整性校验。
 - 导出不显示密码输入框，直接复用当前主密码派生的密钥；导出前提示用户记住主密码。
 - 导入从 `backups/account` 文件列表选择 `.acc` 文件，再输入该备份设置的密码（4-20 个 Unicode 字符，可含中文、英文、数字和符号），通过 AES-GCM 认证后才允许恢复；不校验本机当前主密码。
 - 导入成功前只在内存中解析，用户确认后整体替换当前密码库与软件设置；失败不修改现有数据。
@@ -76,7 +76,11 @@
 {
   "passwordVault": "Base64 encrypted payload",
   "appSettings": {
-    "themeMode": "dark",
+    "themeMode": "light",
+    "accentTheme": "green",
+    "languageTag": "zh-CN",
+    "customThemeJson": "",
+    "customThemes": [],
     "autoLockSeconds": 300,
     "clipboardClearSeconds": 30,
     "allowScreenshots": false
@@ -89,7 +93,7 @@
 ### 平台与依赖
 
 - 最低支持 Android 9（API 28），以便直接使用系统的 `PBKDF2WithHmacSHA256`、`AES/GCM/NoPadding`、`GCMParameterSpec` 和 `AndroidKeyStore`；不引入任何第三方加密 JAR。
-- 保留 Jetpack Compose、Material 3、Lifecycle 与 Navigation Compose；使用简单的 `AppContainer` 手工组装依赖，不引入 Hilt 或其他依赖注入框架。
+- 使用 Jetpack Compose、Material 3、Lifecycle；页面导航用 `AccountApp` 内的 sealed `AppPage` + `when` 手工路由，不引入 Navigation Compose；依赖用 `remember { SecureVaultStore(context) }` 手工组装，不引入 Hilt 或其他依赖注入框架。
 - 使用 AndroidX Biometric 提供指纹/人脸认证，DataStore Preferences 保存非敏感软件设置，kotlinx-serialization-json 序列化密码库和 `.acc` 文件。
 - 不引入二维码扫描、WebDAV 或其他网络依赖，控制安装包大小。
 - 不使用 Room、SQLite、SQLCipher、Bouncy Castle 或其他数据库/加密库，控制安装包大小。
@@ -97,36 +101,42 @@
 ### 代码结构
 
 ```text
-com.example.account/
-├── app/                 # Application、AppContainer、启动与会话装配
+com.copy.account/
+├── MainActivity.kt        # FragmentActivity、edge-to-edge、FLAG_SECURE、主题默认值装配
+├── AccountApp.kt          # 应用状态、解锁会话、sealed AppPage 页面路由、SAF 回调
 ├── core/
-│   ├── crypto/          # PBKDF2、AES-GCM、DEK、Keystore、.acc 编解码
-│   ├── security/        # 自动锁定、清内存、FLAG_SECURE、生物识别
-│   ├── storage/         # 加密文件、AtomicFile、DataStore
-│   └── common/          # 时间、结果类型、输入校验
+│   ├── crypto/            # Crypto（KEK/DEK/AES-GCM/PBKDF2）、Totp、AccCodec（.acc 编解码）
+│   ├── security/          # Clipboard（受控复制与定时清除）
+│   └── storage/           # VaultStore（加密文件/Keystore/生物识别）、Preferences（DataStore）
 ├── data/
-│   ├── model/           # PasswordVault、Account、Field、Group、Totp
-│   ├── repository/      # VaultRepository、SettingsRepository、BackupRepository
-│   └── backup/          # .acc 编解码与导入校验
-├── feature/             # unlock、accounts、edit、totp、settings、backup
-└── ui/                  # navigation、共用 Compose 组件、主题
+│   ├── model/             # Account、Group、AccountField、AppSettings、PersistedVault
+│   └── backup/            # BackupFiles（SAF 目录与文件操作）
+├── feature/               # unlock、accounts、edit、detail、groups、settings、backup
+└── ui/
+    ├── theme/             # AccountTheme、深/浅色、绿色/蓝色配色、JSONC 自定义主题
+    └── components/        # UiCommon（顶栏配色、敏感值行、空状态、时钟）
 ```
 
 ### 当前实现文件与数据流
 
-- `app/src/main/java/com/example/account/AccountApp.kt`：应用状态、解锁会话、账号页面、剪贴板复制和 SAF 回调；复制敏感字段后由 `ClipboardManager` 写入并定时校验清除。
+- `app/src/main/java/com/copy/account/MainActivity.kt`：`FragmentActivity`、edge-to-edge 布局、`FLAG_SECURE` 截图保护、主题状态装配；首次启动主题取 `BuildConfig.DEFAULT_THEME_MODE`（来自 `gradle.properties`）。
+- `app/src/main/java/com/copy/account/AccountApp.kt`：应用状态、解锁会话、sealed `AppPage` 页面路由、账号管理、剪贴板复制和 SAF 回调；复制敏感字段后由 `ClipboardManager` 写入并定时校验清除。
+- `app/src/main/java/com/copy/account/core/storage/VaultStore.kt`：`filesDir/vault.bin` 加密读写、主密码 KEK/DEK、AndroidKeyStore 生物识别包装、改密与解锁。
+- `app/src/main/java/com/copy/account/core/storage/Preferences.kt`：DataStore 保存主题/配色/自定义主题/自动锁定/剪贴板清除/截图开关/备份目录 URI。
+- `app/src/main/java/com/copy/account/core/crypto/AccCodec.kt`：`.acc` 的 JSON 外层、PBKDF2/AES-GCM 导出与导入校验；只返回内存结果，确认后才由 `AccountApp` 保存。
+- `app/src/main/java/com/copy/account/core/crypto/Totp.kt`：TOTP 与 Steam Guard 验证码计算（RFC 6238）。
+- `app/src/main/java/com/copy/account/ui/theme/Theme.kt`：深色/浅色/系统模式、绿色/蓝色配色和 JSONC 自定义主题解析。
+- `app/src/main/java/com/copy/account/feature/*`：unlock、accounts、edit、detail、groups、settings、backup 七个页面，均带 `@Preview` 静态预览（跟随 `gradle.properties` 默认主题）。
 - `plan/REFERENCE_ACCOUNT_APP.md`：手机端 `com.wei.account` 的真机交互研究记录；只用于初步验证，不作为最终视觉模板，不复制图标、源码或旧加密。
 - 真机截图中的像素仅用于比例测量；首页分栏、底部面板和编辑内容均按窗口约束自适应，不固定某一台手机的分辨率。
-- `app/src/main/java/com/example/account/AccCodec.kt`：`.acc` 的 JSON 外层、PBKDF2/AES-GCM 导出与导入校验；只返回内存结果，确认后才由 `AccountApp` 保存。
-- `app/src/main/java/com/example/account/ui/theme/Theme.kt`：深色/浅色/系统模式和可扩展的配色、语言标识解析。
 - 数据流：主密码 → KEK/本地 DEK → 内存密码库；首次进入备份页 → `OpenDocumentTree` 授权 → 自动创建 `backups/account`；导出时读取当前 KEK → 生成 `.acc` → 在固定目录创建文件；备份管理页列出目录中的 `.acc` → 输入该文件密码并验证解密 → 用户确认 → 原子保存。
 
 ### 本地文件存储
 
-- 密码库不使用数据库。`filesDir/vault.bin` 保存 AES-256-GCM 加密后的完整 `PasswordVault` JSON；默认分组和动态密码分组按账号状态实时派生。
-- DataStore Preferences 保存主题、自动锁定和剪贴板清除时长等非敏感设置；导出时组装为 `.acc` 的明文 `appSettings`。
+- 密码库不使用数据库。`filesDir/vault.bin` 保存 AES-256-GCM 加密后的完整 `PersistedVault` JSON；默认分组和动态密码分组按账号状态实时派生。
+- DataStore Preferences 保存主题、配色、自定义主题、自动锁定和剪贴板清除时长等非敏感设置；导出时组装为 `.acc` 的明文 `appSettings`。
 - 每次保存密码库或本机敏感设置时，先完整序列化并加密，再用 `android.util.AtomicFile` 原子替换旧文件；中断写入不破坏现有密码库。
-- 解锁后将 `PasswordVault` 解密到内存中完成几百条账号的搜索、筛选、排序和去重；锁定后关闭会话并清除 DEK 与敏感内存引用。
+- 解锁后将 `PersistedVault` 解密到内存中完成几百条账号的搜索、筛选、排序和去重；锁定后关闭会话并清除 DEK 与敏感内存引用。
 
 ## 4. 加密与数据设计
 
@@ -134,7 +144,7 @@ com.example.account/
 
 1. 首次设置主密码时生成随机 256 位数据加密密钥（DEK）。
 2. 主密码以 UTF-8 编码并统一作 NFC Unicode 规范化，兼容中文输入。
-3. 每个密码库生成独有随机盐，使用 PBKDF2-HMAC-SHA256 派生密钥加密密钥（KEK）；迭代次数记录在密码库元数据中，并以可接受的设备解锁时间校准。
+3. 每个密码库生成独有随机盐，使用 PBKDF2-HMAC-SHA256 派生密钥加密密钥（KEK）；迭代次数固定为 300,000（常量 `DEFAULT_PASSWORD_ITERATIONS`），以可接受的设备解锁时间选定，并记录在本地与 `.acc` 元数据中。
 4. 使用 AES-256-GCM 以 KEK 加密 DEK；账号、自定义分组、单个 2FA 秘钥和隐藏字段标记均使用 DEK 加密。导出的 `passwordVault` 使用同一主密码派生的 KEK 加密。
 5. 每次 AES-GCM 加密使用新的随机 IV 并校验认证标签；发现篡改即拒绝读取。
 6. TOTP 仅在已解锁的内存会话中按 RFC 6238 计算；锁定时清除内存中的 DEK、密钥和明文数据。
@@ -155,7 +165,7 @@ com.example.account/
 页面结构与交互细节见 [FRONTEND_DESIGN.md](FRONTEND_DESIGN.md)。
 
 1. 解锁页：主密码输入、指纹/人脸解锁。
-2. 首页：左侧纵向分组、右侧紧凑账号卡片、字母索引、搜索、新增和设置入口。
+2. 首页：左侧纵向分组（长按多选做交集筛选）、右侧紧凑账号卡片、搜索、新增和设置入口。
 3. 分组管理页：默认/动态密码名称修改，以及自定义分组的新增、改名、删除与拖动排序。
 4. 账号速览面板：快速复制字段与 2FA；点击空白处或下滑关闭。
 5. 账号详情页：字段和 2FA 验证码，不展示额外操作记录。
@@ -165,14 +175,14 @@ com.example.account/
 
 ## 6. 实施顺序
 
-1. 建立 Compose 应用框架、导航、主题和前端设计中的基础组件。
-2. 实现安全窗口、自动锁定、主密码与生物识别解锁。
-3. 接入本地加密数据层，建立账号、字段、分组和 TOTP 的数据模型。
-4. 完成默认/自定义分组与字段的账号管理、跨账号搜索、按当前分组新建、模板新建和随机密码。
-5. 实现 TOTP 计算、验证码展示与受控复制。
-6. 实现剪贴板定时清除。
-7. 完成 `.acc` 加密导入导出与 SAF 文件授权。
-8. 在真机验证主题切换、密码校验和备份恢复流程。
+1. [x] 建立 Compose 应用框架、导航、主题和前端设计中的基础组件。
+2. [x] 实现安全窗口、自动锁定、主密码与生物识别解锁。
+3. [x] 接入本地加密数据层，建立账号、字段、分组和 TOTP 的数据模型。
+4. [x] 完成默认/自定义分组与字段的账号管理、跨账号搜索、按当前分组新建、模板新建和随机密码。
+5. [x] 实现 TOTP 计算、验证码展示与受控复制。
+6. [x] 实现剪贴板定时清除。
+7. [x] 完成 `.acc` 加密导入导出与 SAF 文件授权。
+8. [x] 在真机验证主题切换、密码校验和备份恢复流程。
 
 ## 7. 验收标准
 

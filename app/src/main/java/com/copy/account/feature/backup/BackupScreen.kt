@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.core.crypto.AccImportResult
 import com.copy.account.core.crypto.isMasterPasswordValid
@@ -38,6 +39,8 @@ import com.copy.account.data.backup.BackupEntry
 import com.copy.account.data.backup.listBackupFiles
 import com.copy.account.ui.components.EmptyState
 import com.copy.account.ui.components.accountTopBarColors
+import com.copy.account.BuildConfig
+import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -168,3 +171,21 @@ internal fun formatBackupSize(size: Long): String = when {
 }
 
 internal fun formatBackupTime(time: Long): String = if (time <= 0) "未知时间" else java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(time))
+
+@Preview(showBackground = true)
+@Composable
+private fun BackupScreenPreview() {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+        BackupScreen(
+            onBack = {},
+            backupTreeUri = null,
+            directoryMessage = "",
+            onChooseDirectory = {},
+            onExportBackup = { Result.success("preview.acc") },
+            onReadBackup = { Result.success(ByteArray(0)) },
+            onDeleteBackup = { Result.success(Unit) },
+            onImportBackup = { _, _ -> Result.failure(RuntimeException("预览")) },
+            onApplyImport = {}
+        )
+    }
+}

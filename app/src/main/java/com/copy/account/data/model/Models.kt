@@ -1,5 +1,6 @@
 package com.copy.account.data.model
 
+import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.SavedTheme
 import kotlinx.serialization.Serializable
 
@@ -39,7 +40,7 @@ internal data class Account(
 internal data class AppSettings(
     val biometricEnabled: Boolean = false,
     val autoLockMinutes: Int = 5,
-    val themeMode: String = "dark",
+    val themeMode: String = BuildConfig.DEFAULT_THEME_MODE,
     val accentTheme: String = "green",
     val languageTag: String = "zh-CN",
     val customThemeJson: String = "",

@@ -26,7 +26,7 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         setContent {
             var themeMode by remember {
-                mutableStateOf("dark")
+                mutableStateOf(BuildConfig.DEFAULT_THEME_MODE)
             }
             var accentTheme by remember {
                 mutableStateOf("green")
