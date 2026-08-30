@@ -13,6 +13,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.FragmentActivity
 import androidx.biometric.BiometricManager
@@ -160,7 +161,9 @@ internal data class Account(
     val totpDigits: Int = 6,
     val totpPeriod: Int = 30,
     val totpAlgorithm: String = "SHA1",
-    val customFields: List<AccountField> = emptyList()
+    val customFields: List<AccountField> = emptyList(),
+    /** TOTP 为标准验证码，STEAM 为 Steam Guard 专用 5 字符验证码。 */
+    val totpType: String = "TOTP"
 )
 
 internal data class AppSettings(
@@ -415,7 +418,38 @@ private class SecureVaultStore(private val context: Context) {
 
 private fun normalizedTotpSecret(raw: String): String {
     val uri = runCatching { Uri.parse(raw.trim()) }.getOrNull()
-    return if (uri?.scheme == "otpauth") uri.getQueryParameter("secret").orEmpty() else raw
+    return if (uri?.scheme == "otpauth") {
+        uri.getQueryParameter("secret") ?: uri.getQueryParameter("shared_secret") ?: raw
+    } else raw
+}
+
+private fun decodeSecret(raw: String, steam: Boolean): ByteArray {
+    val clean = raw.trim().replace(" ", "")
+    if (steam && clean.matches(Regex("[A-Za-z0-9+/]+=*"))) {
+        runCatching { Base64.decode(clean, Base64.DEFAULT) }.getOrNull()?.let { if (it.isNotEmpty()) return it }
+    }
+    return decodeBase32(clean)
+}
+
+private fun steamGuardCode(secret: ByteArray, nowMillis: Long, period: Int): String {
+    val counter = nowMillis / 1000L / period.coerceAtLeast(1)
+    val message = ByteArray(8)
+    for (index in 7 downTo 0) message[index] = (counter ushr ((7 - index) * 8)).toByte()
+    val mac = Mac.getInstance("HmacSHA1")
+    mac.init(SecretKeySpec(secret, "HmacSHA1"))
+    val hash = mac.doFinal(message)
+    val offset = hash[19].toInt() and 0x0f
+    var value = ((hash[offset].toInt() and 0x7f) shl 24) or
+        ((hash[offset + 1].toInt() and 0xff) shl 16) or
+        ((hash[offset + 2].toInt() and 0xff) shl 8) or
+        (hash[offset + 3].toInt() and 0xff)
+    val alphabet = "23456789BCDFGHJKMNPQRTVWXY"
+    val code = StringBuilder(5)
+    repeat(5) {
+        code.append(alphabet[value % alphabet.length])
+        value = value / alphabet.length
+    }
+    return code.toString()
 }
 
 private fun decodeBase32(input: String): ByteArray {
@@ -438,15 +472,17 @@ private fun decodeBase32(input: String): ByteArray {
 private fun totpCode(account: Account, nowMillis: Long): String {
     if (!account.hasTotp || account.totpSecret.isBlank()) return "------"
     return runCatching {
+        val steam = account.totpType.equals("STEAM", ignoreCase = true)
+        val period = account.totpPeriod.coerceAtLeast(1)
+        val secret = decodeSecret(normalizedTotpSecret(account.totpSecret), steam)
+        if (secret.isEmpty()) return@runCatching "------"
+        if (steam) return@runCatching steamGuardCode(secret, nowMillis, period)
         val algorithm = when (account.totpAlgorithm.uppercase().replace("-", "")) {
             "SHA256" -> "SHA256"
             "SHA512" -> "SHA512"
             else -> "SHA1"
         }
-        val period = account.totpPeriod.coerceAtLeast(1)
         val digits = if (account.totpDigits == 8) 8 else 6
-        val secret = decodeBase32(normalizedTotpSecret(account.totpSecret))
-        if (secret.isEmpty()) return@runCatching "------"
         val counter = nowMillis / 1000L / period
         val message = ByteArray(8)
         for (index in 7 downTo 0) message[index] = (counter ushr ((7 - index) * 8)).toByte()
@@ -517,6 +553,7 @@ fun AccountApp(
     var lockGeneration by remember { mutableIntStateOf(0) }
     var settings by remember { mutableStateOf(AppSettings(customThemeJson = customThemeJson)) }
     var passwordConfigured by remember { mutableStateOf(store.hasMasterPassword()) }
+    var biometricPromptActive by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         val values = context.settingsDataStore.data.first()
@@ -576,17 +613,24 @@ fun AccountApp(
     }
 
     fun authenticateBiometric(onError: () -> Unit = {}) {
+        if (biometricPromptActive) return
         val host = activity as? FragmentActivity ?: return onError()
         if (!settings.biometricEnabled || !store.biometricAvailable()) return onError()
         val cipher = runCatching { store.beginBiometricDecrypt() }.getOrNull() ?: return onError()
         val encryptedDek = store.biometricCiphertext() ?: return onError()
+        biometricPromptActive = true
+        fun failBiometric() {
+            biometricPromptActive = false
+            onError()
+        }
         val prompt = BiometricPrompt(host, ContextCompat.getMainExecutor(context), object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 val key = runCatching { result.cryptoObject?.cipher?.doFinal(encryptedDek) }.getOrNull()
                 val state = key?.let { store.load(it) }
+                biometricPromptActive = false
                 if (key != null && state != null) finishUnlock(key, state) else onError()
             }
-            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) { onError() }
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) { failBiometric() }
             override fun onAuthenticationFailed() { }
         })
         prompt.authenticate(
@@ -627,6 +671,35 @@ fun AccountApp(
                 .build(),
             BiometricPrompt.CryptoObject(cipher)
         )
+    }
+
+    BackHandler(enabled = page != AppPage.Unlock && page != AppPage.Home) {
+        page = when (page) {
+            AppPage.Settings, AppPage.Groups, is AppPage.Detail, is AppPage.Edit -> AppPage.Home
+            AppPage.Backup -> AppPage.Settings
+            else -> page
+        }
+    }
+
+    // 手机从锁屏返回时，重新触发解锁页的生物识别弹窗；弹窗显示期间不重复启动。
+    DisposableEffect(activity, page, passwordConfigured, settings.biometricEnabled) {
+        if (activity == null) return@DisposableEffect onDispose { }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && page == AppPage.Unlock && passwordConfigured && settings.biometricEnabled) {
+                scope.launch {
+                    delay(250)
+                    if (page == AppPage.Unlock) authenticateBiometric()
+                }
+            }
+        }
+        activity.lifecycle.addObserver(observer)
+        onDispose { activity.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(page, passwordConfigured, settings.biometricEnabled) {
+        if (page == AppPage.Unlock && passwordConfigured && settings.biometricEnabled) {
+            delay(350)
+            if (page == AppPage.Unlock) authenticateBiometric()
+        }
     }
 
     DisposableEffect(activity, settings.autoLockMinutes) {
@@ -872,9 +945,6 @@ private fun UnlockScreen(
     var error by remember(resetKey) { mutableStateOf("") }
     var showPassword by remember(resetKey, biometricEnabled) { mutableStateOf(firstUse || !biometricEnabled) }
 
-    LaunchedEffect(firstUse, biometricEnabled) {
-        if (!firstUse && biometricEnabled) onBiometricUnlock()
-    }
     Column(
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -963,7 +1033,7 @@ private fun HomeScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Row(modifier = Modifier.fillMaxSize().padding(padding)) {
-            GroupSidebar(groups, selectedGroupId, onGroupSelected, onManageGroups, Modifier.width(104.dp).fillMaxHeight())
+            GroupSidebar(groups, selectedGroupId, onGroupSelected, onManageGroups, Modifier.width(72.dp).fillMaxHeight())
             Column(modifier = Modifier.weight(1f).fillMaxHeight().padding(horizontal = 12.dp)) {
                 Text("${selectedGroup.name} · ${visibleAccounts.size} 条", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
                 if (visibleAccounts.isEmpty()) {
@@ -991,32 +1061,24 @@ private fun GroupSidebar(
 ) {
     Column(modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(8.dp)) {
         BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            val rowsPerColumn = maxOf(1, ((maxHeight.value - 8f) / 42f).toInt())
-            Column {
-                Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    groups.chunked(rowsPerColumn).forEach { column ->
-                        Column(modifier = Modifier.width(96.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            column.forEach { group ->
-                                val selected = group.id == selectedGroupId
-                                val selectionColor by animateColorAsState(
-                                    targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                                    label = "group-selection-color"
-                                )
-                                Surface(
-                                    color = selectionColor,
-                                    shape = RoundedCornerShape(6.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .border(if (selected) 1.dp else 0.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-                                        .clickable { onGroupSelected(group.id) }
-                                ) {
-                                    Text(group.name, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.padding(horizontal = 6.dp, vertical = 7.dp))
-                                }
-                            }
-                        }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                groups.forEach { group ->
+                    val selected = group.id == selectedGroupId
+                    val selectionColor by animateColorAsState(
+                        targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                        label = "group-selection-color"
+                    )
+                    Surface(
+                        color = selectionColor,
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(if (selected) 1.dp else 0.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+                            .clickable { onGroupSelected(group.id) }
+                    ) {
+                        Text(group.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.padding(horizontal = 6.dp, vertical = 7.dp))
                     }
                 }
-                if (groups.size > rowsPerColumn) Text("← 左右滑动查看更多 →", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
             }
         }
         HorizontalDivider()
@@ -1216,7 +1278,27 @@ private fun AccountEditScreen(
     var password by remember(account?.id) { mutableStateOf(account?.password.orEmpty()) }
     var hasTotp by remember(account?.id) { mutableStateOf(account?.hasTotp ?: false) }
     var totpSecret by remember(account?.id) { mutableStateOf(account?.totpSecret.orEmpty()) }
+    var totpType by remember(account?.id) { mutableStateOf(account?.totpType ?: "TOTP") }
+    var totpDigits by remember(account?.id) { mutableIntStateOf(account?.totpDigits ?: 6) }
+    var totpPeriodText by remember(account?.id) { mutableStateOf((account?.totpPeriod ?: 30).toString()) }
+    var totpAlgorithm by remember(account?.id) { mutableStateOf(account?.totpAlgorithm ?: "SHA1") }
+    var totpError by remember(account?.id) { mutableStateOf("") }
     val nowMillis = rememberClock()
+    LaunchedEffect(totpSecret) {
+        val uri = runCatching { Uri.parse(totpSecret.trim()) }.getOrNull()
+        if (uri?.scheme == "otpauth") {
+            uri.getQueryParameter("algorithm")?.uppercase()?.replace("-", "")?.let { value ->
+                if (value in setOf("SHA1", "SHA256", "SHA512")) totpAlgorithm = value
+            }
+            uri.getQueryParameter("digits")?.toIntOrNull()?.let { value ->
+                if (value == 6 || value == 8) totpDigits = value
+            }
+            uri.getQueryParameter("period")?.toIntOrNull()?.let { value ->
+                if (value in 1..300) totpPeriodText = value.toString()
+            }
+            if (uri.path.orEmpty().contains("steam", ignoreCase = true) || uri.getQueryParameter("issuer").orEmpty().contains("steam", ignoreCase = true)) totpType = "STEAM"
+        }
+    }
     var selectedCustomGroups by remember(account?.id, initialGroupId) { mutableStateOf(account?.groups ?: if (groups.any { it.id == initialGroupId && it.kind == GroupKind.CUSTOM }) setOf(initialGroupId) else emptySet()) }
     var fields by remember(account?.id) { mutableStateOf(account?.customFields ?: emptyList()) }
     var addFieldHidden by remember { mutableStateOf<Boolean?>(null) }
@@ -1228,7 +1310,12 @@ private fun AccountEditScreen(
     Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
         TopAppBar(colors = accountTopBarColors(), title = { Text(if (account == null) "新建账号" else "编辑账号", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }, actions = {
             TextButton(onClick = {
-                if (name.isBlank()) showMissingName = true else onSave(Account(account?.id ?: "account-${System.currentTimeMillis()}", name.trim(), username, password, selectedCustomGroups, hasTotp, normalizedTotpSecret(totpSecret.trim()), account?.totpDigits ?: 6, account?.totpPeriod ?: 30, account?.totpAlgorithm ?: "SHA1", fields))
+                val period = if (totpType == "STEAM") 30 else totpPeriodText.toIntOrNull()
+                when {
+                    name.isBlank() -> showMissingName = true
+                    hasTotp && (period == null || period !in 1..300) -> totpError = "验证码周期需为 1-300 秒"
+                    else -> onSave(Account(id = account?.id ?: "account-${System.currentTimeMillis()}", name = name.trim(), username = username, password = password, groups = selectedCustomGroups, hasTotp = hasTotp, totpSecret = normalizedTotpSecret(totpSecret.trim()), totpDigits = totpDigits, totpPeriod = period ?: 30, totpAlgorithm = totpAlgorithm, customFields = fields, totpType = totpType))
+                }
             }) { Text("保存", color = LocalAccountThemePalette.current.topBarText) }
         })
     }) { padding ->
@@ -1257,19 +1344,53 @@ private fun AccountEditScreen(
                 }
             }
             if (hasTotp) {
-                item { OutlinedTextField(totpSecret, { totpSecret = it }, label = { Text("TOTP 密钥（Base32）") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = totpType == "TOTP", onClick = { totpType = "TOTP" }, label = { Text("Google TOTP") })
+                        FilterChip(selected = totpType == "STEAM", onClick = { totpType = "STEAM" }, label = { Text("Steam Guard") })
+                    }
+                }
+                item { OutlinedTextField(totpSecret, { totpSecret = it; totpError = "" }, label = { Text(if (totpType == "STEAM") "Steam shared_secret（Base64）" else "TOTP 密钥（Base32 或 otpauth）") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+                if (totpType == "TOTP") {
+                    item {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("SHA1", "SHA256", "SHA512").forEach { algorithm ->
+                                FilterChip(selected = totpAlgorithm == algorithm, onClick = { totpAlgorithm = algorithm }, label = { Text(algorithm) })
+                            }
+                        }
+                    }
+                    item {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(6, 8).forEach { digits ->
+                                FilterChip(selected = totpDigits == digits, onClick = { totpDigits = digits }, label = { Text("$digits 位") })
+                            }
+                        }
+                    }
+                }
+                item {
+                    OutlinedTextField(
+                        value = totpPeriodText,
+                        onValueChange = { totpPeriodText = it.filter(Char::isDigit); totpError = "" },
+                        label = { Text(if (totpType == "STEAM") "Steam 周期固定 30 秒" else "验证码周期（1-300 秒）") },
+                        enabled = totpType != "STEAM",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
                 item {
                     val normalizedSecret = normalizedTotpSecret(totpSecret)
-                    val decodedLength = decodeBase32(normalizedSecret).size
+                    val previewAccount = Account("preview", name, username, password, hasTotp = true, totpSecret = normalizedSecret, totpDigits = totpDigits, totpPeriod = if (totpType == "STEAM") 30 else totpPeriodText.toIntOrNull() ?: 30, totpAlgorithm = totpAlgorithm, totpType = totpType)
+                    val decodedLength = decodeSecret(normalizedSecret, totpType == "STEAM").size
                     Text(
                         when {
                             totpSecret.isBlank() -> "请输入密钥以生成验证码"
-                            decodedLength < 10 -> "TOTP 密钥格式不正确，请检查 Base32 内容"
-                            else -> "当前验证码：${totpCode(Account("preview", name, username, password, hasTotp = true, totpSecret = normalizedSecret), nowMillis)}"
+                            decodedLength < 10 -> if (totpType == "STEAM") "Steam shared_secret 格式不正确，请检查 Base64 内容" else "TOTP 密钥格式不正确，请检查 Base32 内容"
+                            else -> "当前验证码：${totpCode(previewAccount, nowMillis)}"
                         },
                         color = if (decodedLength in 1..9) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                     )
                 }
+                if (totpError.isNotBlank()) item { Text(totpError, color = MaterialTheme.colorScheme.error) }
             }
             item { TextButton(onClick = {}) { Text("删除账号", color = MaterialTheme.colorScheme.error) } }
         }
