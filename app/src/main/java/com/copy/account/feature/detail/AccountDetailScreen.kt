@@ -14,13 +14,17 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.core.crypto.totpCode
 import com.copy.account.data.model.Account
+import com.copy.account.data.model.initialAccounts
 import com.copy.account.ui.components.EmptyState
 import com.copy.account.ui.components.SensitiveValueRow
 import com.copy.account.ui.components.accountTopBarColors
 import com.copy.account.ui.components.rememberClock
+import com.copy.account.BuildConfig
+import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,5 +47,13 @@ internal fun AccountDetailScreen(account: Account?, clipboardClearSeconds: Int, 
                 items(account.customFields, key = { it.id }) { field -> SensitiveValueRow(field.label, field.value, masked = field.hidden, sensitive = field.hidden, clearAfterSeconds = clipboardClearSeconds) }
             }
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun AccountDetailScreenPreview() {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+        AccountDetailScreen(account = initialAccounts.last(), clipboardClearSeconds = 30, onBack = {}, onEdit = {})
     }
 }

@@ -28,6 +28,13 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // 首次启动默认主题从 gradle.properties 的 account.defaultThemeMode 读取。
+        buildConfigField(
+            "String",
+            "DEFAULT_THEME_MODE",
+            "\"${providers.gradleProperty("account.defaultThemeMode").getOrElse("light")}\""
+        )
     }
 
     signingConfigs {
@@ -68,6 +75,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

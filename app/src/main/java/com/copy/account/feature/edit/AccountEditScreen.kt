@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.core.crypto.decodeSecret
 import com.copy.account.core.crypto.normalizedTotpSecret
@@ -53,8 +54,12 @@ import com.copy.account.data.model.Account
 import com.copy.account.data.model.AccountField
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
+import com.copy.account.data.model.initialAccounts
+import com.copy.account.data.model.initialGroups
 import com.copy.account.ui.components.accountTopBarColors
 import com.copy.account.ui.components.rememberClock
+import com.copy.account.BuildConfig
+import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
 import java.security.SecureRandom
 
@@ -298,5 +303,23 @@ internal fun AccountFieldItem(label: String, value: String, hidden: Boolean, onV
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         OutlinedTextField(value, onValueChange, label = { Text(label) }, singleLine = true, visualTransformation = if (hidden) PasswordVisualTransformation() else VisualTransformation.None, modifier = Modifier.weight(1f))
         if (onDelete != null) TextButton(onClick = onDelete) { Text("删除") }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun AccountEditScreenPreview() {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+        AccountEditScreen(
+            account = initialAccounts.first(),
+            template = null,
+            groups = initialGroups,
+            initialGroupId = "default",
+            clipboardClearSeconds = 30,
+            onBack = {},
+            onCreateGroup = { "custom-preview" },
+            onSave = {},
+            onDelete = {}
+        )
     }
 }

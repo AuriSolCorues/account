@@ -2,6 +2,7 @@ package com.copy.account
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -79,7 +80,7 @@ private sealed interface AppPage {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccountApp(
-    themeMode: String = "dark",
+    themeMode: String = BuildConfig.DEFAULT_THEME_MODE,
     onThemeModeChange: (String) -> Unit = {},
     accentTheme: String = "green",
     onAccentThemeChange: (String) -> Unit = {},
@@ -196,6 +197,7 @@ fun AccountApp(
     }
 
     fun authenticateBiometric(onError: () -> Unit = {}) {
+        Log.d("AccountApp", "authenticateBiometric: active=$biometricPromptActive enabled=${settings.biometricEnabled} avail=${store.biometricAvailable()}")
         if (biometricPromptActive) return
         val host = activity as? FragmentActivity ?: return onError()
         if (!settings.biometricEnabled || !store.biometricAvailable()) return onError()
@@ -270,7 +272,11 @@ fun AccountApp(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> resumed = true
-                Lifecycle.Event.ON_PAUSE -> resumed = false
+                Lifecycle.Event.ON_PAUSE -> {
+                    resumed = false
+                    // 切后台时若生物识别弹窗尚未回调，标志位可能卡 true，这里强制复位。
+                    biometricPromptActive = false
+                }
                 Lifecycle.Event.ON_STOP -> if (dataKey != null) lockApp()
                 else -> Unit
             }

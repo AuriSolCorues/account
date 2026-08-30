@@ -32,9 +32,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.core.crypto.isMasterPasswordValid
 import com.copy.account.ui.components.accountTopBarColors
+import com.copy.account.BuildConfig
+import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
 import com.copy.account.ui.theme.SavedTheme
 import com.copy.account.ui.theme.defaultThemePresets
@@ -325,5 +328,36 @@ internal fun SettingsSwitchRow(title: String, checked: Boolean, onCheckedChange:
             Text(title, modifier = Modifier.weight(1f))
             Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun SettingsScreenPreview() {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+        SettingsScreen(
+            biometricEnabled = false,
+            biometricAvailable = true,
+            onToggleBiometric = {},
+            onChangeMasterPassword = { Result.success(Unit) },
+            autoLockMinutes = 5,
+            onAutoLockChange = {},
+            themeMode = "dark",
+            onThemeModeChange = {},
+            accentTheme = "green",
+            onAccentThemeChange = {},
+            customThemeJson = "",
+            customThemes = emptyList(),
+            languageTag = "zh-CN",
+            onApplyThemeJson = { true },
+            onSaveCustomTheme = { _, _ -> },
+            onDeleteCustomTheme = {},
+            onBack = {},
+            onOpenBackup = {},
+            clipboardClearSeconds = 30,
+            onClipboardClearChange = {},
+            allowScreenshots = false,
+            onAllowScreenshotsChange = {}
+        )
     }
 }

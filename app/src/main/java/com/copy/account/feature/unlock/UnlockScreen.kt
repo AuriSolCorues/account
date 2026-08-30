@@ -24,8 +24,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.core.crypto.isMasterPasswordValid
+import com.copy.account.BuildConfig
+import com.copy.account.ui.theme.AccountTheme
 import kotlinx.coroutines.launch
 
 @Composable
@@ -82,5 +85,19 @@ internal fun UnlockScreen(
         }
         if (!firstUse && biometricEnabled) TextButton(onClick = onBiometricUnlock) { Text("◉ 使用指纹 / 面容解锁") }
         if (!firstUse && !showPassword) TextButton(onClick = { showPassword = true }) { Text("使用主密码") }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun UnlockScreenPreview() {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+        UnlockScreen(
+            firstUse = false,
+            biometricEnabled = true,
+            resetKey = 0,
+            onBiometricUnlock = {},
+            onUnlock = { true }
+        )
     }
 }
