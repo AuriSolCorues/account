@@ -1,4 +1,4 @@
-package com.example.account
+package com.copy.account
 
 import android.content.Context
 import android.content.ClipData
@@ -21,9 +21,11 @@ import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.border
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +46,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,7 +60,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -83,6 +88,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -92,6 +98,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
+import androidx.documentfile.provider.DocumentFile
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -119,10 +126,10 @@ import javax.crypto.SecretKey
 import android.util.AtomicFile
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.example.account.ui.theme.SavedTheme
-import com.example.account.ui.theme.defaultThemePresets
-import com.example.account.ui.theme.parseThemeJson
-import com.example.account.ui.theme.LocalAccountThemePalette
+import com.copy.account.ui.theme.SavedTheme
+import com.copy.account.ui.theme.defaultThemePresets
+import com.copy.account.ui.theme.parseThemeJson
+import com.copy.account.ui.theme.LocalAccountThemePalette
 
 private val Context.settingsDataStore by preferencesDataStore(name = "app_settings")
 private val BIOMETRIC_SETTING = booleanPreferencesKey("biometric_enabled")
@@ -134,6 +141,8 @@ private val CUSTOM_THEME_JSON_SETTING = stringPreferencesKey("custom_theme_json"
 private val CUSTOM_THEMES_SETTING = stringPreferencesKey("custom_themes")
 private val CLIPBOARD_CLEAR_SETTING = intPreferencesKey("clipboard_clear_seconds")
 private val ALLOW_SCREENSHOTS_SETTING = booleanPreferencesKey("allow_screenshots")
+/** 用户授权的文件树 URI；实际备份目录固定为其下的 backups/account。 */
+private val BACKUP_TREE_URI_SETTING = stringPreferencesKey("backup_tree_uri")
 
 @Serializable
 internal enum class GroupKind { DEFAULT, DYNAMIC, CUSTOM }
@@ -163,7 +172,9 @@ internal data class Account(
     val totpAlgorithm: String = "SHA1",
     val customFields: List<AccountField> = emptyList(),
     /** TOTP 为标准验证码，STEAM 为 Steam Guard 专用 5 字符验证码。 */
-    val totpType: String = "TOTP"
+    val totpType: String = "TOTP",
+    /** 预留给后续自定义图标的稳定键；当前为空时继续使用现有文字界面。 */
+    val iconKey: String? = null
 )
 
 internal data class AppSettings(
@@ -202,10 +213,30 @@ private val initialGroups = listOf(
     Group("work", "工作", GroupKind.CUSTOM)
 )
 
+/** 首次安装的示例账号，用来演示用法，用户可自行删除；不含任何真实凭据。 */
 private val initialAccounts = listOf(
-    Account("github", "GitHub", "hexo", "not-a-real-password", hasTotp = true, totpSecret = "JBSWY3DPEHPK3PXP"),
-    Account("nas", "NAS", "admin", "not-a-real-password"),
-    Account("gmail", "Gmail", "name@example.com", "not-a-real-password", setOf("social"), true, "NB2W45DFOIZA")
+    Account(
+        id = "demo-login",
+        name = "示例 · 普通账号",
+        username = "hello@example.com",
+        password = "demo-password",
+        customFields = listOf(
+            AccountField("demo-url", "网址", "https://example.com"),
+            AccountField("demo-recovery", "恢复码", "demo-recovery-code", hidden = true),
+            AccountField("demo-note", "备注", "点密码的圆点可看明文、再点复制；长按账号可编辑/删除/模板新建；右上角＋可新增账号。")
+        )
+    ),
+    Account(
+        id = "demo-totp",
+        name = "示例 · 动态密码",
+        username = "user@example.com",
+        password = "demo-password",
+        hasTotp = true,
+        totpSecret = "JBSWY3DPEHPK3PXP",
+        customFields = listOf(
+            AccountField("demo-note", "备注", "动态密码每 30 秒更新一次，点验证码即可复制；在「动态密码」分组可看倒计时。")
+        )
+    )
 )
 
 private const val SECURITY_PREFS = "account_security"
@@ -213,11 +244,13 @@ private const val PASSWORD_HASH = "master_password_hash"
 private const val PASSWORD_SALT = "master_password_salt"
 private const val PASSWORD_WRAPPED_DEK = "password_wrapped_dek"
 private const val PASSWORD_WRAP_IV = "password_wrap_iv"
+private const val PASSWORD_ITERATIONS_KEY = "password_iterations"
 private const val BIOMETRIC_WRAPPED_DEK = "biometric_wrapped_dek"
 private const val BIOMETRIC_WRAP_IV = "biometric_wrap_iv"
 private const val BIOMETRIC_ALIAS = "account_vault_biometric"
 private const val VAULT_FILE_NAME = "vault.bin"
-internal const val PASSWORD_ITERATIONS = 120_000
+/** 新建密码库时的 PBKDF2 迭代次数；每个库会在 prefs 里单独记录，改这里只影响新建的库。 */
+internal const val DEFAULT_PASSWORD_ITERATIONS = 300_000
 
 internal val vaultJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
@@ -236,7 +269,7 @@ internal fun isMasterPasswordValid(password: String): Boolean =
 private fun normalizePassword(password: String): String =
     Normalizer.normalize(password, Normalizer.Form.NFC)
 
-internal fun passwordHash(password: String, salt: ByteArray, iterations: Int = PASSWORD_ITERATIONS): ByteArray {
+internal fun passwordHash(password: String, salt: ByteArray, iterations: Int = DEFAULT_PASSWORD_ITERATIONS): ByteArray {
     val spec = PBEKeySpec(normalizePassword(password).toCharArray(), salt, iterations, 256)
     return try {
         SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
@@ -270,7 +303,7 @@ private class SecureVaultStore(private val context: Context) {
         require(isMasterPasswordValid(newPassword)) { "主密码长度需为 4-20 个字符" }
         require(dek.size == 32) { "当前密码库密钥无效，请重新解锁" }
         val newSalt = ByteArray(16).also { SecureRandom().nextBytes(it) }
-        val newKek = passwordHash(newPassword, newSalt)
+        val newKek = passwordHash(newPassword, newSalt, prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS))
         val wrapped = encryptBytes(newKek, dek)
         try {
             val committed = prefs.edit()
@@ -289,22 +322,24 @@ private class SecureVaultStore(private val context: Context) {
     }
 
     /** 导出无需再次输入密码，复用首次设置主密码时派生的 KEK 和盐。 */
-    fun masterKeyMaterial(): Pair<ByteArray, ByteArray>? {
+    fun masterKeyMaterial(): Triple<ByteArray, ByteArray, Int>? {
         val salt = prefs.getString(PASSWORD_SALT, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
         val key = prefs.getString(PASSWORD_HASH, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
-        return if (salt.isNotEmpty() && key.size == 32) key to salt else null
+        val iterations = prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS)
+        return if (salt.isNotEmpty() && key.size == 32) Triple(key, salt, iterations) else null
     }
 
     fun createInitial(password: String, state: PersistedVault): ByteArray {
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val dek = ByteArray(32).also { SecureRandom().nextBytes(it) }
-        val kek = passwordHash(password, salt)
+        val kek = passwordHash(password, salt, DEFAULT_PASSWORD_ITERATIONS)
         val wrapped = encryptBytes(kek, dek)
         prefs.edit()
             .putString(PASSWORD_SALT, Base64.encodeToString(salt, Base64.NO_WRAP))
             .putString(PASSWORD_HASH, Base64.encodeToString(kek, Base64.NO_WRAP))
             .putString(PASSWORD_WRAPPED_DEK, Base64.encodeToString(wrapped.ciphertext, Base64.NO_WRAP))
             .putString(PASSWORD_WRAP_IV, Base64.encodeToString(wrapped.iv, Base64.NO_WRAP))
+            .putInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS)
             .apply()
         save(state, dek)
         return dek
@@ -313,24 +348,16 @@ private class SecureVaultStore(private val context: Context) {
     fun unlockWithPassword(password: String): Pair<ByteArray, PersistedVault>? {
         val salt = prefs.getString(PASSWORD_SALT, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
         val expected = prefs.getString(PASSWORD_HASH, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
-        val kek = passwordHash(password, salt)
+        val iterations = prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS)
+        val kek = passwordHash(password, salt, iterations)
         return try {
             if (!MessageDigest.isEqual(expected, kek)) return null
-            val wrapped = prefs.getString(PASSWORD_WRAPPED_DEK, null)?.let { Base64.decode(it, Base64.DEFAULT) }
-            val iv = prefs.getString(PASSWORD_WRAP_IV, null)?.let { Base64.decode(it, Base64.DEFAULT) }
-            val dek = if (wrapped != null && iv != null) {
-                runCatching { decryptBytes(kek, iv, wrapped) }.getOrNull()
-            } else null
-            val actualDek = dek ?: ByteArray(32).also { SecureRandom().nextBytes(it) }.also {
-                val payload = encryptBytes(kek, it)
-                prefs.edit()
-                    .putString(PASSWORD_WRAPPED_DEK, Base64.encodeToString(payload.ciphertext, Base64.NO_WRAP))
-                    .putString(PASSWORD_WRAP_IV, Base64.encodeToString(payload.iv, Base64.NO_WRAP))
-                    .apply()
-            }
-            val state = load(actualDek) ?: PersistedVault(accounts = initialAccounts, groups = initialGroups)
-            if (!vaultFile.exists()) save(state, actualDek)
-            actualDek to state
+            val wrapped = prefs.getString(PASSWORD_WRAPPED_DEK, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
+            val iv = prefs.getString(PASSWORD_WRAP_IV, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
+            // 密钥材料缺失或损坏时直接失败，绝不生成新 DEK 或回退到示例库，避免静默丢数据。
+            val dek = runCatching { decryptBytes(kek, iv, wrapped) }.getOrNull() ?: return null
+            val state = load(dek) ?: return null
+            dek to state
         } finally {
             salt.fill(0)
             expected.fill(0)
@@ -524,7 +551,7 @@ private sealed interface AppPage {
     data object Home : AppPage
     data object Groups : AppPage
     data object Settings : AppPage
-    data object Backup : AppPage
+    data object BackupFiles : AppPage
     data class Detail(val accountId: String) : AppPage
     data class Edit(val accountId: String?) : AppPage
 }
@@ -547,6 +574,8 @@ fun AccountApp(
     val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf<AppPage>(AppPage.Unlock) }
     var selectedGroupId by remember { mutableStateOf("default") }
+    /** 长按“作为模板新建”时临时携带的模板；进入编辑页后预填但按新账号保存。 */
+    var editTemplate by remember { mutableStateOf<Account?>(null) }
     var groups by remember { mutableStateOf(initialGroups) }
     var accounts by remember { mutableStateOf(emptyList<Account>()) }
     var dataKey by remember { mutableStateOf<ByteArray?>(null) }
@@ -554,6 +583,8 @@ fun AccountApp(
     var settings by remember { mutableStateOf(AppSettings(customThemeJson = customThemeJson)) }
     var passwordConfigured by remember { mutableStateOf(store.hasMasterPassword()) }
     var biometricPromptActive by remember { mutableStateOf(false) }
+    var backupTreeUri by remember { mutableStateOf<String?>(null) }
+    var backupDirectoryMessage by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         val values = context.settingsDataStore.data.first()
@@ -568,6 +599,7 @@ fun AccountApp(
             clipboardClearSeconds = (values[CLIPBOARD_CLEAR_SETTING] ?: 30).coerceIn(0, 86_400),
             allowScreenshots = values[ALLOW_SCREENSHOTS_SETTING] ?: allowScreenshots
         )
+        backupTreeUri = values[BACKUP_TREE_URI_SETTING]
         onThemeModeChange(settings.themeMode)
         onAccentThemeChange(settings.accentTheme)
         onCustomThemeJsonChange(settings.customThemeJson)
@@ -590,6 +622,34 @@ fun AccountApp(
         }
     }
 
+    fun persistBackupTreeUri(uri: String?) {
+        scope.launch {
+            context.settingsDataStore.edit {
+                if (uri == null) it.remove(BACKUP_TREE_URI_SETTING) else it[BACKUP_TREE_URI_SETTING] = uri
+            }
+        }
+    }
+
+    val chooseBackupDirectory = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) {
+            backupDirectoryMessage = "未选择目录"
+        } else {
+            val result = initializeBackupDirectory(context, uri)
+            if (result.isSuccess) {
+                backupTreeUri = uri.toString()
+                persistBackupTreeUri(backupTreeUri)
+                backupDirectoryMessage = "已授权，备份保存于 backups/account"
+            } else {
+                backupDirectoryMessage = result.exceptionOrNull()?.message ?: "目录不可写，请重新选择"
+            }
+        }
+    }
+
+    fun requestBackupDirectory() {
+        backupDirectoryMessage = ""
+        chooseBackupDirectory.launch(null)
+    }
+
     fun persistVault() {
         val key = dataKey ?: return
         runCatching { store.save(PersistedVault(accounts = accounts, groups = groups, selectedGroupId = selectedGroupId), key) }
@@ -608,6 +668,7 @@ fun AccountApp(
         dataKey?.fill(0)
         dataKey = null
         accounts = emptyList()
+        editTemplate = null
         lockGeneration++
         page = AppPage.Unlock
     }
@@ -676,7 +737,7 @@ fun AccountApp(
     BackHandler(enabled = page != AppPage.Unlock && page != AppPage.Home) {
         page = when (page) {
             AppPage.Settings, AppPage.Groups, is AppPage.Detail, is AppPage.Edit -> AppPage.Home
-            AppPage.Backup -> AppPage.Settings
+            AppPage.BackupFiles -> AppPage.Settings
             else -> page
         }
     }
@@ -761,8 +822,13 @@ fun AccountApp(
             selectedGroupId = selectedGroupId,
             clipboardClearSeconds = settings.clipboardClearSeconds,
             onGroupSelected = { selectedGroupId = it; persistVault() },
-            onNewAccount = { page = AppPage.Edit(null) },
-            onEditAccount = { page = AppPage.Edit(it) },
+            onNewAccount = { editTemplate = null; page = AppPage.Edit(null) },
+            onEditAccount = { editTemplate = null; page = AppPage.Edit(it) },
+            onTemplateNew = { editTemplate = it; page = AppPage.Edit(null) },
+            onDeleteAccount = { id ->
+                accounts = accounts.filterNot { it.id == id }
+                persistVault()
+            },
             onManageGroups = { page = AppPage.Groups },
             onOpenSettings = { page = AppPage.Settings },
             onOpenDetail = { page = AppPage.Detail(it) }
@@ -778,6 +844,14 @@ fun AccountApp(
                 accounts = accounts.map { it.copy(groups = it.groups - id) }
                 if (selectedGroupId == id) selectedGroupId = "default"
                 persistVault()
+            },
+            accountCount = { id ->
+                when (groups.firstOrNull { it.id == id }?.kind) {
+                    GroupKind.DEFAULT -> accounts.count { it.groups.isEmpty() }
+                    GroupKind.DYNAMIC -> accounts.count { it.hasTotp }
+                    GroupKind.CUSTOM -> accounts.count { id in it.groups }
+                    else -> 0
+                }
             },
             onMoveCustomGroup = { id, direction ->
                 val fixed = groups.take(2)
@@ -862,34 +936,45 @@ fun AccountApp(
                 persistSettings(settings)
                 onAllowScreenshotsChange(enabled)
             },
-            onOpenBackup = { page = AppPage.Backup }
+            onOpenBackup = { page = AppPage.BackupFiles }
         )
 
-        AppPage.Backup -> BackupScreen(
+        AppPage.BackupFiles -> BackupScreen(
             onBack = { page = AppPage.Settings },
-            onCreateBackup = {
+            backupTreeUri = backupTreeUri,
+            directoryMessage = backupDirectoryMessage,
+            onChooseDirectory = ::requestBackupDirectory,
+            onExportBackup = {
+                val tree = backupTreeUri?.let(Uri::parse)
                 val material = store.masterKeyMaterial()
-                if (material == null) {
+                if (tree == null) {
+                    Result.failure(IllegalStateException("请先授权备份目录"))
+                } else if (material == null) {
                     Result.failure(IllegalStateException("未找到主密码密钥，请重新解锁"))
                 } else {
-                    val (key, salt) = material
+                    val (key, salt, iterations) = material
                     runCatching {
-                        exportAcc(
+                        val bytes = exportAcc(
                             AccExportInput(
                                 PersistedVault(accounts = accounts, groups = groups, selectedGroupId = selectedGroupId),
                                 settings
-                            ),
-                            key,
-                            salt
+                            ), key, salt, iterations
                         )
+                        try {
+                            writeBackupFile(context, tree, bytes)
+                        } finally {
+                            bytes.fill(0)
+                        }
                     }.also {
                         key.fill(0)
                         salt.fill(0)
                     }
                 }
             },
+            onReadBackup = { uri -> readSelectedDocument(context, uri) },
+            onDeleteBackup = { uri -> deleteBackupFile(context, uri) },
             onImportBackup = { bytes, password ->
-                importAcc(bytes, password).getOrNull()
+                importAcc(bytes, password)
             },
             onApplyImport = { imported ->
                 accounts = imported.vault.accounts
@@ -915,9 +1000,11 @@ fun AccountApp(
 
         is AppPage.Edit -> AccountEditScreen(
             account = accounts.firstOrNull { it.id == current.accountId },
+            template = editTemplate,
             groups = groups,
             initialGroupId = selectedGroupId,
-            onBack = { page = AppPage.Home },
+            clipboardClearSeconds = settings.clipboardClearSeconds,
+            onBack = { page = AppPage.Home; editTemplate = null },
             onCreateGroup = ::createGroup,
             onSave = { edited ->
                 accounts = if (accounts.any { it.id == edited.id }) {
@@ -926,7 +1013,15 @@ fun AccountApp(
                     accounts + edited
                 }
                 persistVault()
+                editTemplate = null
                 page = AppPage.Home
+            },
+            onDelete = current.accountId?.let { id ->
+                {
+                    accounts = accounts.filterNot { it.id == id }
+                    persistVault()
+                    page = AppPage.Home
+                }
             }
         )
     }
@@ -989,13 +1084,20 @@ private fun HomeScreen(
     onGroupSelected: (String) -> Unit,
     onNewAccount: () -> Unit,
     onEditAccount: (String) -> Unit,
+    onTemplateNew: (Account) -> Unit,
+    onDeleteAccount: (String) -> Unit,
     onManageGroups: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDetail: (String) -> Unit
 ) {
+    val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
     var searchOpen by remember { mutableStateOf(false) }
     var previewAccount by remember { mutableStateOf<Account?>(null) }
+    var menuAccount by remember { mutableStateOf<Account?>(null) }
+    var deleteConfirmAccount by remember { mutableStateOf<Account?>(null) }
+    var multiSelect by remember { mutableStateOf(false) }
+    var multiSelectedIds by remember { mutableStateOf(emptySet<String>()) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -1005,13 +1107,18 @@ private fun HomeScreen(
     }
     val snackbarHostState = remember { SnackbarHostState() }
     val selectedGroup = groups.firstOrNull { it.id == selectedGroupId } ?: groups.first()
+    val showTotpOnCards = if (multiSelect) {
+        multiSelectedIds.any { id -> groups.firstOrNull { it.id == id }?.kind == GroupKind.DYNAMIC }
+    } else {
+        selectedGroup.kind == GroupKind.DYNAMIC
+    }
     val visibleAccounts = accounts.filter { account ->
-        val inGroup = when (selectedGroup.kind) {
-            GroupKind.DEFAULT -> account.groups.isEmpty()
-            GroupKind.DYNAMIC -> account.hasTotp
-            GroupKind.CUSTOM -> selectedGroup.id in account.groups
+        val inGroup = if (multiSelect) {
+            multiSelectedIds.isEmpty() || multiSelectedIds.all { accountInGroup(account, groups, it) }
+        } else {
+            accountInGroup(account, groups, selectedGroup.id)
         }
-        inGroup && (searchQuery.isBlank() || account.name.contains(searchQuery, true) || account.username.contains(searchQuery, true))
+        inGroup && accountMatchesSearch(account, groups, searchQuery)
     }
 
     Scaffold(
@@ -1032,16 +1139,52 @@ private fun HomeScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        Row(modifier = Modifier.fillMaxSize().padding(padding)) {
-            GroupSidebar(groups, selectedGroupId, onGroupSelected, onManageGroups, Modifier.width(72.dp).fillMaxHeight())
-            Column(modifier = Modifier.weight(1f).fillMaxHeight().padding(horizontal = 12.dp)) {
-                Text("${selectedGroup.name} · ${visibleAccounts.size} 条", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
-                if (visibleAccounts.isEmpty()) {
-                    EmptyState(if (selectedGroup.kind == GroupKind.DYNAMIC) "在账号编辑页添加两步验证" else "暂无账号", Modifier.fillMaxWidth().weight(1f))
-                } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                        items(visibleAccounts, key = { it.id }) { account ->
-                            AccountCard(account, selectedGroup.kind == GroupKind.DYNAMIC, nowMillis, { previewAccount = account })
+        BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(padding)) {
+            val sidebarWidth = (maxWidth * 0.24f).coerceIn(72.dp, 112.dp)
+            Row(modifier = Modifier.fillMaxSize()) {
+                // 左栏按窗口宽度自适应，保留三字以上的最小可读空间，不绑定某台手机像素。
+                GroupSidebar(
+                    groups = groups,
+                    selectedGroupId = selectedGroupId,
+                    multiSelect = multiSelect,
+                    multiSelectedIds = multiSelectedIds,
+                    onGroupTap = { id ->
+                        if (multiSelect) {
+                            multiSelectedIds = if (id in multiSelectedIds) multiSelectedIds - id else multiSelectedIds + id
+                        } else onGroupSelected(id)
+                    },
+                    onGroupLongPress = { id ->
+                        multiSelect = true
+                        multiSelectedIds = multiSelectedIds + id
+                    },
+                    onManageGroups = onManageGroups,
+                    modifier = Modifier.width(sidebarWidth).fillMaxHeight()
+                )
+                Column(modifier = Modifier.weight(1f).fillMaxHeight().padding(horizontal = 12.dp)) {
+                    if (multiSelect) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                            Text("已选 ${multiSelectedIds.size} 个分组（交集）", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.weight(1f))
+                            TextButton(onClick = { multiSelect = false; multiSelectedIds = emptySet() }) { Text("完成") }
+                        }
+                    } else {
+                        Text("${selectedGroup.name} · ${visibleAccounts.size} 条", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
+                    }
+                    if (visibleAccounts.isEmpty()) {
+                        EmptyState(
+                            when {
+                                multiSelect -> "所选分组无交集账号"
+                                selectedGroup.kind == GroupKind.DYNAMIC -> "在账号编辑页添加两步验证"
+                                selectedGroup.kind == GroupKind.DEFAULT -> "暂无未分组账号"
+                                else -> "暂无账号"
+                            },
+                            Modifier.fillMaxWidth().weight(1f)
+                        )
+                    } else {
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                            items(visibleAccounts, key = { it.id }) { account ->
+                                AccountCard(account, showTotpOnCards, nowMillis, onClick = { previewAccount = account }, onLongClick = { menuAccount = account })
+                            }
                         }
                     }
                 }
@@ -1049,13 +1192,41 @@ private fun HomeScreen(
         }
     }
     previewAccount?.let { account -> AccountPreviewSheet(account, clipboardClearSeconds, { previewAccount = null }, { previewAccount = null; onEditAccount(account.id) }, { previewAccount = null; onOpenDetail(account.id) }) }
+    menuAccount?.let { account ->
+        AccountActionSheet(
+            account = account,
+            onDismiss = { menuAccount = null },
+            onEdit = { onEditAccount(account.id) },
+            onDelete = { menuAccount = null; deleteConfirmAccount = account },
+            onTemplateNew = { onTemplateNew(account) },
+            onCopyAll = { copyToClipboard(context, accountCopyableText(account), sensitive = true, clearAfterSeconds = clipboardClearSeconds) }
+        )
+    }
+    deleteConfirmAccount?.let { account ->
+        AlertDialog(
+            onDismissRequest = { deleteConfirmAccount = null },
+            title = { Text("删除账号") },
+            text = { Text("确定删除「${account.name}」吗？此操作不可撤销。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeleteAccount(account.id)
+                    if (previewAccount?.id == account.id) previewAccount = null
+                    deleteConfirmAccount = null
+                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { deleteConfirmAccount = null }) { Text("取消") } }
+        )
+    }
 }
 
 @Composable
 private fun GroupSidebar(
     groups: List<Group>,
     selectedGroupId: String,
-    onGroupSelected: (String) -> Unit,
+    multiSelect: Boolean,
+    multiSelectedIds: Set<String>,
+    onGroupTap: (String) -> Unit,
+    onGroupLongPress: (String) -> Unit,
     onManageGroups: () -> Unit,
     modifier: Modifier
 ) {
@@ -1063,7 +1234,7 @@ private fun GroupSidebar(
         BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 groups.forEach { group ->
-                    val selected = group.id == selectedGroupId
+                    val selected = if (multiSelect) group.id in multiSelectedIds else group.id == selectedGroupId
                     val selectionColor by animateColorAsState(
                         targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                         label = "group-selection-color"
@@ -1074,7 +1245,12 @@ private fun GroupSidebar(
                         modifier = Modifier
                             .fillMaxWidth()
                             .border(if (selected) 1.dp else 0.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-                            .clickable { onGroupSelected(group.id) }
+                            .pointerInput(group.id) {
+                                detectTapGestures(
+                                    onTap = { onGroupTap(group.id) },
+                                    onLongPress = { onGroupLongPress(group.id) }
+                                )
+                            }
                     ) {
                         Text(group.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.padding(horizontal = 6.dp, vertical = 7.dp))
                     }
@@ -1087,8 +1263,12 @@ private fun GroupSidebar(
 }
 
 @Composable
-private fun AccountCard(account: Account, showTotp: Boolean, nowMillis: Long, onClick: () -> Unit) {
-    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp), modifier = Modifier.fillMaxWidth()) {
+private fun AccountCard(account: Account, showTotp: Boolean, nowMillis: Long, onClick: () -> Unit, onLongClick: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp), modifier = Modifier
+        .fillMaxWidth()
+        .pointerInput(account.id) {
+            detectTapGestures(onTap = { onClick() }, onLongPress = { onLongClick() })
+        }) {
         Column(modifier = Modifier.fillMaxWidth()) {
             if (showTotp && account.hasTotp) {
                 val period = account.totpPeriod.coerceAtLeast(1)
@@ -1139,6 +1319,132 @@ private fun AccountPreviewSheet(account: Account, clipboardClearSeconds: Int, on
     }
 }
 
+/** 判断账号是否属于某个分组（默认=未分组、动态=已配置 TOTP、自定义=显式关联）。 */
+private fun accountInGroup(account: Account, groups: List<Group>, groupId: String): Boolean {
+    val group = groups.firstOrNull { it.id == groupId } ?: return false
+    return when (group.kind) {
+        GroupKind.DEFAULT -> account.groups.isEmpty()
+        GroupKind.DYNAMIC -> account.hasTotp
+        GroupKind.CUSTOM -> groupId in account.groups
+    }
+}
+
+/** 搜索跨账号名称、用户名、自定义字段与所属分组名匹配。 */
+private fun accountMatchesSearch(account: Account, groups: List<Group>, query: String): Boolean {
+    if (query.isBlank()) return true
+    val q = query.trim()
+    return account.name.contains(q, true) ||
+        account.username.contains(q, true) ||
+        account.customFields.any { it.label.contains(q, true) || it.value.contains(q, true) } ||
+        account.groups.any { gid -> groups.firstOrNull { it.id == gid }?.name?.contains(q, true) == true }
+}
+
+/** 汇总账号全部可复制字段（名称、用户名、密码与自定义字段），用于“复制账号全部内容”。 */
+private fun accountCopyableText(account: Account): String = buildList {
+    add("名称：${account.name}")
+    add("用户名：${account.username}")
+    add("密码：${account.password}")
+    account.customFields.forEach { add("${it.label}：${it.value}") }
+}.joinToString("\n")
+
+/** 按用户勾选的字符类生成随机密码；每类至少出现一次，其余从合并字符池随机取。 */
+private fun generatePassword(length: Int, upper: Boolean, lower: Boolean, digits: Boolean, symbols: Boolean): String {
+    val pools = buildList {
+        if (upper) add("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        if (lower) add("abcdefghijklmnopqrstuvwxyz")
+        if (digits) add("0123456789")
+        if (symbols) add("\$%&^*()[].@#_!")
+    }
+    if (pools.isEmpty() || length <= 0) return ""
+    val random = SecureRandom()
+    val all = pools.joinToString("")
+    val result = CharArray(length)
+    pools.forEachIndexed { i, pool -> if (i < length) result[i] = pool[random.nextInt(pool.length)] }
+    for (i in pools.size until length) result[i] = all[random.nextInt(all.length)]
+    for (i in result.indices.reversed()) {
+        val j = random.nextInt(i + 1)
+        val tmp = result[i]; result[i] = result[j]; result[j] = tmp
+    }
+    return String(result)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AccountActionSheet(
+    account: Account,
+    onDismiss: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onTemplateNew: () -> Unit,
+    onCopyAll: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).windowInsetsPadding(WindowInsets.navigationBars),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(account.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { onDismiss(); onEdit() }, modifier = Modifier.weight(1f)) { Text("编辑") }
+                TextButton(onClick = { onDismiss(); onDelete() }, modifier = Modifier.weight(1f)) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            }
+            ActionSheetRow("作为模板新建账号") { onDismiss(); onTemplateNew() }
+            ActionSheetRow("复制账号全部内容") { onDismiss(); onCopyAll() }
+            ActionSheetRow("取消", muted = true) { onDismiss() }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+    
+@Composable
+private fun ActionSheetRow(text: String, muted: Boolean = false, onClick: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+    ) {
+        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+            Text(text, color = if (muted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RandomPasswordGeneratorSheet(onDismiss: () -> Unit, onFill: (String) -> Unit) {
+    var length by remember { mutableIntStateOf(16) }
+    var upper by remember { mutableStateOf(true) }
+    var lower by remember { mutableStateOf(true) }
+    var digits by remember { mutableStateOf(true) }
+    var symbols by remember { mutableStateOf(true) }
+    val generated = remember(length, upper, lower, digits, symbols) { generatePassword(length, upper, lower, digits, symbols) }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).windowInsetsPadding(WindowInsets.navigationBars),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("随机密码生成器", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(generated, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, modifier = Modifier.fillMaxWidth())
+            Text("长度：$length", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Slider(value = length.toFloat(), onValueChange = { length = it.toInt().coerceIn(4, 20) }, valueRange = 4f..20f, steps = 15)
+            GeneratorToggle("大写字母（A-Z）", upper) { upper = it }
+            GeneratorToggle("小写字母（a-z）", lower) { lower = it }
+            GeneratorToggle("数字（0-9）", digits) { digits = it }
+            GeneratorToggle("特殊符号（\$%&^*()[].@#_!）", symbols) { symbols = it }
+            Button(onClick = { onFill(generated) }, enabled = generated.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("复制并填入") }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun GeneratorToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
 /** 写入剪贴板并只在内容仍未被用户替换时自动清除。Android 不需要申请剪贴板权限。 */
 private fun copyToClipboard(context: Context, text: String, sensitive: Boolean, clearAfterSeconds: Int) {
     if (text.isEmpty()) return
@@ -1176,46 +1482,180 @@ private fun GroupManageScreen(
     onAddGroup: (String) -> String,
     onRenameGroup: (String, String) -> Unit,
     onDeleteGroup: (String) -> Unit,
+    accountCount: (String) -> Int,
     onMoveCustomGroup: (String, Int) -> Unit
 ) {
     var dialogGroup by remember { mutableStateOf<Group?>(null) }
+    var actionGroup by remember { mutableStateOf<Group?>(null) }
+    var deleteConfirmGroup by remember { mutableStateOf<Group?>(null) }
     var dialogText by remember { mutableStateOf("") }
-    var adding by remember { mutableStateOf(false) }
+    var showAddSheet by remember { mutableStateOf(false) }
     Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
-        TopAppBar(colors = accountTopBarColors(), title = { Text("分组管理", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }, actions = { TextButton(onClick = { adding = true; dialogText = "" }) { Text("＋ 新增", color = LocalAccountThemePalette.current.topBarText) } })
+        TopAppBar(colors = accountTopBarColors(), title = { Text("分组管理", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }, actions = { TextButton(onClick = { showAddSheet = true; dialogText = "" }) { Text("＋ 新增", color = LocalAccountThemePalette.current.topBarText) } })
     }) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { Text("固定分组（可改名）", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp)) }
-            items(groups.take(2), key = { it.id }) { group -> GroupManageItem(group, true, {}, {}, { dialogGroup = group; dialogText = group.name }, {}) }
+            items(groups.take(2), key = { it.id }) { group ->
+                GroupManageItem(
+                    group = group,
+                    count = accountCount(group.id),
+                    fixed = true,
+                    moveUp = {},
+                    moveDown = {},
+                    rename = { dialogGroup = group; dialogText = group.name },
+                    delete = {},
+                    onNameClick = { actionGroup = group }
+                )
+            }
             item { Text("自定义分组（长按拖动排序）", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
             items(groups.drop(2), key = { it.id }) { group ->
                 val index = groups.drop(2).indexOf(group)
-                GroupManageItem(group, false, { onMoveCustomGroup(group.id, -1) }, { onMoveCustomGroup(group.id, 1) }, { dialogGroup = group; dialogText = group.name }, { onDeleteGroup(group.id) }, index == 0, index == groups.drop(2).lastIndex)
+                GroupManageItem(
+                    group = group,
+                    count = accountCount(group.id),
+                    fixed = false,
+                    moveUp = { onMoveCustomGroup(group.id, -1) },
+                    moveDown = { onMoveCustomGroup(group.id, 1) },
+                    rename = { dialogGroup = group; dialogText = group.name },
+                    delete = { deleteConfirmGroup = group },
+                    first = index == 0,
+                    last = index == groups.drop(2).lastIndex,
+                    onNameClick = { actionGroup = group }
+                )
             }
             item { Text("固定分组不可删除或排序；删除自定义分组不会删除账号。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp)) }
         }
     }
-    if (adding || dialogGroup != null) {
-        val title = if (adding) "新增分组" else "修改分组名称"
-        AlertDialog(onDismissRequest = { adding = false; dialogGroup = null }, title = { Text(title) }, text = { OutlinedTextField(dialogText, { dialogText = it }, label = { Text("分组名称") }, singleLine = true) }, confirmButton = {
-            TextButton(enabled = dialogText.isNotBlank(), onClick = {
-                if (adding) onAddGroup(dialogText) else dialogGroup?.let { onRenameGroup(it.id, dialogText.trim()) }
-                adding = false; dialogGroup = null
-            }) { Text("保存") }
-        }, dismissButton = { TextButton(onClick = { adding = false; dialogGroup = null }) { Text("取消") } })
+    // 新增沿用参考应用的底部面板转场；改名仍保留当前项目的对话框流程。
+    if (showAddSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showAddSheet = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+            ) {
+                Text("新增分组", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = dialogText,
+                    onValueChange = { dialogText = it },
+                    label = { Text("分组名称") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { showAddSheet = false }) { Text("取消") }
+                    TextButton(
+                        enabled = dialogText.isNotBlank(),
+                        onClick = {
+                            onAddGroup(dialogText.trim())
+                            showAddSheet = false
+                        }
+                    ) { Text("保存") }
+                }
+            }
+        }
+    }
+    // 点按标签先显示操作面板；选择“修改”后仍进入项目原有的改名对话框。
+    actionGroup?.let { group ->
+        ModalBottomSheet(
+            onDismissRequest = { actionGroup = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .windowInsetsPadding(WindowInsets.navigationBars),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(group.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        actionGroup = null
+                        dialogGroup = group
+                        dialogText = group.name
+                    }
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+                        Text("修改分组名称")
+                    }
+                }
+                if (group.kind == GroupKind.CUSTOM) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            actionGroup = null
+                            deleteConfirmGroup = group
+                        }
+                    ) {
+                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+                            Text("删除此分组", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth().clickable { actionGroup = null }
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+                        Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+    }
+    dialogGroup?.let { group ->
+        AlertDialog(
+            onDismissRequest = { dialogGroup = null },
+            title = { Text("修改分组名称") },
+            text = { OutlinedTextField(dialogText, { dialogText = it }, label = { Text("分组名称") }, singleLine = true) },
+            confirmButton = {
+                TextButton(enabled = dialogText.isNotBlank(), onClick = {
+                    onRenameGroup(group.id, dialogText.trim())
+                    dialogGroup = null
+                }) { Text("保存") }
+            },
+            dismissButton = { TextButton(onClick = { dialogGroup = null }) { Text("取消") } }
+        )
+    }
+    deleteConfirmGroup?.let { group ->
+        AlertDialog(
+            onDismissRequest = { deleteConfirmGroup = null },
+            title = { Text("删除分组") },
+            text = { Text("删除「${group.name}」将解除 ${accountCount(group.id)} 个账号的关联，账号本身不会被删除。") },
+            confirmButton = {
+                TextButton(onClick = { onDeleteGroup(group.id); deleteConfirmGroup = null }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { deleteConfirmGroup = null }) { Text("取消") } }
+        )
     }
 }
 
 @Composable
-private fun GroupManageItem(
+private fun LazyItemScope.GroupManageItem(
     group: Group,
+    count: Int,
     fixed: Boolean,
     moveUp: () -> Unit,
     moveDown: () -> Unit,
     rename: () -> Unit,
     delete: () -> Unit,
     first: Boolean = false,
-    last: Boolean = false
+    last: Boolean = false,
+    onNameClick: () -> Unit = {}
 ) {
     var dragDistance by remember(group.id) { mutableStateOf(0f) }
     var dragOffsetY by remember(group.id) { mutableStateOf(0f) }
@@ -1239,24 +1679,26 @@ private fun GroupManageItem(
         label = "group-drag-color"
     )
     val cardElevation by animateDpAsState(if (isDragging) 8.dp else 1.dp, label = "group-drag-elevation")
+    val cardScale by animateFloatAsState(if (isDragging) 1.03f else 1f, label = "group-drag-scale")
     Card(
         colors = CardDefaults.cardColors(containerColor = cardColor),
         elevation = CardDefaults.cardElevation(defaultElevation = cardElevation),
         modifier = Modifier
             .fillMaxWidth()
+            // 列表重新排序时让邻项平滑让位，删除/新增也使用同一套转场。
+            .animateItem()
             .zIndex(if (isDragging) 1f else 0f)
             .graphicsLayer {
                 translationY = dragOffsetY
-                if (isDragging) {
-                    scaleX = 1.03f
-                    scaleY = 1.03f
-                }
+                scaleX = cardScale
+                scaleY = cardScale
             }
             .then(dragModifier)
     ) {
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (!fixed) Text(if (isDragging) "↕" else "☷", color = if (isDragging) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp))
-            Text(group.name, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis, color = if (isDragging) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
+            Text(group.name, modifier = Modifier.weight(1f).clickable(onClick = onNameClick), maxLines = 2, overflow = TextOverflow.Ellipsis, color = if (isDragging) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
+            Text("$count", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = rename) { Text("改名") }
             if (!fixed) TextButton(onClick = delete) { Text("删除", color = MaterialTheme.colorScheme.error) }
         }
@@ -1267,22 +1709,27 @@ private fun GroupManageItem(
 @Composable
 private fun AccountEditScreen(
     account: Account?,
+    template: Account?,
     groups: List<Group>,
     initialGroupId: String,
+    clipboardClearSeconds: Int,
     onBack: () -> Unit,
     onCreateGroup: (String) -> String,
-    onSave: (Account) -> Unit
+    onSave: (Account) -> Unit,
+    onDelete: (() -> Unit)? = null
 ) {
-    var name by remember(account?.id) { mutableStateOf(account?.name.orEmpty()) }
-    var username by remember(account?.id) { mutableStateOf(account?.username.orEmpty()) }
-    var password by remember(account?.id) { mutableStateOf(account?.password.orEmpty()) }
-    var hasTotp by remember(account?.id) { mutableStateOf(account?.hasTotp ?: false) }
-    var totpSecret by remember(account?.id) { mutableStateOf(account?.totpSecret.orEmpty()) }
-    var totpType by remember(account?.id) { mutableStateOf(account?.totpType ?: "TOTP") }
-    var totpDigits by remember(account?.id) { mutableIntStateOf(account?.totpDigits ?: 6) }
-    var totpPeriodText by remember(account?.id) { mutableStateOf((account?.totpPeriod ?: 30).toString()) }
-    var totpAlgorithm by remember(account?.id) { mutableStateOf(account?.totpAlgorithm ?: "SHA1") }
-    var totpError by remember(account?.id) { mutableStateOf("") }
+    // 模板新建时以模板字段初始化，但仍作为新账号保存（新 id、沿用当前分组）。
+    val source = account ?: template
+    var name by remember(source?.id) { mutableStateOf(source?.name.orEmpty()) }
+    var username by remember(source?.id) { mutableStateOf(source?.username.orEmpty()) }
+    var password by remember(source?.id) { mutableStateOf(source?.password.orEmpty()) }
+    var hasTotp by remember(source?.id) { mutableStateOf(source?.hasTotp ?: false) }
+    var totpSecret by remember(source?.id) { mutableStateOf(source?.totpSecret.orEmpty()) }
+    var totpType by remember(source?.id) { mutableStateOf(source?.totpType ?: "TOTP") }
+    var totpDigits by remember(source?.id) { mutableIntStateOf(source?.totpDigits ?: 6) }
+    var totpPeriodText by remember(source?.id) { mutableStateOf((source?.totpPeriod ?: 30).toString()) }
+    var totpAlgorithm by remember(source?.id) { mutableStateOf(source?.totpAlgorithm ?: "SHA1") }
+    var totpError by remember(source?.id) { mutableStateOf("") }
     val nowMillis = rememberClock()
     LaunchedEffect(totpSecret) {
         val uri = runCatching { Uri.parse(totpSecret.trim()) }.getOrNull()
@@ -1300,11 +1747,14 @@ private fun AccountEditScreen(
         }
     }
     var selectedCustomGroups by remember(account?.id, initialGroupId) { mutableStateOf(account?.groups ?: if (groups.any { it.id == initialGroupId && it.kind == GroupKind.CUSTOM }) setOf(initialGroupId) else emptySet()) }
-    var fields by remember(account?.id) { mutableStateOf(account?.customFields ?: emptyList()) }
+    var fields by remember(source?.id) { mutableStateOf(source?.customFields ?: emptyList()) }
     var addFieldHidden by remember { mutableStateOf<Boolean?>(null) }
     var addGroupDialog by remember { mutableStateOf(false) }
     var newGroupName by remember { mutableStateOf("") }
     var showMissingName by remember { mutableStateOf(false) }
+    var deleteConfirm by remember { mutableStateOf(false) }
+    var showPasswordGenerator by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val customGroups = groups.filter { it.kind == GroupKind.CUSTOM }
 
     Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
@@ -1332,7 +1782,12 @@ private fun AccountEditScreen(
                 Text("当前进入：${groups.firstOrNull { it.id == initialGroupId }?.name ?: "默认"}；动态密码由 TOTP 自动决定。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             item { AccountFieldItem("用户名", username, false, onValueChange = { username = it }) }
-            item { AccountFieldItem("密码", password, true, onValueChange = { password = it }) }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(password, { password = it }, label = { Text("密码") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.weight(1f))
+                    TextButton(onClick = { showPasswordGenerator = true }) { Text("随机") }
+                }
+            }
             items(fields, key = { it.id }) { field ->
                 AccountFieldItem(field.label, field.value, field.hidden, { value -> fields = fields.map { if (it.id == field.id) it.copy(value = value) else it } }, { fields = fields.filterNot { it.id == field.id } })
             }
@@ -1392,7 +1847,9 @@ private fun AccountEditScreen(
                 }
                 if (totpError.isNotBlank()) item { Text(totpError, color = MaterialTheme.colorScheme.error) }
             }
-            item { TextButton(onClick = {}) { Text("删除账号", color = MaterialTheme.colorScheme.error) } }
+            if (account != null && onDelete != null) {
+                item { TextButton(onClick = { deleteConfirm = true }) { Text("删除账号", color = MaterialTheme.colorScheme.error) } }
+            }
         }
     }
 
@@ -1405,6 +1862,25 @@ private fun AccountEditScreen(
         AlertDialog(onDismissRequest = { addGroupDialog = false }, title = { Text("新增分组") }, text = { OutlinedTextField(newGroupName, { newGroupName = it }, label = { Text("分组名称") }, singleLine = true) }, confirmButton = { TextButton(enabled = newGroupName.isNotBlank() && customGroups.none { it.name == newGroupName.trim() }, onClick = { selectedCustomGroups = selectedCustomGroups + onCreateGroup(newGroupName); addGroupDialog = false }) { Text("创建并选择") } }, dismissButton = { TextButton(onClick = { addGroupDialog = false }) { Text("取消") } })
     }
     if (showMissingName) AlertDialog(onDismissRequest = { showMissingName = false }, title = { Text("缺少账号名称") }, text = { Text("请输入账号名称后再保存。") }, confirmButton = { TextButton(onClick = { showMissingName = false }) { Text("确定") } })
+    if (deleteConfirm) AlertDialog(
+        onDismissRequest = { deleteConfirm = false },
+        title = { Text("删除账号") },
+        text = { Text("确定删除「${account?.name ?: ""}」吗？此操作不可撤销。") },
+        confirmButton = {
+            TextButton(onClick = { deleteConfirm = false; onDelete?.invoke() }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onClick = { deleteConfirm = false }) { Text("取消") } }
+    )
+    if (showPasswordGenerator) {
+        RandomPasswordGeneratorSheet(
+            onDismiss = { showPasswordGenerator = false },
+            onFill = { value ->
+                password = value
+                copyToClipboard(context, value, sensitive = true, clearAfterSeconds = clipboardClearSeconds)
+                showPasswordGenerator = false
+            }
+        )
+    }
 }
 
 @Composable
@@ -1540,7 +2016,7 @@ private fun SettingsScreen(
             }
             item { SettingsRow("语言", languageLabel(languageTag)) }
             item { SettingsHeader("数据与备份") }
-            item { SettingsRow("加密备份", "打开", onOpenBackup) }
+            item { SettingsRow("备份文件管理", "打开", onOpenBackup) }
         }
     }
     if (showChangePasswordDialog) AlertDialog(
@@ -1706,15 +2182,90 @@ private fun languageLabel(languageTag: String): String = when (languageTag) {
 private fun clipboardClearLabel(seconds: Int): String =
     if (seconds <= 0) "关闭" else "$seconds 秒"
 
-/** 读取用户在系统文件选择器中明确选中的文件，并保留该文件的读取授权。 */
-private fun readSelectedDocument(context: Context, uri: Uri): Result<ByteArray> = runCatching {
+/** 初始化固定的 backups/account 目录，返回最终目录。 */
+private fun initializeBackupDirectory(context: Context, treeUri: Uri): Result<Uri> = runCatching {
     val resolver = context.contentResolver
-    // OpenDocument 通常已经授予临时权限；可持久化时保留授权，避免部分文件管理器返回的 URI 稍后失效。
-    runCatching {
-        resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    resolver.takePersistableUriPermission(
+        treeUri,
+        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+    )
+    val selected = DocumentFile.fromTreeUri(context, treeUri) ?: error("无法访问所选目录")
+    require(selected.canRead() && selected.canWrite()) { "所选目录不可写，请选择可写目录" }
+    // 若用户直接选中了 backups 文件夹，就在其中创建 account，避免 backups/backups 嵌套。
+    val backups = if (selected.name.orEmpty().equals("backups", ignoreCase = true)) {
+        selected
+    } else {
+        val existing = selected.findFile("backups")
+        existing?.takeIf { it.isDirectory }
+            ?: existing?.let { error("backups 名称已被文件占用") }
+            ?: selected.createDirectory("backups")
+            ?: error("无法创建 backups 目录")
     }
-    resolver.openInputStream(uri)?.use { it.readBytes() }
+    val existingAccount = backups.findFile("account")
+    val account = existingAccount?.takeIf { it.isDirectory }
+        ?: existingAccount?.let { error("account 名称已被文件占用") }
+        ?: backups.createDirectory("account")
+        ?: error("无法创建 account 目录")
+    require(account.isDirectory && account.canRead() && account.canWrite()) { "account 目录不可写" }
+    account.uri
+}
+
+/** 按授权树 URI 找到固定的 backups/account 目录。 */
+private fun backupAccountDirectory(context: Context, treeUri: Uri): Result<DocumentFile> = runCatching {
+    val selected = DocumentFile.fromTreeUri(context, treeUri) ?: error("无法访问授权目录")
+    require(selected.canRead() && selected.canWrite()) { "授权目录不可写，请重新授权" }
+    val backups = if (selected.name.orEmpty().equals("backups", ignoreCase = true)) selected else {
+        val existing = selected.findFile("backups")
+        existing?.takeIf { it.isDirectory }
+            ?: existing?.let { error("backups 名称已被文件占用") }
+            ?: selected.createDirectory("backups")
+            ?: error("无法创建 backups 目录")
+    }
+    val existingAccount = backups.findFile("account")
+    val account = existingAccount?.takeIf { it.isDirectory }
+        ?: existingAccount?.let { error("account 名称已被文件占用") }
+        ?: backups.createDirectory("account")
+        ?: error("无法创建 account 目录")
+    require(account.isDirectory && account.canRead() && account.canWrite()) { "backups/account 目录不可写" }
+    account
+}
+
+private data class BackupEntry(val file: DocumentFile, val size: Long, val modified: Long)
+
+private fun listBackupFiles(context: Context, treeUri: String?): Result<List<BackupEntry>> = runCatching {
+    if (treeUri == null) return@runCatching emptyList()
+    backupAccountDirectory(context, Uri.parse(treeUri)).getOrThrow()
+        .listFiles()
+        .filter { it.isFile && it.name?.endsWith(".acc", ignoreCase = true) == true }
+        .sortedByDescending { it.lastModified() }
+        .map { BackupEntry(it, it.length(), it.lastModified()) }
+}
+
+/** 读取授权目录中的备份文件。 */
+private fun readSelectedDocument(context: Context, uri: Uri): Result<ByteArray> = runCatching {
+    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
         ?: error("文件提供方不支持读取")
+}
+
+private fun writeBackupFile(context: Context, treeUri: Uri, bytes: ByteArray): String = runCatching {
+    val directory = backupAccountDirectory(context, treeUri).getOrThrow()
+    val base = "account-${java.text.SimpleDateFormat("yyyy-MM-dd-HHmmss", java.util.Locale.US).format(java.util.Date())}"
+    var filename = "$base.acc"
+    var index = 1
+    while (directory.findFile(filename) != null) filename = "$base-${index++}.acc"
+    val file = directory.createFile("application/octet-stream", filename) ?: error("无法创建备份文件")
+    try {
+        context.contentResolver.openOutputStream(file.uri)?.use { it.write(bytes) }
+            ?: error("无法写入备份文件")
+    } catch (error: Throwable) {
+        file.delete()
+        throw error
+    }
+    filename
+}.getOrThrow()
+
+private fun deleteBackupFile(context: Context, uri: Uri): Result<Unit> = runCatching {
+    require(DocumentFile.fromSingleUri(context, uri)?.delete() == true) { "删除备份失败" }
 }
 
 @Composable
@@ -1741,8 +2292,13 @@ private fun SettingsSwitchRow(title: String, checked: Boolean, onCheckedChange: 
 @Composable
 private fun BackupScreen(
     onBack: () -> Unit,
-    onCreateBackup: () -> Result<ByteArray>,
-    onImportBackup: (ByteArray, String) -> AccImportResult?,
+    backupTreeUri: String?,
+    directoryMessage: String,
+    onChooseDirectory: () -> Unit,
+    onExportBackup: () -> Result<String>,
+    onReadBackup: (Uri) -> Result<ByteArray>,
+    onDeleteBackup: (Uri) -> Result<Unit>,
+    onImportBackup: (ByteArray, String) -> Result<AccImportResult>,
     onApplyImport: (AccImportResult) -> Unit
 ) {
     val context = LocalContext.current
@@ -1753,128 +2309,110 @@ private fun BackupScreen(
     var importError by remember { mutableStateOf("") }
     var exportError by remember { mutableStateOf("") }
     var exportSucceeded by remember { mutableStateOf(false) }
-    var pendingBytes by remember { mutableStateOf<ByteArray?>(null) }
     var pendingImportBytes by remember { mutableStateOf<ByteArray?>(null) }
     var pendingImportResult by remember { mutableStateOf<AccImportResult?>(null) }
-    val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { fileUri ->
-        val bytes = pendingBytes
-        if (fileUri != null && bytes != null) {
-            val result = runCatching {
-                context.contentResolver.openOutputStream(fileUri)?.use { it.write(bytes) }
-                    ?: error("无法写入所选文件")
-            }
-            exportSucceeded = result.isSuccess
-            exportError = result.exceptionOrNull()?.message ?: "导出失败，请更换保存位置后重试"
-            if (result.isSuccess) exportError = "导出成功：文件已保存"
-        } else if (bytes != null) {
-            exportSucceeded = false
-            exportError = "未选择保存位置"
-        }
-        bytes?.fill(0)
-        pendingBytes = null
+    var files by remember { mutableStateOf(emptyList<BackupEntry>()) }
+    var fileError by remember { mutableStateOf("") }
+    fun refreshFiles() {
+        val result = listBackupFiles(context, backupTreeUri)
+        files = result.getOrDefault(emptyList())
+        fileError = result.exceptionOrNull()?.message ?: ""
     }
-    val openDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            val readResult = readSelectedDocument(context, uri)
-            val bytes = readResult.getOrNull()
-            if (bytes == null) {
-                importError = readResult.exceptionOrNull()?.message?.let { "无法读取备份文件：$it" }
-                    ?: "无法读取备份文件，请重新选择"
-            } else {
-                pendingImportBytes?.fill(0)
-                pendingImportBytes = bytes
-                importError = ""
+    LaunchedEffect(backupTreeUri) { refreshFiles() }
+
+    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { TopAppBar(colors = accountTopBarColors(), title = { Text("加密备份", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }, actions = { TextButton(onClick = { refreshFiles() }) { Text("刷新", color = LocalAccountThemePalette.current.topBarText) } }) }) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("备份目录", style = MaterialTheme.typography.titleMedium)
+            Text(if (backupTreeUri == null) "尚未授权。点击下方按钮选择一个可写目录，应用会自动创建 backups/account。" else "已固定使用授权目录下的 backups/account 文件夹。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onChooseDirectory) { Text(if (backupTreeUri == null) "授权并创建目录" else "重新授权目录") }
+                if (backupTreeUri != null) TextButton(onClick = { exportError = ""; exportSucceeded = false; showExportReminder = true }) { Text("导出 .acc") }
             }
-            showImportPasswordDialog = true
-        }
-    }
-    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { TopAppBar(colors = accountTopBarColors(), title = { Text("加密备份", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }) }) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("本地加密备份", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("导出使用当前主密码作为备份密码，不需要再次输入。系统会请求你选择保存文件的位置。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = { exportError = ""; exportSucceeded = false; showExportReminder = true }) { Text("导出加密备份 .acc") }
-            TextButton(onClick = { importPassword = ""; importError = ""; openDocument.launch(arrayOf("application/json", "application/octet-stream", "*/*")) }) { Text("从 .acc 恢复") }
+            if (directoryMessage.isNotBlank()) Text(directoryMessage, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+            if (fileError.isNotBlank()) Text(fileError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             if (exportError.isNotBlank()) Text(exportError, color = if (exportSucceeded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-    if (showExportReminder) AlertDialog(
-        onDismissRequest = { showExportReminder = false },
-        title = { Text("导出加密备份") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("导出文件使用当前主密码加密。导入时必须输入相同的主密码，请务必记住。", style = MaterialTheme.typography.bodySmall)
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                val result = onCreateBackup()
-                if (result.isFailure) {
-                    exportSucceeded = false
-                    exportError = result.exceptionOrNull()?.message ?: "备份生成失败，请先解锁后重试"
-                    showExportReminder = false
-                } else {
-                    pendingBytes = result.getOrThrow()
-                    showExportReminder = false
-                    val filename = "account-${java.text.SimpleDateFormat("yyyy-MM-dd-HHmm", java.util.Locale.US).format(java.util.Date())}.acc"
-                    createDocument.launch(filename)
-                }
-            }) { Text("选择位置并导出", color = MaterialTheme.colorScheme.primary) }
-        },
-        dismissButton = { TextButton(onClick = { showExportReminder = false }) { Text("取消", color = MaterialTheme.colorScheme.primary) } }
-    )
-    if (showImportPasswordDialog) AlertDialog(
-        onDismissRequest = {
-            showImportPasswordDialog = false
-            pendingImportBytes?.fill(0)
-            pendingImportBytes = null
-        },
-        title = { Text("恢复加密备份") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("文件已选择，请输入该备份设置的密码以验证并解密。", style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(importPassword, { importPassword = it; importError = "" }, label = { Text("备份密码（4-20 个字符）") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
-                if (importError.isNotBlank()) Text(importError, color = MaterialTheme.colorScheme.error)
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                if (!isMasterPasswordValid(importPassword)) {
-                    importError = "备份密码长度需为 4-20 个字符"
-                } else {
-                    val bytes = pendingImportBytes
-                    val result = bytes?.let { onImportBackup(it, importPassword) }
-                    if (result == null) {
-                        importError = "备份密码错误或文件已损坏"
-                    } else {
-                        bytes?.fill(0)
-                        pendingImportBytes = null
-                        showImportPasswordDialog = false
-                        pendingImportResult = result
-                        showImportConfirmDialog = true
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            Text("已保存的备份", style = MaterialTheme.typography.titleMedium)
+            if (backupTreeUri == null) EmptyState("请先授权备份目录", Modifier.fillMaxWidth().weight(1f))
+            else if (files.isEmpty()) EmptyState("暂无 .acc 文件", Modifier.fillMaxWidth().weight(1f))
+            else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                items(files, key = { it.file.uri.toString() }) { entry ->
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(entry.file.name ?: "account.acc", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${formatBackupSize(entry.size)} · ${formatBackupTime(entry.modified)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            TextButton(onClick = {
+                                val read = onReadBackup(entry.file.uri)
+                                pendingImportBytes?.fill(0)
+                                pendingImportBytes = read.getOrNull()
+                                importError = read.exceptionOrNull()?.message?.let { "无法读取备份：$it" } ?: ""
+                                importPassword = ""
+                                showImportPasswordDialog = true
+                            }) { Text("导入") }
+                            TextButton(onClick = {
+                                val result = onDeleteBackup(entry.file.uri)
+                                if (result.isSuccess) refreshFiles() else exportError = result.exceptionOrNull()?.message ?: "删除失败"
+                            }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                        }
                     }
                 }
-            }) { Text("验证并继续", color = MaterialTheme.colorScheme.primary) }
-        },
-        dismissButton = { TextButton(onClick = {
-            showImportPasswordDialog = false
-            pendingImportBytes?.fill(0)
-            pendingImportBytes = null
-        }) { Text("取消", color = MaterialTheme.colorScheme.primary) } }
-    )
-    if (showImportConfirmDialog) {
-        val result = pendingImportResult
-        if (result != null) AlertDialog(
-            onDismissRequest = { showImportConfirmDialog = false; pendingImportResult = null },
-            title = { Text("确认恢复") },
-            text = { Text("将替换当前密码库，导入 ${result.vault.accounts.size} 个账号和 ${result.vault.groups.size} 个分组，并应用备份中的软件设置。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    onApplyImport(result)
-                    showImportConfirmDialog = false
-                    pendingImportResult = null
-                }) { Text("确认恢复", color = MaterialTheme.colorScheme.primary) }
-            },
-            dismissButton = { TextButton(onClick = { showImportConfirmDialog = false; pendingImportResult = null }) { Text("取消", color = MaterialTheme.colorScheme.primary) } }
-        )
+            }
+        }
+    }
+    if (showExportReminder) AlertDialog(onDismissRequest = { showExportReminder = false }, title = { Text("导出加密备份") }, text = { Text("导出文件使用当前主密码加密。导入时必须输入相同的主密码，请务必记住。", style = MaterialTheme.typography.bodySmall) }, confirmButton = {
+        TextButton(onClick = {
+            val result = onExportBackup()
+            exportSucceeded = result.isSuccess
+            exportError = if (result.isSuccess) "导出成功：${result.getOrThrow()}" else result.exceptionOrNull()?.message ?: "备份生成失败，请先解锁后重试"
+            showExportReminder = false
+            if (result.isSuccess) refreshFiles()
+        }) { Text("确认导出", color = MaterialTheme.colorScheme.primary) }
+    }, dismissButton = { TextButton(onClick = { showExportReminder = false }) { Text("取消") } })
+
+    if (showImportPasswordDialog) AlertDialog(onDismissRequest = {
+        showImportPasswordDialog = false
+        pendingImportBytes?.fill(0)
+        pendingImportBytes = null
+    }, title = { Text("恢复加密备份") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("文件已选择，请输入该备份设置的密码以验证并解密。", style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(importPassword, { importPassword = it; importError = "" }, label = { Text("备份密码（4-20 个字符）") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+            if (importError.isNotBlank()) Text(importError, color = MaterialTheme.colorScheme.error)
+        }
+    }, confirmButton = {
+        TextButton(onClick = {
+            if (!isMasterPasswordValid(importPassword)) importError = "备份密码长度需为 4-20 个字符"
+            else {
+                val bytes = pendingImportBytes
+                if (bytes == null) {
+                    if (importError.isBlank()) importError = "备份文件读取失败，请刷新后重试"
+                } else {
+                    val result = onImportBackup(bytes, importPassword)
+                    if (result.isFailure) importError = result.exceptionOrNull()?.message ?: "备份密码错误或文件已损坏"
+                    else {
+                        bytes.fill(0); pendingImportBytes = null; showImportPasswordDialog = false
+                        pendingImportResult = result.getOrThrow(); showImportConfirmDialog = true
+                    }
+                }
+            }
+        }) { Text("验证并继续", color = MaterialTheme.colorScheme.primary) }
+    }, dismissButton = { TextButton(onClick = {
+        showImportPasswordDialog = false; pendingImportBytes?.fill(0); pendingImportBytes = null
+    }) { Text("取消", color = MaterialTheme.colorScheme.primary) } })
+
+    pendingImportResult?.let { result ->
+        if (showImportConfirmDialog) AlertDialog(onDismissRequest = { showImportConfirmDialog = false; pendingImportResult = null }, title = { Text("确认恢复") }, text = { Text("将替换当前密码库，导入 ${result.vault.accounts.size} 个账号和 ${result.vault.groups.size} 个分组，并应用备份中的软件设置。") }, confirmButton = {
+            TextButton(onClick = { onApplyImport(result); showImportConfirmDialog = false; pendingImportResult = null }) { Text("确认恢复", color = MaterialTheme.colorScheme.primary) }
+        }, dismissButton = { TextButton(onClick = { showImportConfirmDialog = false; pendingImportResult = null }) { Text("取消") } })
     }
 }
+
+private fun formatBackupSize(size: Long): String = when {
+    size < 1024 -> "$size B"
+    size < 1024 * 1024 -> "${size / 1024} KB"
+    else -> "${size / (1024 * 1024)} MB"
+}
+
+private fun formatBackupTime(time: Long): String = if (time <= 0) "未知时间" else java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(time))

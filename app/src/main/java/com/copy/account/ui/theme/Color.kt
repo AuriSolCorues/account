@@ -1,4 +1,4 @@
-package com.example.account.ui.theme
+package com.copy.account.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

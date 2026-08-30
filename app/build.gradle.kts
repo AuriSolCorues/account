@@ -1,17 +1,27 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
 
+// 签名凭据从 keystore.properties 读取（已 gitignore）；文件缺失时 release 回退为未签名。
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+
 android {
-    namespace = "com.example.account"
+    namespace = "com.copy.account"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.example.account"
+        applicationId = "com.copy.account"
         minSdk = 28
         targetSdk = 37
         versionCode = 1
@@ -20,8 +30,21 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            if (keystoreProperties.isNotEmpty()) {
+                storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+            }
+        }
+    }
     buildTypes {
         release {
+            if (keystoreProperties.isNotEmpty()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -59,6 +82,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.biometric)
+    implementation(libs.androidx.documentfile)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)

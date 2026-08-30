@@ -65,9 +65,9 @@
 - `passwordVault` 是 Base64 加密数据，内部打包格式版本、KDF 参数、随机盐、随机 IV、认证标签及加密后的自定义分组、账号、自定义字段、隐藏字段标记和单个 TOTP；默认分组和动态密码分组均由账号状态派生，不单独保存。
 - `appSettings` 是可读、可手工编辑的软件设置，保存主题模式、配色/语言标识、自动锁定时长、剪贴板清除时长和允许截图开关；不做完整性校验。
 - 导出不显示密码输入框，直接复用当前主密码派生的密钥；导出前提示用户记住主密码。
-- 导入先选择 `.acc` 文件，再输入该备份设置的密码（4-20 个 Unicode 字符，可含中文、英文、数字和符号），通过 AES-GCM 认证后才允许恢复；不校验本机当前主密码。
+- 导入从 `backups/account` 文件列表选择 `.acc` 文件，再输入该备份设置的密码（4-20 个 Unicode 字符，可含中文、英文、数字和符号），通过 AES-GCM 认证后才允许恢复；不校验本机当前主密码。
 - 导入成功前只在内存中解析，用户确认后整体替换当前密码库与软件设置；失败不修改现有数据。
-- 使用 Android Storage Access Framework 的 `CreateDocument`/`OpenDocument` 申请单文件读写授权；读取回调会保留可持久化的 URI 授权，不申请 Android 14 已失效的广泛存储权限。
+- 使用 Android Storage Access Framework 的 `OpenDocumentTree` 申请一次目录读写授权；应用在授权目录下自动创建并固定使用 `backups/account`，不申请 Android 14 已不推荐的广泛存储权限。
 - 剪贴板由系统 `ClipboardManager` 写入；清除时间支持关闭、预设秒数和 1-86400 秒自定义输入。Android 应用写入前台剪贴板不需要额外运行时权限。
 - 设置提供“允许截图”开关，默认关闭；切换后立即控制 `FLAG_SECURE`。
 - 备份包含密码库与软件设置；不包含设备 Keystore 密钥、生物识别状态或任何日志。
@@ -115,9 +115,11 @@ com.example.account/
 ### 当前实现文件与数据流
 
 - `app/src/main/java/com/example/account/AccountApp.kt`：应用状态、解锁会话、账号页面、剪贴板复制和 SAF 回调；复制敏感字段后由 `ClipboardManager` 写入并定时校验清除。
+- `plan/REFERENCE_ACCOUNT_APP.md`：手机端 `com.wei.account` 的真机交互研究记录；只用于初步验证，不作为最终视觉模板，不复制图标、源码或旧加密。
+- 真机截图中的像素仅用于比例测量；首页分栏、底部面板和编辑内容均按窗口约束自适应，不固定某一台手机的分辨率。
 - `app/src/main/java/com/example/account/AccCodec.kt`：`.acc` 的 JSON 外层、PBKDF2/AES-GCM 导出与导入校验；只返回内存结果，确认后才由 `AccountApp` 保存。
 - `app/src/main/java/com/example/account/ui/theme/Theme.kt`：深色/浅色/系统模式和可扩展的配色、语言标识解析。
-- 数据流：主密码 → KEK/本地 DEK → 内存密码库；导出时读取当前 KEK → 生成 `.acc` → `CreateDocument` 写入；导入时 `OpenDocument` 读取 → 输入备份文件密码并验证解密 → 用户确认 → 原子保存。
+- 数据流：主密码 → KEK/本地 DEK → 内存密码库；首次进入备份页 → `OpenDocumentTree` 授权 → 自动创建 `backups/account`；导出时读取当前 KEK → 生成 `.acc` → 在固定目录创建文件；备份管理页列出目录中的 `.acc` → 输入该文件密码并验证解密 → 用户确认 → 原子保存。
 
 ### 本地文件存储
 
@@ -145,7 +147,7 @@ com.example.account/
 
 ### 文件授权与备份
 
-- 备份文件只通过 Android Storage Access Framework 读写；授权范围由用户在系统选择器中明确选择的单个文件决定。
+- 备份文件只通过 Android Storage Access Framework 读写；授权范围由用户在系统选择器中明确选择的目录决定，目录 URI 保存在 DataStore，应用只访问其中的 `backups/account`。
 - 禁用 Android 自动备份，避免系统备份产生不受本应用控制的数据副本。
 
 ## 5. 页面规划
@@ -159,7 +161,7 @@ com.example.account/
 5. 账号详情页：字段和 2FA 验证码，不展示额外操作记录。
 6. 账号编辑页：新增、修改、排序、删除字段，新增隐藏字段及单个 2FA。
 7. 设置页：安全、修改主密码、剪贴板、主题和导入导出。
-8. 加密备份页：完整 `.acc` 导出与主密码验证后的恢复。
+8. 备份文件管理页：授权并创建 `backups/account`、导出 `.acc`、列出/刷新/删除备份，以及输入备份文件密码后恢复。
 
 ## 6. 实施顺序
 

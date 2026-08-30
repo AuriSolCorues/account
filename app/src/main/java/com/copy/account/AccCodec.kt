@@ -1,4 +1,4 @@
-package com.example.account
+package com.copy.account
 
 import android.util.Base64
 import kotlinx.serialization.Serializable
@@ -19,7 +19,7 @@ private data class AccSettings(
     val accentTheme: String = "green",
     val languageTag: String = "zh-CN",
     val customThemeJson: String = "",
-    val customThemes: List<com.example.account.ui.theme.SavedTheme> = emptyList(),
+    val customThemes: List<com.copy.account.ui.theme.SavedTheme> = emptyList(),
     val autoLockSeconds: Int = 300,
     val clipboardClearSeconds: Int = 30,
     val allowScreenshots: Boolean = false
@@ -30,7 +30,7 @@ private data class AccSettings(
 private data class AccPayload(
     val version: Int = 1,
     val kdf: String = "PBKDF2-HMAC-SHA256",
-    val iterations: Int = PASSWORD_ITERATIONS,
+    val iterations: Int = DEFAULT_PASSWORD_ITERATIONS,
     val salt: String,
     val iv: String,
     val ciphertext: String
@@ -53,13 +53,14 @@ private val accJson = Json {
 }
 
 /** 生成完整 .acc；调用方传入当前主密码的 KEK 和盐，界面无需再次输入密码。 */
-internal fun exportAcc(input: AccExportInput, key: ByteArray, salt: ByteArray): ByteArray {
+internal fun exportAcc(input: AccExportInput, key: ByteArray, salt: ByteArray, iterations: Int): ByteArray {
     require(key.size == 32) { "主密码密钥无效" }
     require(salt.size >= 16) { "主密码盐无效" }
     val plain = vaultJson.encodeToString(PersistedVault.serializer(), input.vault).toByteArray(Charsets.UTF_8)
     return try {
         val encrypted = encryptBytes(key, plain)
         val payload = AccPayload(
+            iterations = iterations,
             salt = Base64.encodeToString(salt, Base64.NO_WRAP),
             iv = Base64.encodeToString(encrypted.iv, Base64.NO_WRAP),
             ciphertext = Base64.encodeToString(encrypted.ciphertext, Base64.NO_WRAP)
