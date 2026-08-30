@@ -25,6 +25,7 @@ captures/
 # Signing credentials (keep these out of version control)
 *.jks
 *.keystore
+keystore.properties
 
 # Operating-system files
 .DS_Store

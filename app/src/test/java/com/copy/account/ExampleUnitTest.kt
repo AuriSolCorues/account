@@ -1,4 +1,4 @@
-package com.example.account
+package com.copy.account
 
 import org.junit.Test
 

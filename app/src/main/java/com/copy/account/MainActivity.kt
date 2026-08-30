@@ -1,4 +1,4 @@
-package com.example.account
+package com.copy.account
 
 import android.os.Bundle
 import android.view.View
@@ -14,8 +14,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.Surface
-import com.example.account.ui.theme.AccountTheme
-import com.example.account.ui.theme.themePaletteFromJson
+import com.copy.account.ui.theme.AccountTheme
+import com.copy.account.ui.theme.themePaletteFromJson
 import androidx.compose.ui.graphics.luminance
 
 class MainActivity : FragmentActivity() {
