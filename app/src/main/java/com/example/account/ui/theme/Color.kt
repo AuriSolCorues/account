@@ -13,7 +13,7 @@ val AccountSurfaceVariant = Color(0xFF171A19)
 val AccountLightGreen = Color(0xFF00965F)
 val AccountLightContainer = Color(0xFFD7F1E4)
 
-// Alternate blue palette for users who prefer a cooler accent.
+// 备用蓝色色板，便于后续增加冷色调主题。
 val AccountBlue = Color(0xFF8EB8FF)
 val AccountBlueContainer = Color(0xFF294A73)
 val AccountBlueBackground = Color(0xFF0F141C)

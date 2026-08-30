@@ -297,35 +297,63 @@ private fun AccountThemePalette.toScheme(darkTheme: Boolean) = if (darkTheme) {
     )
 }
 
+/** 将当前显示模式、内置配色和 JSONC 配色统一解析为一套主题。 */
+data class ResolvedTheme(
+    val palette: AccountThemePalette,
+    val colorScheme: androidx.compose.material3.ColorScheme
+)
+
+fun resolveTheme(darkTheme: Boolean, accentTheme: String, customThemeJson: String): ResolvedTheme {
+    val customPalette = themePaletteFromJson(customThemeJson)
+    val palette = customPalette ?: when {
+        accentTheme == "blue" && darkTheme -> AccountThemePalette(
+            AccountBlueContainer, Color.White, AccountBlueBackground, AccountBlueSurface,
+            AccountBlueSurfaceVariant, AccountBlue, Color(0xFF10233D), AccountBlueContainer,
+            Color(0xFFF0F4FC), Color(0xFFAAB8CC), Color(0xFF344254), AccountBlueSurfaceVariant,
+            Color(0xFF53657C), Color(0xFFD5E5FF), Color(0xFFFF7070), Color(0xFFE2B34E),
+            AccountBlue, Color(0xFF74849A), Color(0x99000000)
+        )
+        accentTheme == "blue" -> AccountThemePalette(
+            AccountLightBlue, Color.White, Color(0xFFF5F7FB), Color.White,
+            Color(0xFFEEF2F8), AccountLightBlue, Color.White, AccountLightBlueContainer,
+            Color(0xFF1C2738), Color(0xFF566579), Color(0xFFD8E1ED), Color(0xFFEEF2F8),
+            Color(0xFF9AAACC), Color(0xFF34548A), Color(0xFFD94E58), Color(0xFFA66A00),
+            AccountLightBlue, Color(0xFF8392A8), Color(0x55000000)
+        )
+        darkTheme -> AccountThemePalette(
+            AccountGreenDark, Color.White, AccountBackground, AccountSurface, AccountSurfaceVariant,
+            AccountGreen, Color(0xFF082016), AccountGreenContainer, Color(0xFFF0F4F1),
+            Color(0xFFA7B2AC), Color(0xFF303733), Color(0xFF272B29), Color(0xFF4A554E),
+            Color(0xFFDCE8E0), Color(0xFFFF7070), Color(0xFFE2B34E), AccountGreen,
+            Color(0xFF66726B), Color(0x99000000)
+        )
+        else -> AccountThemePalette(
+            AccountLightGreen, Color.White, Color(0xFFF4F5F4), Color.White,
+            Color(0xFFF8FAF8), AccountLightGreen, Color.White, AccountLightContainer,
+            Color(0xFF193327), Color(0xFF52665C), Color(0xFFDDE4DF), Color(0xFFF1F4F2),
+            Color(0xFFB9C7BF), Color(0xFF426052), Color(0xFFD94E58), Color(0xFFA66A00),
+            AccountLightGreen, Color(0xFF8A958E), Color(0x55000000)
+        )
+    }
+    return ResolvedTheme(palette, palette.toScheme(darkTheme))
+}
+
 @Composable
 fun AccountTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Keep the product palette deterministic. System dynamic colors can inject
-    // unrelated white/purple surfaces and make the JPG style look inconsistent.
+    // 固定产品色板，避免系统动态配色注入无关的白色或紫色，破坏 JPG 参考风格。
     dynamicColor: Boolean = false,
     accentTheme: String = "green",
     customThemeJson: String = "",
     content: @Composable () -> Unit
 ) {
-    val customPalette = themePaletteFromJson(customThemeJson)
-    val colorScheme = when {
-        customPalette != null -> customPalette.toScheme(darkTheme)
-        darkTheme && accentTheme == "blue" -> DarkBlueColorScheme
-        !darkTheme && accentTheme == "blue" -> LightBlueColorScheme
-        darkTheme -> DarkGreenColorScheme
-        else -> LightGreenColorScheme
-    }
+    val resolved = resolveTheme(darkTheme, accentTheme, customThemeJson)
 
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = resolved.colorScheme,
         typography = Typography,
         content = {
-            androidx.compose.runtime.CompositionLocalProvider(LocalAccountThemePalette provides (customPalette ?: when {
-                darkTheme && accentTheme == "blue" -> AccountThemePalette(AccountBlueContainer, Color.White, AccountBlueBackground, AccountBlueSurface, AccountBlueSurfaceVariant, AccountBlue, Color(0xFF10233D), AccountBlueContainer, Color(0xFFF0F4FC), Color(0xFFAAB8CC), Color(0xFF344254), AccountBlueSurfaceVariant, Color(0xFF53657C), Color(0xFFD5E5FF), Color(0xFFFF7070), Color(0xFFE2B34E), AccountBlue, Color(0xFF74849A), Color(0x99000000))
-                !darkTheme && accentTheme == "blue" -> AccountThemePalette(AccountLightBlue, Color.White, Color(0xFFF5F7FB), Color.White, Color(0xFFEEF2F8), AccountLightBlue, Color.White, AccountLightBlueContainer, Color(0xFF1C2738), Color(0xFF566579), Color(0xFFD8E1ED), Color(0xFFEEF2F8), Color(0xFF9AAACC), Color(0xFF34548A), Color(0xFFD94E58), Color(0xFFA66A00), AccountLightBlue, Color(0xFF8392A8), Color(0x55000000))
-                darkTheme -> LocalAccountThemePalette.current
-                else -> AccountThemePalette(AccountLightGreen, Color.White, Color(0xFFF4F5F4), Color.White, Color(0xFFF8FAF8), AccountLightGreen, Color.White, AccountLightContainer, Color(0xFF193327), Color(0xFF52665C), Color(0xFFDDE4DF), Color(0xFFF1F4F2), Color(0xFFB9C7BF), Color(0xFF426052), Color(0xFFD94E58), Color(0xFFA66A00), AccountLightGreen, Color(0xFF8A958E), Color(0x55000000))
-            })) { content() }
+            androidx.compose.runtime.CompositionLocalProvider(LocalAccountThemePalette provides resolved.palette) { content() }
         }
     )
 }
