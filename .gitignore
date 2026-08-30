@@ -33,3 +33,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# 本地研究笔记(另一 App 的交互记录),不公开
+plan/REFERENCE_ACCOUNT_APP.md
