@@ -3,6 +3,7 @@ package com.example.account
 import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -130,6 +131,8 @@ private val ACCENT_THEME_SETTING = stringPreferencesKey("accent_theme")
 private val LANGUAGE_TAG_SETTING = stringPreferencesKey("language_tag")
 private val CUSTOM_THEME_JSON_SETTING = stringPreferencesKey("custom_theme_json")
 private val CUSTOM_THEMES_SETTING = stringPreferencesKey("custom_themes")
+private val CLIPBOARD_CLEAR_SETTING = intPreferencesKey("clipboard_clear_seconds")
+private val ALLOW_SCREENSHOTS_SETTING = booleanPreferencesKey("allow_screenshots")
 
 @Serializable
 internal enum class GroupKind { DEFAULT, DYNAMIC, CUSTOM }
@@ -167,7 +170,9 @@ internal data class AppSettings(
     val accentTheme: String = "green",
     val languageTag: String = "zh-CN",
     val customThemeJson: String = "",
-    val customThemes: List<SavedTheme> = emptyList()
+    val customThemes: List<SavedTheme> = emptyList(),
+    val clipboardClearSeconds: Int = 30,
+    val allowScreenshots: Boolean = false
 )
 
 @Serializable
@@ -256,20 +261,6 @@ private class SecureVaultStore(private val context: Context) {
     private val vaultFile = File(context.filesDir, VAULT_FILE_NAME)
 
     fun hasMasterPassword(): Boolean = prefs.contains(PASSWORD_HASH)
-
-    fun verifyMasterPassword(password: String): Boolean {
-        if (!isMasterPasswordValid(password)) return false
-        val salt = prefs.getString(PASSWORD_SALT, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return false
-        val expected = prefs.getString(PASSWORD_HASH, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return false
-        val actual = passwordHash(password, salt)
-        return try {
-            MessageDigest.isEqual(expected, actual)
-        } finally {
-            actual.fill(0)
-            salt.fill(0)
-            expected.fill(0)
-        }
-    }
 
     /** 导出无需再次输入密码，复用首次设置主密码时派生的 KEK 和盐。 */
     fun masterKeyMaterial(): Pair<ByteArray, ByteArray>? {
@@ -487,7 +478,9 @@ fun AccountApp(
     accentTheme: String = "green",
     onAccentThemeChange: (String) -> Unit = {},
     customThemeJson: String = "",
-    onCustomThemeJsonChange: (String) -> Unit = {}
+    onCustomThemeJsonChange: (String) -> Unit = {},
+    allowScreenshots: Boolean = false,
+    onAllowScreenshotsChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val activity = context as? ComponentActivity
@@ -511,11 +504,14 @@ fun AccountApp(
             accentTheme = values[ACCENT_THEME_SETTING] ?: accentTheme,
             languageTag = values[LANGUAGE_TAG_SETTING] ?: "zh-CN",
             customThemeJson = values[CUSTOM_THEME_JSON_SETTING] ?: customThemeJson,
-            customThemes = decodeSavedThemes(values[CUSTOM_THEMES_SETTING].orEmpty())
+            customThemes = decodeSavedThemes(values[CUSTOM_THEMES_SETTING].orEmpty()),
+            clipboardClearSeconds = (values[CLIPBOARD_CLEAR_SETTING] ?: 30).coerceIn(0, 86_400),
+            allowScreenshots = values[ALLOW_SCREENSHOTS_SETTING] ?: allowScreenshots
         )
         onThemeModeChange(settings.themeMode)
         onAccentThemeChange(settings.accentTheme)
         onCustomThemeJsonChange(settings.customThemeJson)
+        onAllowScreenshotsChange(settings.allowScreenshots)
     }
 
     fun persistSettings(value: AppSettings) {
@@ -528,6 +524,8 @@ fun AccountApp(
                 it[LANGUAGE_TAG_SETTING] = value.languageTag
                 it[CUSTOM_THEME_JSON_SETTING] = value.customThemeJson
                 it[CUSTOM_THEMES_SETTING] = encodeSavedThemes(value.customThemes)
+                it[CLIPBOARD_CLEAR_SETTING] = value.clipboardClearSeconds.coerceIn(0, 86_400)
+                it[ALLOW_SCREENSHOTS_SETTING] = value.allowScreenshots
             }
         }
     }
@@ -665,6 +663,7 @@ fun AccountApp(
             accounts = accounts,
             groups = groups,
             selectedGroupId = selectedGroupId,
+            clipboardClearSeconds = settings.clipboardClearSeconds,
             onGroupSelected = { selectedGroupId = it; persistVault() },
             onNewAccount = { page = AppPage.Edit(null) },
             onEditAccount = { page = AppPage.Edit(it) },
@@ -752,6 +751,17 @@ fun AccountApp(
             },
             onBack = { page = AppPage.Home },
             languageTag = settings.languageTag,
+            clipboardClearSeconds = settings.clipboardClearSeconds,
+            onClipboardClearChange = { seconds ->
+                settings = settings.copy(clipboardClearSeconds = seconds.coerceIn(0, 86_400))
+                persistSettings(settings)
+            },
+            allowScreenshots = settings.allowScreenshots,
+            onAllowScreenshotsChange = { enabled ->
+                settings = settings.copy(allowScreenshots = enabled)
+                persistSettings(settings)
+                onAllowScreenshotsChange(enabled)
+            },
             onOpenBackup = { page = AppPage.Backup }
         )
 
@@ -779,7 +789,7 @@ fun AccountApp(
                 }
             },
             onImportBackup = { bytes, password ->
-                if (!store.verifyMasterPassword(password)) null else importAcc(bytes, password).getOrNull()
+                importAcc(bytes, password).getOrNull()
             },
             onApplyImport = { imported ->
                 accounts = imported.vault.accounts
@@ -791,12 +801,14 @@ fun AccountApp(
                 onThemeModeChange(settings.themeMode)
                 onAccentThemeChange(settings.accentTheme)
                 onCustomThemeJsonChange(settings.customThemeJson)
+                onAllowScreenshotsChange(settings.allowScreenshots)
                 page = AppPage.Home
             }
         )
 
         is AppPage.Detail -> AccountDetailScreen(
             account = accounts.firstOrNull { it.id == current.accountId },
+            clipboardClearSeconds = settings.clipboardClearSeconds,
             onBack = { page = AppPage.Home },
             onEdit = { page = AppPage.Edit(current.accountId) }
         )
@@ -876,6 +888,7 @@ private fun HomeScreen(
     accounts: List<Account>,
     groups: List<Group>,
     selectedGroupId: String,
+    clipboardClearSeconds: Int,
     onGroupSelected: (String) -> Unit,
     onNewAccount: () -> Unit,
     onEditAccount: (String) -> Unit,
@@ -938,7 +951,7 @@ private fun HomeScreen(
             }
         }
     }
-    previewAccount?.let { account -> AccountPreviewSheet(account, { previewAccount = null }, { previewAccount = null; onEditAccount(account.id) }, { previewAccount = null; onOpenDetail(account.id) }) }
+    previewAccount?.let { account -> AccountPreviewSheet(account, clipboardClearSeconds, { previewAccount = null }, { previewAccount = null; onEditAccount(account.id) }, { previewAccount = null; onOpenDetail(account.id) }) }
 }
 
 @Composable
@@ -1010,34 +1023,34 @@ private fun EmptyState(text: String, modifier: Modifier = Modifier) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AccountPreviewSheet(account: Account, onDismiss: () -> Unit, onEdit: () -> Unit, onDetail: () -> Unit) {
+private fun AccountPreviewSheet(account: Account, clipboardClearSeconds: Int, onDismiss: () -> Unit, onEdit: () -> Unit, onDetail: () -> Unit) {
     val nowMillis = rememberClock()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState()) {
         Column(modifier = Modifier.fillMaxWidth().padding(20.dp).windowInsetsPadding(WindowInsets.navigationBars)) {
             Row(verticalAlignment = Alignment.CenterVertically) { Text(account.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Spacer(Modifier.weight(1f)); TextButton(onClick = onDetail) { Text("详情") }; TextButton(onClick = onEdit) { Text("编辑") } }
             Spacer(Modifier.height(12.dp))
-            SensitiveValueRow("用户名", account.username)
-            SensitiveValueRow("密码", account.password, masked = true, sensitive = true)
-            if (account.hasTotp) SensitiveValueRow("动态密码", totpCode(account, nowMillis), sensitive = true)
-            account.customFields.forEach { field -> SensitiveValueRow(field.label, field.value, masked = field.hidden, sensitive = field.hidden) }
+            SensitiveValueRow("用户名", account.username, clearAfterSeconds = clipboardClearSeconds)
+            SensitiveValueRow("密码", account.password, masked = true, sensitive = true, clearAfterSeconds = clipboardClearSeconds)
+            if (account.hasTotp) SensitiveValueRow("动态密码", totpCode(account, nowMillis), sensitive = true, clearAfterSeconds = clipboardClearSeconds)
+            account.customFields.forEach { field -> SensitiveValueRow(field.label, field.value, masked = field.hidden, sensitive = field.hidden, clearAfterSeconds = clipboardClearSeconds) }
             Spacer(Modifier.height(16.dp))
         }
     }
 }
 
 /** 写入剪贴板并只在内容仍未被用户替换时自动清除。Android 不需要申请剪贴板权限。 */
-private fun copyToClipboard(context: Context, text: String, sensitive: Boolean) {
+private fun copyToClipboard(context: Context, text: String, sensitive: Boolean, clearAfterSeconds: Int) {
     if (text.isEmpty()) return
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
     clipboard.setPrimaryClip(ClipData.newPlainText("account", text))
-    if (sensitive) Handler(Looper.getMainLooper()).postDelayed({
+    if (sensitive && clearAfterSeconds > 0) Handler(Looper.getMainLooper()).postDelayed({
         val current = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()
         if (current == text) clipboard.clearPrimaryClip()
-    }, 30_000L)
+    }, clearAfterSeconds * 1_000L.toLong())
 }
 
 @Composable
-private fun SensitiveValueRow(label: String, value: String, masked: Boolean = false, sensitive: Boolean = masked) {
+private fun SensitiveValueRow(label: String, value: String, masked: Boolean = false, sensitive: Boolean = masked, clearAfterSeconds: Int = 30) {
     val context = LocalContext.current
     var revealed by remember(value, masked) { mutableStateOf(!masked) }
     val displayed = if (masked && !revealed) "••••••••" else value
@@ -1046,11 +1059,11 @@ private fun SensitiveValueRow(label: String, value: String, masked: Boolean = fa
         Text(
             displayed,
             modifier = Modifier.weight(1f).clickable {
-                if (masked && !revealed) revealed = true else copyToClipboard(context, value, sensitive)
+                if (masked && !revealed) revealed = true else copyToClipboard(context, value, sensitive, clearAfterSeconds)
             },
             fontWeight = if (masked && !revealed) FontWeight.Normal else FontWeight.Medium
         )
-        TextButton(onClick = { copyToClipboard(context, value, sensitive) }) { Text("复制") }
+        TextButton(onClick = { copyToClipboard(context, value, sensitive, clearAfterSeconds) }) { Text("复制") }
     }
 }
 
@@ -1244,7 +1257,7 @@ private fun AccountFieldItem(label: String, value: String, hidden: Boolean, onVa
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AccountDetailScreen(account: Account?, onBack: () -> Unit, onEdit: () -> Unit) {
+private fun AccountDetailScreen(account: Account?, clipboardClearSeconds: Int, onBack: () -> Unit, onEdit: () -> Unit) {
     val nowMillis = rememberClock()
     Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
         TopAppBar(colors = accountTopBarColors(), title = { Text(account?.name ?: "账号详情", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }, actions = { TextButton(onClick = onEdit) { Text("编辑", color = LocalAccountThemePalette.current.topBarText) } })
@@ -1255,11 +1268,11 @@ private fun AccountDetailScreen(account: Account?, onBack: () -> Unit, onEdit: (
             LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 item { Text("分组：${account.groups.joinToString().ifBlank { "默认" }}", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 12.dp)) }
                 item { Text("登录信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
-                item { SensitiveValueRow("用户名", account.username) }
-                item { SensitiveValueRow("密码", account.password, masked = true, sensitive = true) }
+                item { SensitiveValueRow("用户名", account.username, clearAfterSeconds = clipboardClearSeconds) }
+                item { SensitiveValueRow("密码", account.password, masked = true, sensitive = true, clearAfterSeconds = clipboardClearSeconds) }
                 item { Text("两步验证", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
-                item { if (account.hasTotp) SensitiveValueRow("动态密码", totpCode(account, nowMillis), sensitive = true) else Text("未配置", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                items(account.customFields, key = { it.id }) { field -> SensitiveValueRow(field.label, field.value, masked = field.hidden, sensitive = field.hidden) }
+                item { if (account.hasTotp) SensitiveValueRow("动态密码", totpCode(account, nowMillis), sensitive = true, clearAfterSeconds = clipboardClearSeconds) else Text("未配置", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                items(account.customFields, key = { it.id }) { field -> SensitiveValueRow(field.label, field.value, masked = field.hidden, sensitive = field.hidden, clearAfterSeconds = clipboardClearSeconds) }
             }
         }
     }
@@ -1284,7 +1297,11 @@ private fun SettingsScreen(
     onSaveCustomTheme: (String, String) -> Unit,
     onDeleteCustomTheme: (String) -> Unit,
     onBack: () -> Unit,
-    onOpenBackup: () -> Unit
+    onOpenBackup: () -> Unit,
+    clipboardClearSeconds: Int,
+    onClipboardClearChange: (Int) -> Unit,
+    allowScreenshots: Boolean,
+    onAllowScreenshotsChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val presets = remember { defaultThemePresets() }
@@ -1292,11 +1309,15 @@ private fun SettingsScreen(
     var showThemeDialog by remember { mutableStateOf(false) }
     var showAccentDialog by remember { mutableStateOf(false) }
     var showJsonDialog by remember { mutableStateOf(false) }
+    var showClipboardDialog by remember { mutableStateOf(false) }
+    var clipboardDraft by remember { mutableStateOf("") }
+    var clipboardError by remember { mutableStateOf("") }
     var draftThemeJson by remember(customThemeJson) { mutableStateOf(customThemeJson.ifBlank { presets.first().json }) }
     var jsonError by remember { mutableStateOf("") }
     Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { TopAppBar(colors = accountTopBarColors(), title = { Text("设置", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }) }) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { SettingsHeader("安全") }
+            item { SettingsSwitchRow("允许截图", allowScreenshots, onAllowScreenshotsChange) }
             item { SettingsRow("自动锁定", "$autoLockMinutes 分钟") { showAutoLockDialog = true } }
             item {
                 SettingsRow(
@@ -1310,7 +1331,7 @@ private fun SettingsScreen(
                 )
             }
             item { SettingsHeader("剪贴板与外观") }
-            item { SettingsRow("敏感内容自动清除", "30 秒") }
+            item { SettingsRow("敏感内容自动清除", clipboardClearLabel(clipboardClearSeconds)) { clipboardDraft = ""; clipboardError = ""; showClipboardDialog = true } }
             item {
                 SettingsRow(
                     "明暗模式",
@@ -1358,6 +1379,32 @@ private fun SettingsScreen(
             }
         },
         confirmButton = { TextButton(onClick = { showAutoLockDialog = false }) { Text("取消") } }
+    )
+    if (showClipboardDialog) AlertDialog(
+        onDismissRequest = { showClipboardDialog = false },
+        title = { Text("剪贴板清除时间") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf(0 to "关闭自动清除", 15 to "15 秒", 30 to "30 秒", 60 to "60 秒").forEach { (seconds, label) ->
+                    TextButton(onClick = { onClipboardClearChange(seconds); showClipboardDialog = false }, modifier = Modifier.fillMaxWidth()) { Text(label) }
+                }
+                OutlinedTextField(
+                    value = clipboardDraft,
+                    onValueChange = { clipboardDraft = it.filter(Char::isDigit); clipboardError = "" },
+                    label = { Text("自定义秒数（1-86400）") },
+                    singleLine = true
+                )
+                if (clipboardError.isNotBlank()) Text(clipboardError, color = MaterialTheme.colorScheme.error)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val seconds = clipboardDraft.toIntOrNull()
+                if (seconds == null || seconds !in 1..86_400) clipboardError = "请输入 1-86400 之间的整数"
+                else { onClipboardClearChange(seconds); showClipboardDialog = false }
+            }) { Text("保存") }
+        },
+        dismissButton = { TextButton(onClick = { showClipboardDialog = false }) { Text("取消") } }
     )
     if (showThemeDialog) AlertDialog(
         onDismissRequest = { showThemeDialog = false },
@@ -1435,6 +1482,20 @@ private fun languageLabel(languageTag: String): String = when (languageTag) {
     else -> "简体中文"
 }
 
+private fun clipboardClearLabel(seconds: Int): String =
+    if (seconds <= 0) "关闭" else "$seconds 秒"
+
+/** 读取用户在系统文件选择器中明确选中的文件，并保留该文件的读取授权。 */
+private fun readSelectedDocument(context: Context, uri: Uri): Result<ByteArray> = runCatching {
+    val resolver = context.contentResolver
+    // OpenDocument 通常已经授予临时权限；可持久化时保留授权，避免部分文件管理器返回的 URI 稍后失效。
+    runCatching {
+        resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    resolver.openInputStream(uri)?.use { it.readBytes() }
+        ?: error("文件提供方不支持读取")
+}
+
 @Composable
 private fun SettingsHeader(text: String) { Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp)) }
 
@@ -1442,6 +1503,16 @@ private fun SettingsHeader(text: String) { Text(text, color = MaterialTheme.colo
 private fun SettingsRow(title: String, value: String, onClick: (() -> Unit)? = null) {
     Card(onClick = onClick ?: {}, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp), modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Text(title, modifier = Modifier.weight(1f)); Text(value, color = MaterialTheme.colorScheme.primary) }
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Card(onClick = { onCheckedChange(!checked) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, modifier = Modifier.weight(1f))
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
+        }
     }
 }
 
@@ -1462,7 +1533,7 @@ private fun BackupScreen(
     var exportError by remember { mutableStateOf("") }
     var exportSucceeded by remember { mutableStateOf(false) }
     var pendingBytes by remember { mutableStateOf<ByteArray?>(null) }
-    var pendingImportPassword by remember { mutableStateOf("") }
+    var pendingImportBytes by remember { mutableStateOf<ByteArray?>(null) }
     var pendingImportResult by remember { mutableStateOf<AccImportResult?>(null) }
     val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { fileUri ->
         val bytes = pendingBytes
@@ -1482,27 +1553,18 @@ private fun BackupScreen(
         pendingBytes = null
     }
     val openDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) {
-            pendingImportPassword = ""
-            return@rememberLauncherForActivityResult
-        }
-        val password = pendingImportPassword
-        val result = runCatching {
-            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: error("无法读取备份文件")
-            try {
-                onImportBackup(bytes, password) ?: error("主密码错误或文件已损坏")
-            } finally {
-                bytes.fill(0)
+        if (uri != null) {
+            val readResult = readSelectedDocument(context, uri)
+            val bytes = readResult.getOrNull()
+            if (bytes == null) {
+                importError = readResult.exceptionOrNull()?.message?.let { "无法读取备份文件：$it" }
+                    ?: "无法读取备份文件，请重新选择"
+            } else {
+                pendingImportBytes?.fill(0)
+                pendingImportBytes = bytes
+                importError = ""
             }
-        }.getOrNull()
-        pendingImportPassword = ""
-        if (result == null) {
-            importError = "备份密码错误或文件已损坏"
             showImportPasswordDialog = true
-        } else {
-            pendingImportResult = result
-            showImportConfirmDialog = true
         }
     }
     Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { TopAppBar(colors = accountTopBarColors(), title = { Text("加密备份", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }) }) { padding ->
@@ -1510,7 +1572,7 @@ private fun BackupScreen(
             Text("本地加密备份", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("导出使用当前主密码作为备份密码，不需要再次输入。系统会请求你选择保存文件的位置。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = { exportError = ""; exportSucceeded = false; showExportReminder = true }) { Text("导出加密备份 .acc") }
-            TextButton(onClick = { importPassword = ""; importError = ""; showImportPasswordDialog = true }) { Text("从 .acc 恢复") }
+            TextButton(onClick = { importPassword = ""; importError = ""; openDocument.launch(arrayOf("application/json", "application/octet-stream", "*/*")) }) { Text("从 .acc 恢复") }
             if (exportError.isNotBlank()) Text(exportError, color = if (exportSucceeded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -1540,27 +1602,43 @@ private fun BackupScreen(
         dismissButton = { TextButton(onClick = { showExportReminder = false }) { Text("取消", color = MaterialTheme.colorScheme.primary) } }
     )
     if (showImportPasswordDialog) AlertDialog(
-        onDismissRequest = { showImportPasswordDialog = false },
+        onDismissRequest = {
+            showImportPasswordDialog = false
+            pendingImportBytes?.fill(0)
+            pendingImportBytes = null
+        },
         title = { Text("恢复加密备份") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("请输入当前主密码以验证并解密备份。", style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(importPassword, { importPassword = it; importError = "" }, label = { Text("主密码（4-20 个字符）") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                Text("文件已选择，请输入该备份设置的密码以验证并解密。", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(importPassword, { importPassword = it; importError = "" }, label = { Text("备份密码（4-20 个字符）") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
                 if (importError.isNotBlank()) Text(importError, color = MaterialTheme.colorScheme.error)
             }
         },
         confirmButton = {
             TextButton(onClick = {
                 if (!isMasterPasswordValid(importPassword)) {
-                    importError = "主密码长度需为 4-20 个字符"
+                    importError = "备份密码长度需为 4-20 个字符"
                 } else {
-                    pendingImportPassword = importPassword
-                    showImportPasswordDialog = false
-                    openDocument.launch(arrayOf("application/json", "application/octet-stream", "*/*"))
+                    val bytes = pendingImportBytes
+                    val result = bytes?.let { onImportBackup(it, importPassword) }
+                    if (result == null) {
+                        importError = "备份密码错误或文件已损坏"
+                    } else {
+                        bytes?.fill(0)
+                        pendingImportBytes = null
+                        showImportPasswordDialog = false
+                        pendingImportResult = result
+                        showImportConfirmDialog = true
+                    }
                 }
-            }) { Text("选择文件", color = MaterialTheme.colorScheme.primary) }
+            }) { Text("验证并继续", color = MaterialTheme.colorScheme.primary) }
         },
-        dismissButton = { TextButton(onClick = { showImportPasswordDialog = false }) { Text("取消", color = MaterialTheme.colorScheme.primary) } }
+        dismissButton = { TextButton(onClick = {
+            showImportPasswordDialog = false
+            pendingImportBytes?.fill(0)
+            pendingImportBytes = null
+        }) { Text("取消", color = MaterialTheme.colorScheme.primary) } }
     )
     if (showImportConfirmDialog) {
         val result = pendingImportResult
