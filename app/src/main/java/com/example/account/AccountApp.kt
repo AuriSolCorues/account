@@ -262,6 +262,29 @@ private class SecureVaultStore(private val context: Context) {
 
     fun hasMasterPassword(): Boolean = prefs.contains(PASSWORD_HASH)
 
+    /** 已解锁时使用当前 DEK 重新包装，直接替换主密码的 KEK 元数据。 */
+    fun changeMasterPassword(newPassword: String, dek: ByteArray): Result<Unit> = runCatching {
+        require(isMasterPasswordValid(newPassword)) { "主密码长度需为 4-20 个字符" }
+        require(dek.size == 32) { "当前密码库密钥无效，请重新解锁" }
+        val newSalt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val newKek = passwordHash(newPassword, newSalt)
+        val wrapped = encryptBytes(newKek, dek)
+        try {
+            val committed = prefs.edit()
+                .putString(PASSWORD_SALT, Base64.encodeToString(newSalt, Base64.NO_WRAP))
+                .putString(PASSWORD_HASH, Base64.encodeToString(newKek, Base64.NO_WRAP))
+                .putString(PASSWORD_WRAPPED_DEK, Base64.encodeToString(wrapped.ciphertext, Base64.NO_WRAP))
+                .putString(PASSWORD_WRAP_IV, Base64.encodeToString(wrapped.iv, Base64.NO_WRAP))
+                .commit()
+            require(committed) { "主密码保存失败，请重试" }
+        } finally {
+            newSalt.fill(0)
+            newKek.fill(0)
+            wrapped.iv.fill(0)
+            wrapped.ciphertext.fill(0)
+        }
+    }
+
     /** 导出无需再次输入密码，复用首次设置主密码时派生的 KEK 和盐。 */
     fun masterKeyMaterial(): Pair<ByteArray, ByteArray>? {
         val salt = prefs.getString(PASSWORD_SALT, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
@@ -701,6 +724,10 @@ fun AccountApp(
             biometricEnabled = settings.biometricEnabled,
             biometricAvailable = store.biometricAvailable(),
             onToggleBiometric = ::configureBiometric,
+            onChangeMasterPassword = { newPassword ->
+                dataKey?.let { store.changeMasterPassword(newPassword, it) }
+                    ?: Result.failure(IllegalStateException("当前未解锁，请重新解锁后重试"))
+            },
             autoLockMinutes = settings.autoLockMinutes,
             onAutoLockChange = { minutes ->
                 settings = settings.copy(autoLockMinutes = minutes.coerceAtLeast(1))
@@ -903,7 +930,7 @@ private fun HomeScreen(
     LaunchedEffect(Unit) {
         while (true) {
             nowMillis = System.currentTimeMillis()
-            delay(1000)
+            delay(100)
         }
     }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -929,14 +956,14 @@ private fun HomeScreen(
                 actions = {
                     IconButton(onClick = onNewAccount) { Text("＋", color = LocalAccountThemePalette.current.topBarText, fontSize = 24.sp) }
                     IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) searchQuery = "" }) { Text("⌕", color = LocalAccountThemePalette.current.topBarText, fontSize = 22.sp) }
-                    IconButton(onClick = onManageGroups) { Text("☰", color = LocalAccountThemePalette.current.topBarText, fontSize = 20.sp) }
+                    IconButton(onClick = onOpenSettings) { Text("☰", color = LocalAccountThemePalette.current.topBarText, fontSize = 20.sp) }
                 }
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Row(modifier = Modifier.fillMaxSize().padding(padding)) {
-            GroupSidebar(groups, selectedGroupId, onGroupSelected, onManageGroups, onOpenSettings, Modifier.width(132.dp).fillMaxHeight())
+            GroupSidebar(groups, selectedGroupId, onGroupSelected, onManageGroups, Modifier.width(104.dp).fillMaxHeight())
             Column(modifier = Modifier.weight(1f).fillMaxHeight().padding(horizontal = 12.dp)) {
                 Text("${selectedGroup.name} · ${visibleAccounts.size} 条", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
                 if (visibleAccounts.isEmpty()) {
@@ -944,7 +971,7 @@ private fun HomeScreen(
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                         items(visibleAccounts, key = { it.id }) { account ->
-                            AccountCard(account, selectedGroup.kind == GroupKind.DYNAMIC, nowMillis, { previewAccount = account }, { onEditAccount(account.id) })
+                            AccountCard(account, selectedGroup.kind == GroupKind.DYNAMIC, nowMillis, { previewAccount = account })
                         }
                     }
                 }
@@ -960,16 +987,15 @@ private fun GroupSidebar(
     selectedGroupId: String,
     onGroupSelected: (String) -> Unit,
     onManageGroups: () -> Unit,
-    onOpenSettings: () -> Unit,
     modifier: Modifier
 ) {
     Column(modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(8.dp)) {
         BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            val rowsPerColumn = maxOf(1, ((maxHeight.value - 8f) / 48f).toInt())
+            val rowsPerColumn = maxOf(1, ((maxHeight.value - 8f) / 42f).toInt())
             Column {
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     groups.chunked(rowsPerColumn).forEach { column ->
-                        Column(modifier = Modifier.width(116.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(modifier = Modifier.width(96.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             column.forEach { group ->
                                 val selected = group.id == selectedGroupId
                                 val selectionColor by animateColorAsState(
@@ -984,7 +1010,7 @@ private fun GroupSidebar(
                                         .border(if (selected) 1.dp else 0.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
                                         .clickable { onGroupSelected(group.id) }
                                 ) {
-                                    Text(group.name, maxLines = 2, overflow = TextOverflow.Ellipsis, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp))
+                                    Text(group.name, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.padding(horizontal = 6.dp, vertical = 7.dp))
                                 }
                             }
                         }
@@ -994,24 +1020,37 @@ private fun GroupSidebar(
             }
         }
         HorizontalDivider()
-        TextButton(onClick = onManageGroups, modifier = Modifier.fillMaxWidth()) { Text("⚙ 分组管理") }
-        TextButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) { Text("设置") }
+        TextButton(onClick = onManageGroups, modifier = Modifier.fillMaxWidth()) { Text("⚙ 分组管理", style = MaterialTheme.typography.labelSmall) }
     }
 }
 
 @Composable
-private fun AccountCard(account: Account, showTotp: Boolean, nowMillis: Long, onClick: () -> Unit, onEdit: () -> Unit) {
+private fun AccountCard(account: Account, showTotp: Boolean, nowMillis: Long, onClick: () -> Unit) {
     Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(50), modifier = Modifier.size(36.dp)) {
-                Box(contentAlignment = Alignment.Center) { Text(account.name.take(1), fontWeight = FontWeight.Bold) }
+        Column(modifier = Modifier.fillMaxWidth()) {
+            if (showTotp && account.hasTotp) {
+                val period = account.totpPeriod.coerceAtLeast(1)
+                val periodMillis = period * 1000L
+                val elapsedFraction = (nowMillis % periodMillis).toFloat() / periodMillis
+                val remainingFraction = (1f - elapsedFraction).coerceIn(0f, 1f)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(remainingFraction)
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
             }
-            Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(account.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(if (showTotp && account.hasTotp) "${totpCode(account, nowMillis)}  ·  ${account.totpPeriod - (nowMillis / 1000L % account.totpPeriod)} 秒" else account.username, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Text(account.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(if (showTotp && account.hasTotp) "${totpCode(account, nowMillis)}  ·  ${account.totpPeriod - (nowMillis / 1000L % account.totpPeriod)} 秒" else account.username, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (account.hasTotp) Text("2FA", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
-            TextButton(onClick = onEdit) { Text("⋮") }
         }
     }
 }
@@ -1284,6 +1323,7 @@ private fun SettingsScreen(
     biometricEnabled: Boolean,
     biometricAvailable: Boolean,
     onToggleBiometric: (Boolean) -> Unit,
+    onChangeMasterPassword: (String) -> Result<Unit>,
     autoLockMinutes: Int,
     onAutoLockChange: (Int) -> Unit,
     themeMode: String,
@@ -1310,8 +1350,13 @@ private fun SettingsScreen(
     var showAccentDialog by remember { mutableStateOf(false) }
     var showJsonDialog by remember { mutableStateOf(false) }
     var showClipboardDialog by remember { mutableStateOf(false) }
+    var showChangePasswordDialog by remember { mutableStateOf(false) }
     var clipboardDraft by remember { mutableStateOf("") }
     var clipboardError by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmNewPassword by remember { mutableStateOf("") }
+    var changePasswordError by remember { mutableStateOf("") }
+    var changePasswordMessage by remember { mutableStateOf("") }
     var draftThemeJson by remember(customThemeJson) { mutableStateOf(customThemeJson.ifBlank { presets.first().json }) }
     var jsonError by remember { mutableStateOf("") }
     Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { TopAppBar(colors = accountTopBarColors(), title = { Text("设置", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }) }) { padding ->
@@ -1329,6 +1374,17 @@ private fun SettingsScreen(
                     },
                     if (biometricAvailable) { { onToggleBiometric(!biometricEnabled) } } else null
                 )
+            }
+            item {
+                SettingsRow("修改主密码", "打开") {
+                    newPassword = ""
+                    confirmNewPassword = ""
+                    changePasswordError = ""
+                    showChangePasswordDialog = true
+                }
+            }
+            if (changePasswordMessage.isNotBlank()) {
+                item { Text(changePasswordMessage, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
             }
             item { SettingsHeader("剪贴板与外观") }
             item { SettingsRow("敏感内容自动清除", clipboardClearLabel(clipboardClearSeconds)) { clipboardDraft = ""; clipboardError = ""; showClipboardDialog = true } }
@@ -1366,6 +1422,50 @@ private fun SettingsScreen(
             item { SettingsRow("加密备份", "打开", onOpenBackup) }
         }
     }
+    if (showChangePasswordDialog) AlertDialog(
+        onDismissRequest = { showChangePasswordDialog = false },
+        title = { Text("修改主密码") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("请输入新的主密码。修改后请记住新密码。", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(
+                    value = newPassword,
+                    onValueChange = { newPassword = it; changePasswordError = "" },
+                    label = { Text("新主密码（4-20 个字符）") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation()
+                )
+                OutlinedTextField(
+                    value = confirmNewPassword,
+                    onValueChange = { confirmNewPassword = it; changePasswordError = "" },
+                    label = { Text("再次输入新主密码") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation()
+                )
+                if (changePasswordError.isNotBlank()) Text(changePasswordError, color = MaterialTheme.colorScheme.error)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                when {
+                    !isMasterPasswordValid(newPassword) -> changePasswordError = "主密码长度需为 4-20 个字符"
+                    newPassword != confirmNewPassword -> changePasswordError = "两次输入的主密码不一致"
+                    else -> {
+                        val result = onChangeMasterPassword(newPassword)
+                        if (result.isSuccess) {
+                            showChangePasswordDialog = false
+                            newPassword = ""
+                            confirmNewPassword = ""
+                            changePasswordMessage = "主密码已修改"
+                        } else {
+                            changePasswordError = result.exceptionOrNull()?.message ?: "主密码保存失败，请重试"
+                        }
+                    }
+                }
+            }) { Text("保存") }
+        },
+        dismissButton = { TextButton(onClick = { showChangePasswordDialog = false }) { Text("取消") } }
+    )
     if (showAutoLockDialog) AlertDialog(
         onDismissRequest = { showAutoLockDialog = false },
         title = { Text("自动锁定") },
