@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.Account" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/account_background</item>
+        <item name="android:colorAccent">@color/account_background</item>
+        <item name="android:statusBarColor">@color/account_background</item>
+        <item name="android:navigationBarColor">@color/account_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

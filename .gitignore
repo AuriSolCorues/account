@@ -1,0 +1,34 @@
+# Gradle
+.gradle/
+**/build/
+
+# Local machine configuration
+local.properties
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Kotlin and native build caches
+.kotlin/
+.externalNativeBuild/
+.cxx/
+
+# Android build outputs and reports
+captures/
+*.apk
+*.aab
+*.ap_
+
+# Signing credentials (keep these out of version control)
+*.jks
+*.keystore
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
