@@ -21,19 +21,18 @@ import androidx.compose.ui.graphics.luminance
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Draw behind system bars so the top bar reaches the display cutout
-        // without a separate white strip on fullscreen devices.
+        // 内容延伸到系统栏后方，让顶栏覆盖刘海区域，避免全屏设备出现白色边条。
         enableEdgeToEdge()
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
             var themeMode by remember {
-                mutableStateOf(getSharedPreferences("account_ui", MODE_PRIVATE).getString("theme_mode", "dark") ?: "dark")
+                mutableStateOf("dark")
             }
             var accentTheme by remember {
-                mutableStateOf(getSharedPreferences("account_ui", MODE_PRIVATE).getString("accent_theme", "green") ?: "green")
+                mutableStateOf("green")
             }
             var customThemeJson by remember {
-                mutableStateOf(getSharedPreferences("account_ui", MODE_PRIVATE).getString("custom_theme_json", "") ?: "")
+                mutableStateOf("")
             }
             val darkTheme = when (themeMode) {
                 "light" -> false
@@ -62,17 +61,14 @@ class MainActivity : FragmentActivity() {
                         themeMode = themeMode,
                         onThemeModeChange = { mode ->
                             themeMode = mode
-                            getSharedPreferences("account_ui", MODE_PRIVATE).edit().putString("theme_mode", mode).apply()
                         },
                         accentTheme = accentTheme,
                         onAccentThemeChange = { accent ->
                             accentTheme = accent
-                            getSharedPreferences("account_ui", MODE_PRIVATE).edit().putString("accent_theme", accent).apply()
                         },
                         customThemeJson = customThemeJson,
                         onCustomThemeJsonChange = { json ->
                             customThemeJson = json
-                            getSharedPreferences("account_ui", MODE_PRIVATE).edit().putString("custom_theme_json", json).apply()
                         }
                     )
                 }

@@ -7,7 +7,6 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.Build
-import android.provider.DocumentsContract
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -106,6 +105,7 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.io.File
 import java.io.FileInputStream
+import java.text.Normalizer
 import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
 import javax.crypto.Mac
@@ -127,17 +127,18 @@ private val BIOMETRIC_SETTING = booleanPreferencesKey("biometric_enabled")
 private val AUTO_LOCK_SETTING = intPreferencesKey("auto_lock_minutes")
 private val THEME_MODE_SETTING = stringPreferencesKey("theme_mode")
 private val ACCENT_THEME_SETTING = stringPreferencesKey("accent_theme")
+private val LANGUAGE_TAG_SETTING = stringPreferencesKey("language_tag")
 private val CUSTOM_THEME_JSON_SETTING = stringPreferencesKey("custom_theme_json")
 private val CUSTOM_THEMES_SETTING = stringPreferencesKey("custom_themes")
 
 @Serializable
-private enum class GroupKind { DEFAULT, DYNAMIC, CUSTOM }
+internal enum class GroupKind { DEFAULT, DYNAMIC, CUSTOM }
 
 @Serializable
-private data class Group(val id: String, val name: String, val kind: GroupKind)
+internal data class Group(val id: String, val name: String, val kind: GroupKind)
 
 @Serializable
-private data class AccountField(
+internal data class AccountField(
     val id: String,
     val label: String,
     val value: String,
@@ -145,7 +146,7 @@ private data class AccountField(
 )
 
 @Serializable
-private data class Account(
+internal data class Account(
     val id: String,
     val name: String,
     val username: String,
@@ -159,17 +160,18 @@ private data class Account(
     val customFields: List<AccountField> = emptyList()
 )
 
-private data class AppSettings(
+internal data class AppSettings(
     val biometricEnabled: Boolean = false,
     val autoLockMinutes: Int = 5,
     val themeMode: String = "dark",
     val accentTheme: String = "green",
+    val languageTag: String = "zh-CN",
     val customThemeJson: String = "",
     val customThemes: List<SavedTheme> = emptyList()
 )
 
 @Serializable
-private data class PersistedVault(
+internal data class PersistedVault(
     val version: Int = 1,
     val accounts: List<Account>,
     val groups: List<Group>,
@@ -179,35 +181,6 @@ private data class PersistedVault(
 @Serializable
 private data class EncryptedFile(
     val version: Int = 1,
-    val iv: String,
-    val ciphertext: String
-)
-
-/** .acc 文件的可读外层结构。根节点只保留这两个字段，便于跨设备恢复。 */
-@Serializable
-private data class BackupDocument(
-    val passwordVault: String,
-    val appSettings: BackupSettings
-)
-
-/** 备份内的软件偏好；不包含 WebDAV 凭据、生物识别状态或安全日志。 */
-@Serializable
-private data class BackupSettings(
-    val themeMode: String,
-    val accentTheme: String,
-    val customThemeJson: String = "",
-    val autoLockSeconds: Int,
-    val clipboardClearSeconds: Int = 30,
-    val logRetentionDays: Int = 90
-)
-
-/** passwordVault 的独立 KDF/AES-GCM 包装。每次导出都会生成新的随机盐和 IV。 */
-@Serializable
-private data class BackupPayload(
-    val version: Int = 1,
-    val kdf: String = "PBKDF2-HMAC-SHA256",
-    val iterations: Int = PASSWORD_ITERATIONS,
-    val salt: String,
     val iv: String,
     val ciphertext: String
 )
@@ -236,9 +209,9 @@ private const val BIOMETRIC_WRAPPED_DEK = "biometric_wrapped_dek"
 private const val BIOMETRIC_WRAP_IV = "biometric_wrap_iv"
 private const val BIOMETRIC_ALIAS = "account_vault_biometric"
 private const val VAULT_FILE_NAME = "vault.bin"
-private const val PASSWORD_ITERATIONS = 120_000
+internal const val PASSWORD_ITERATIONS = 120_000
 
-private val vaultJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
+internal val vaultJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
 /** 自定义主题列表单独保存，密码库本身不包含界面偏好。 */
 private fun decodeSavedThemes(raw: String): List<SavedTheme> = runCatching {
@@ -248,8 +221,15 @@ private fun decodeSavedThemes(raw: String): List<SavedTheme> = runCatching {
 private fun encodeSavedThemes(themes: List<SavedTheme>): String =
     vaultJson.encodeToString(themes)
 
-private fun passwordHash(password: String, salt: ByteArray): ByteArray {
-    val spec = PBEKeySpec(password.toCharArray(), salt, PASSWORD_ITERATIONS, 256)
+/** 主密码允许中文、英文、数字和符号，长度按 Unicode 码点计算。 */
+internal fun isMasterPasswordValid(password: String): Boolean =
+    password.codePointCount(0, password.length) in 4..20
+
+private fun normalizePassword(password: String): String =
+    Normalizer.normalize(password, Normalizer.Form.NFC)
+
+internal fun passwordHash(password: String, salt: ByteArray, iterations: Int = PASSWORD_ITERATIONS): ByteArray {
+    val spec = PBEKeySpec(normalizePassword(password).toCharArray(), salt, iterations, 256)
     return try {
         SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
     } finally {
@@ -257,51 +237,46 @@ private fun passwordHash(password: String, salt: ByteArray): ByteArray {
     }
 }
 
-private data class CipherPayload(val iv: ByteArray, val ciphertext: ByteArray)
+internal data class CipherPayload(val iv: ByteArray, val ciphertext: ByteArray)
 
-private fun encryptBytes(key: ByteArray, plaintext: ByteArray): CipherPayload {
+internal fun encryptBytes(key: ByteArray, plaintext: ByteArray): CipherPayload {
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"))
     return CipherPayload(cipher.iv, cipher.doFinal(plaintext))
 }
 
-private fun decryptBytes(key: ByteArray, iv: ByteArray, ciphertext: ByteArray): ByteArray {
+internal fun decryptBytes(key: ByteArray, iv: ByteArray, ciphertext: ByteArray): ByteArray {
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
     return cipher.doFinal(ciphertext)
 }
-
-/** 生成可写入 .acc 的加密备份。备份密码可与主密码不同。 */
-private fun createEncryptedBackup(state: PersistedVault, settings: AppSettings, backupPassword: String): ByteArray? = runCatching {
-    require(backupPassword.isNotEmpty())
-    val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
-    val key = passwordHash(backupPassword, salt)
-    val plain = vaultJson.encodeToString(PersistedVault.serializer(), state).toByteArray(Charsets.UTF_8)
-    val encrypted = encryptBytes(key, plain)
-    key.fill(0)
-    plain.fill(0)
-    val payload = BackupPayload(
-        salt = Base64.encodeToString(salt, Base64.NO_WRAP),
-        iv = Base64.encodeToString(encrypted.iv, Base64.NO_WRAP),
-        ciphertext = Base64.encodeToString(encrypted.ciphertext, Base64.NO_WRAP)
-    )
-    val document = BackupDocument(
-        passwordVault = Base64.encodeToString(vaultJson.encodeToString(BackupPayload.serializer(), payload).toByteArray(Charsets.UTF_8), Base64.NO_WRAP),
-        appSettings = BackupSettings(
-            themeMode = settings.themeMode,
-            accentTheme = settings.accentTheme,
-            customThemeJson = settings.customThemeJson,
-            autoLockSeconds = settings.autoLockMinutes.coerceAtLeast(1) * 60
-        )
-    )
-    vaultJson.encodeToString(BackupDocument.serializer(), document).toByteArray(Charsets.UTF_8)
-}.getOrNull()
 
 private class SecureVaultStore(private val context: Context) {
     private val prefs = context.getSharedPreferences(SECURITY_PREFS, Context.MODE_PRIVATE)
     private val vaultFile = File(context.filesDir, VAULT_FILE_NAME)
 
     fun hasMasterPassword(): Boolean = prefs.contains(PASSWORD_HASH)
+
+    fun verifyMasterPassword(password: String): Boolean {
+        if (!isMasterPasswordValid(password)) return false
+        val salt = prefs.getString(PASSWORD_SALT, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return false
+        val expected = prefs.getString(PASSWORD_HASH, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return false
+        val actual = passwordHash(password, salt)
+        return try {
+            MessageDigest.isEqual(expected, actual)
+        } finally {
+            actual.fill(0)
+            salt.fill(0)
+            expected.fill(0)
+        }
+    }
+
+    /** 导出无需再次输入密码，复用首次设置主密码时派生的 KEK 和盐。 */
+    fun masterKeyMaterial(): Pair<ByteArray, ByteArray>? {
+        val salt = prefs.getString(PASSWORD_SALT, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
+        val key = prefs.getString(PASSWORD_HASH, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
+        return if (salt.isNotEmpty() && key.size == 32) key to salt else null
+    }
 
     fun createInitial(password: String, state: PersistedVault): ByteArray {
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
@@ -322,22 +297,28 @@ private class SecureVaultStore(private val context: Context) {
         val salt = prefs.getString(PASSWORD_SALT, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
         val expected = prefs.getString(PASSWORD_HASH, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
         val kek = passwordHash(password, salt)
-        if (!MessageDigest.isEqual(expected, kek)) return null
-        val wrapped = prefs.getString(PASSWORD_WRAPPED_DEK, null)?.let { Base64.decode(it, Base64.DEFAULT) }
-        val iv = prefs.getString(PASSWORD_WRAP_IV, null)?.let { Base64.decode(it, Base64.DEFAULT) }
-        val dek = if (wrapped != null && iv != null) {
-            runCatching { decryptBytes(kek, iv, wrapped) }.getOrNull()
-        } else null
-        val actualDek = dek ?: ByteArray(32).also { SecureRandom().nextBytes(it) }.also {
-            val payload = encryptBytes(kek, it)
-            prefs.edit()
-                .putString(PASSWORD_WRAPPED_DEK, Base64.encodeToString(payload.ciphertext, Base64.NO_WRAP))
-                .putString(PASSWORD_WRAP_IV, Base64.encodeToString(payload.iv, Base64.NO_WRAP))
-                .apply()
+        return try {
+            if (!MessageDigest.isEqual(expected, kek)) return null
+            val wrapped = prefs.getString(PASSWORD_WRAPPED_DEK, null)?.let { Base64.decode(it, Base64.DEFAULT) }
+            val iv = prefs.getString(PASSWORD_WRAP_IV, null)?.let { Base64.decode(it, Base64.DEFAULT) }
+            val dek = if (wrapped != null && iv != null) {
+                runCatching { decryptBytes(kek, iv, wrapped) }.getOrNull()
+            } else null
+            val actualDek = dek ?: ByteArray(32).also { SecureRandom().nextBytes(it) }.also {
+                val payload = encryptBytes(kek, it)
+                prefs.edit()
+                    .putString(PASSWORD_WRAPPED_DEK, Base64.encodeToString(payload.ciphertext, Base64.NO_WRAP))
+                    .putString(PASSWORD_WRAP_IV, Base64.encodeToString(payload.iv, Base64.NO_WRAP))
+                    .apply()
+            }
+            val state = load(actualDek) ?: PersistedVault(accounts = initialAccounts, groups = initialGroups)
+            if (!vaultFile.exists()) save(state, actualDek)
+            actualDek to state
+        } finally {
+            salt.fill(0)
+            expected.fill(0)
+            kek.fill(0)
         }
-        val state = load(actualDek) ?: PersistedVault(accounts = initialAccounts, groups = initialGroups)
-        if (!vaultFile.exists()) save(state, actualDek)
-        return actualDek to state
     }
 
     fun save(state: PersistedVault, dek: ByteArray) {
@@ -481,8 +462,7 @@ private fun rememberClock(): Long {
 
 @Composable
 private fun accountTopBarColors() = TopAppBarDefaults.topAppBarColors(
-    // Every page uses one complete palette. Do not mix a light top bar with a
-    // dark body (or vice versa) when the user changes theme.
+    // 每个页面使用完整的一套色板，切换主题时不混用明暗不同的顶栏和内容区。
     containerColor = LocalAccountThemePalette.current.topBar,
     titleContentColor = LocalAccountThemePalette.current.topBarText,
     navigationIconContentColor = LocalAccountThemePalette.current.topBarText,
@@ -493,7 +473,6 @@ private sealed interface AppPage {
     data object Unlock : AppPage
     data object Home : AppPage
     data object Groups : AppPage
-    data object Logs : AppPage
     data object Settings : AppPage
     data object Backup : AppPage
     data class Detail(val accountId: String) : AppPage
@@ -530,6 +509,7 @@ fun AccountApp(
             autoLockMinutes = (values[AUTO_LOCK_SETTING] ?: 5).coerceAtLeast(1),
             themeMode = values[THEME_MODE_SETTING] ?: themeMode,
             accentTheme = values[ACCENT_THEME_SETTING] ?: accentTheme,
+            languageTag = values[LANGUAGE_TAG_SETTING] ?: "zh-CN",
             customThemeJson = values[CUSTOM_THEME_JSON_SETTING] ?: customThemeJson,
             customThemes = decodeSavedThemes(values[CUSTOM_THEMES_SETTING].orEmpty())
         )
@@ -545,6 +525,7 @@ fun AccountApp(
                 it[AUTO_LOCK_SETTING] = value.autoLockMinutes
                 it[THEME_MODE_SETTING] = value.themeMode
                 it[ACCENT_THEME_SETTING] = value.accentTheme
+                it[LANGUAGE_TAG_SETTING] = value.languageTag
                 it[CUSTOM_THEME_JSON_SETTING] = value.customThemeJson
                 it[CUSTOM_THEMES_SETTING] = encodeSavedThemes(value.customThemes)
             }
@@ -652,8 +633,7 @@ fun AccountApp(
     fun createGroup(name: String): String {
         val id = "custom-${System.currentTimeMillis()}"
         groups = groups + Group(id, name.trim(), GroupKind.CUSTOM)
-        // Persist immediately so a group created from the account editor is
-        // not lost if the user leaves without saving the account.
+        // 立即保存分组，避免用户离开账号编辑页但未保存账号时丢失分组。
         persistVault()
         return id
     }
@@ -689,7 +669,6 @@ fun AccountApp(
             onNewAccount = { page = AppPage.Edit(null) },
             onEditAccount = { page = AppPage.Edit(it) },
             onManageGroups = { page = AppPage.Groups },
-            onOpenLogs = { page = AppPage.Logs },
             onOpenSettings = { page = AppPage.Settings },
             onOpenDetail = { page = AppPage.Detail(it) }
         )
@@ -718,8 +697,6 @@ fun AccountApp(
                 }
             }
         )
-
-        AppPage.Logs -> SecurityLogScreen(onBack = { page = AppPage.Home })
 
         AppPage.Settings -> SettingsScreen(
             biometricEnabled = settings.biometricEnabled,
@@ -774,17 +751,47 @@ fun AccountApp(
                 persistSettings(settings)
             },
             onBack = { page = AppPage.Home },
+            languageTag = settings.languageTag,
             onOpenBackup = { page = AppPage.Backup }
         )
 
         AppPage.Backup -> BackupScreen(
             onBack = { page = AppPage.Settings },
-            onCreateBackup = { password ->
-                createEncryptedBackup(
-                    PersistedVault(accounts = accounts, groups = groups, selectedGroupId = selectedGroupId),
-                    settings,
-                    password
-                )
+            onCreateBackup = {
+                val material = store.masterKeyMaterial()
+                if (material == null) {
+                    Result.failure(IllegalStateException("未找到主密码密钥，请重新解锁"))
+                } else {
+                    val (key, salt) = material
+                    runCatching {
+                        exportAcc(
+                            AccExportInput(
+                                PersistedVault(accounts = accounts, groups = groups, selectedGroupId = selectedGroupId),
+                                settings
+                            ),
+                            key,
+                            salt
+                        )
+                    }.also {
+                        key.fill(0)
+                        salt.fill(0)
+                    }
+                }
+            },
+            onImportBackup = { bytes, password ->
+                if (!store.verifyMasterPassword(password)) null else importAcc(bytes, password).getOrNull()
+            },
+            onApplyImport = { imported ->
+                accounts = imported.vault.accounts
+                groups = imported.vault.groups.ifEmpty { initialGroups }
+                selectedGroupId = imported.vault.selectedGroupId.ifBlank { "default" }
+                settings = imported.settings
+                persistVault()
+                persistSettings(settings)
+                onThemeModeChange(settings.themeMode)
+                onAccentThemeChange(settings.accentTheme)
+                onCustomThemeJsonChange(settings.customThemeJson)
+                page = AppPage.Home
             }
         )
 
@@ -851,11 +858,11 @@ private fun UnlockScreen(
         }
         if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
         if (showPassword) androidx.compose.material3.Button(onClick = {
-            if (firstUse && password != confirmation) error = "两次输入的主密码不一致"
-            else if (password.isBlank()) error = "请输入主密码"
+            if (!isMasterPasswordValid(password)) error = "主密码长度需为 4-20 个字符"
+            else if (firstUse && password != confirmation) error = "两次输入的主密码不一致"
             else if (!onUnlock(password)) error = "无法解锁"
             else error = ""
-        }, enabled = password.isNotBlank(), modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+        }, enabled = isMasterPasswordValid(password), modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
             Text(if (firstUse) "设置并进入" else "解锁")
         }
         if (!firstUse && biometricEnabled) TextButton(onClick = onBiometricUnlock) { Text("◉ 使用指纹 / 面容解锁") }
@@ -873,7 +880,6 @@ private fun HomeScreen(
     onNewAccount: () -> Unit,
     onEditAccount: (String) -> Unit,
     onManageGroups: () -> Unit,
-    onOpenLogs: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDetail: (String) -> Unit
 ) {
@@ -905,19 +911,19 @@ private fun HomeScreen(
                 colors = accountTopBarColors(),
                 title = {
                     if (searchOpen) OutlinedTextField(searchQuery, { searchQuery = it }, placeholder = { Text("搜索账号") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    else Text("账号本子", fontWeight = FontWeight.Bold)
+                    else Text("账号本子", color = LocalAccountThemePalette.current.topBarText, fontWeight = FontWeight.Bold)
                 },
                 actions = {
-                    IconButton(onClick = onNewAccount) { Text("＋", fontSize = 24.sp) }
-                    IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) searchQuery = "" }) { Text("⌕", fontSize = 22.sp) }
-                    IconButton(onClick = onManageGroups) { Text("☰", fontSize = 20.sp) }
+                    IconButton(onClick = onNewAccount) { Text("＋", color = LocalAccountThemePalette.current.topBarText, fontSize = 24.sp) }
+                    IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) searchQuery = "" }) { Text("⌕", color = LocalAccountThemePalette.current.topBarText, fontSize = 22.sp) }
+                    IconButton(onClick = onManageGroups) { Text("☰", color = LocalAccountThemePalette.current.topBarText, fontSize = 20.sp) }
                 }
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Row(modifier = Modifier.fillMaxSize().padding(padding)) {
-            GroupSidebar(groups, selectedGroupId, onGroupSelected, onManageGroups, onOpenLogs, onOpenSettings, Modifier.width(132.dp).fillMaxHeight())
+            GroupSidebar(groups, selectedGroupId, onGroupSelected, onManageGroups, onOpenSettings, Modifier.width(132.dp).fillMaxHeight())
             Column(modifier = Modifier.weight(1f).fillMaxHeight().padding(horizontal = 12.dp)) {
                 Text("${selectedGroup.name} · ${visibleAccounts.size} 条", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
                 if (visibleAccounts.isEmpty()) {
@@ -941,7 +947,6 @@ private fun GroupSidebar(
     selectedGroupId: String,
     onGroupSelected: (String) -> Unit,
     onManageGroups: () -> Unit,
-    onOpenLogs: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier
 ) {
@@ -978,7 +983,6 @@ private fun GroupSidebar(
         HorizontalDivider()
         TextButton(onClick = onManageGroups, modifier = Modifier.fillMaxWidth()) { Text("⚙ 分组管理") }
         TextButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) { Text("设置") }
-        TextButton(onClick = onOpenLogs, modifier = Modifier.fillMaxWidth()) { Text("◷ 安全日志") }
     }
 }
 
@@ -1013,20 +1017,40 @@ private fun AccountPreviewSheet(account: Account, onDismiss: () -> Unit, onEdit:
             Row(verticalAlignment = Alignment.CenterVertically) { Text(account.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Spacer(Modifier.weight(1f)); TextButton(onClick = onDetail) { Text("详情") }; TextButton(onClick = onEdit) { Text("编辑") } }
             Spacer(Modifier.height(12.dp))
             SensitiveValueRow("用户名", account.username)
-            SensitiveValueRow("密码", "••••••••", true)
-            if (account.hasTotp) SensitiveValueRow("动态密码", totpCode(account, nowMillis))
-            account.customFields.forEach { field -> SensitiveValueRow(field.label, if (field.hidden) "••••••••" else field.value, field.hidden) }
+            SensitiveValueRow("密码", account.password, masked = true, sensitive = true)
+            if (account.hasTotp) SensitiveValueRow("动态密码", totpCode(account, nowMillis), sensitive = true)
+            account.customFields.forEach { field -> SensitiveValueRow(field.label, field.value, masked = field.hidden, sensitive = field.hidden) }
             Spacer(Modifier.height(16.dp))
         }
     }
 }
 
+/** 写入剪贴板并只在内容仍未被用户替换时自动清除。Android 不需要申请剪贴板权限。 */
+private fun copyToClipboard(context: Context, text: String, sensitive: Boolean) {
+    if (text.isEmpty()) return
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+    clipboard.setPrimaryClip(ClipData.newPlainText("account", text))
+    if (sensitive) Handler(Looper.getMainLooper()).postDelayed({
+        val current = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()
+        if (current == text) clipboard.clearPrimaryClip()
+    }, 30_000L)
+}
+
 @Composable
-private fun SensitiveValueRow(label: String, value: String, masked: Boolean = false) {
+private fun SensitiveValueRow(label: String, value: String, masked: Boolean = false, sensitive: Boolean = masked) {
+    val context = LocalContext.current
+    var revealed by remember(value, masked) { mutableStateOf(!masked) }
+    val displayed = if (masked && !revealed) "••••••••" else value
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(76.dp))
-        Text(value, modifier = Modifier.weight(1f), fontWeight = if (masked) FontWeight.Normal else FontWeight.Medium)
-        TextButton(onClick = {}) { Text("复制") }
+        Text(
+            displayed,
+            modifier = Modifier.weight(1f).clickable {
+                if (masked && !revealed) revealed = true else copyToClipboard(context, value, sensitive)
+            },
+            fontWeight = if (masked && !revealed) FontWeight.Normal else FontWeight.Medium
+        )
+        TextButton(onClick = { copyToClipboard(context, value, sensitive) }) { Text("复制") }
     }
 }
 
@@ -1044,7 +1068,7 @@ private fun GroupManageScreen(
     var dialogText by remember { mutableStateOf("") }
     var adding by remember { mutableStateOf(false) }
     Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
-        TopAppBar(colors = accountTopBarColors(), title = { Text("分组管理") }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }, actions = { TextButton(onClick = { adding = true; dialogText = "" }) { Text("＋ 新增") } })
+        TopAppBar(colors = accountTopBarColors(), title = { Text("分组管理", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }, actions = { TextButton(onClick = { adding = true; dialogText = "" }) { Text("＋ 新增", color = LocalAccountThemePalette.current.topBarText) } })
     }) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { Text("固定分组（可改名）", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp)) }
@@ -1150,10 +1174,10 @@ private fun AccountEditScreen(
     val customGroups = groups.filter { it.kind == GroupKind.CUSTOM }
 
     Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
-        TopAppBar(colors = accountTopBarColors(), title = { Text(if (account == null) "新建账号" else "编辑账号") }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }, actions = {
+        TopAppBar(colors = accountTopBarColors(), title = { Text(if (account == null) "新建账号" else "编辑账号", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }, actions = {
             TextButton(onClick = {
                 if (name.isBlank()) showMissingName = true else onSave(Account(account?.id ?: "account-${System.currentTimeMillis()}", name.trim(), username, password, selectedCustomGroups, hasTotp, normalizedTotpSecret(totpSecret.trim()), account?.totpDigits ?: 6, account?.totpPeriod ?: 30, account?.totpAlgorithm ?: "SHA1", fields))
-            }) { Text("保存") }
+            }) { Text("保存", color = LocalAccountThemePalette.current.topBarText) }
         })
     }) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1223,7 +1247,7 @@ private fun AccountFieldItem(label: String, value: String, hidden: Boolean, onVa
 private fun AccountDetailScreen(account: Account?, onBack: () -> Unit, onEdit: () -> Unit) {
     val nowMillis = rememberClock()
     Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
-        TopAppBar(colors = accountTopBarColors(), title = { Text(account?.name ?: "账号详情") }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }, actions = { TextButton(onClick = onEdit) { Text("编辑") } })
+        TopAppBar(colors = accountTopBarColors(), title = { Text(account?.name ?: "账号详情", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }, actions = { TextButton(onClick = onEdit) { Text("编辑", color = LocalAccountThemePalette.current.topBarText) } })
     }) { padding ->
         if (account == null) {
             EmptyState("账号不存在", Modifier.fillMaxSize().padding(padding))
@@ -1232,33 +1256,12 @@ private fun AccountDetailScreen(account: Account?, onBack: () -> Unit, onEdit: (
                 item { Text("分组：${account.groups.joinToString().ifBlank { "默认" }}", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 12.dp)) }
                 item { Text("登录信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
                 item { SensitiveValueRow("用户名", account.username) }
-                item { SensitiveValueRow("密码", "••••••••", true) }
+                item { SensitiveValueRow("密码", account.password, masked = true, sensitive = true) }
                 item { Text("两步验证", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
-                item { if (account.hasTotp) SensitiveValueRow("动态密码", totpCode(account, nowMillis)) else Text("未配置", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                items(account.customFields, key = { it.id }) { field -> SensitiveValueRow(field.label, if (field.hidden) "••••••••" else field.value, field.hidden) }
+                item { if (account.hasTotp) SensitiveValueRow("动态密码", totpCode(account, nowMillis), sensitive = true) else Text("未配置", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                items(account.customFields, key = { it.id }) { field -> SensitiveValueRow(field.label, field.value, masked = field.hidden, sensitive = field.hidden) }
             }
         }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SecurityLogScreen(onBack: () -> Unit) {
-    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { TopAppBar(colors = accountTopBarColors(), title = { Text("安全日志") }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }, actions = { TextButton(onClick = {}) { Text("筛选") } }) }) { padding ->
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { Text("全部事件 · 近 7 天", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp)) }
-            item { LogItem("已打开账号", "GitHub · 今天 10:18") }
-            item { LogItem("已复制密码", "GitHub · 今天 10:20") }
-            item { LogItem("已复制验证码", "Gmail · 今天 10:22") }
-            item { LogItem("WebDAV 备份完成", "昨天 21:06") }
-        }
-    }
-}
-
-@Composable
-private fun LogItem(title: String, detail: String) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(14.dp)) { Text(title, fontWeight = FontWeight.Medium); Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
     }
 }
 
@@ -1276,6 +1279,7 @@ private fun SettingsScreen(
     onAccentThemeChange: (String) -> Unit,
     customThemeJson: String,
     customThemes: List<SavedTheme>,
+    languageTag: String,
     onApplyThemeJson: (String) -> Boolean,
     onSaveCustomTheme: (String, String) -> Unit,
     onDeleteCustomTheme: (String) -> Unit,
@@ -1290,7 +1294,7 @@ private fun SettingsScreen(
     var showJsonDialog by remember { mutableStateOf(false) }
     var draftThemeJson by remember(customThemeJson) { mutableStateOf(customThemeJson.ifBlank { presets.first().json }) }
     var jsonError by remember { mutableStateOf("") }
-    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { TopAppBar(colors = accountTopBarColors(), title = { Text("设置") }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }) }) { padding ->
+    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { TopAppBar(colors = accountTopBarColors(), title = { Text("设置", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }) }) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { SettingsHeader("安全") }
             item { SettingsRow("自动锁定", "$autoLockMinutes 分钟") { showAutoLockDialog = true } }
@@ -1336,10 +1340,9 @@ private fun SettingsScreen(
                     }
                 }
             }
-            item { SettingsRow("语言", "简体中文") }
+            item { SettingsRow("语言", languageLabel(languageTag)) }
             item { SettingsHeader("数据与备份") }
-            item { SettingsRow("安全日志", "90 天") }
-            item { SettingsRow("备份与 WebDAV", "打开", onOpenBackup) }
+            item { SettingsRow("加密备份", "打开", onOpenBackup) }
         }
     }
     if (showAutoLockDialog) AlertDialog(
@@ -1426,6 +1429,12 @@ private fun SettingsScreen(
     )
 }
 
+/** 当前只提供简体中文；未知标签回退中文，后续可直接增加语言资源。 */
+private fun languageLabel(languageTag: String): String = when (languageTag) {
+    "zh-CN" -> "简体中文"
+    else -> "简体中文"
+}
+
 @Composable
 private fun SettingsHeader(text: String) { Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp)) }
 
@@ -1438,63 +1447,135 @@ private fun SettingsRow(title: String, value: String, onClick: (() -> Unit)? = n
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BackupScreen(onBack: () -> Unit, onCreateBackup: (String) -> ByteArray?) {
+private fun BackupScreen(
+    onBack: () -> Unit,
+    onCreateBackup: () -> Result<ByteArray>,
+    onImportBackup: (ByteArray, String) -> AccImportResult?,
+    onApplyImport: (AccImportResult) -> Unit
+) {
     val context = LocalContext.current
-    var showPasswordDialog by remember { mutableStateOf(false) }
-    var password by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf("") }
+    var showExportReminder by remember { mutableStateOf(false) }
+    var showImportPasswordDialog by remember { mutableStateOf(false) }
+    var showImportConfirmDialog by remember { mutableStateOf(false) }
+    var importPassword by remember { mutableStateOf("") }
+    var importError by remember { mutableStateOf("") }
+    var exportError by remember { mutableStateOf("") }
+    var exportSucceeded by remember { mutableStateOf(false) }
     var pendingBytes by remember { mutableStateOf<ByteArray?>(null) }
-    val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+    var pendingImportPassword by remember { mutableStateOf("") }
+    var pendingImportResult by remember { mutableStateOf<AccImportResult?>(null) }
+    val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { fileUri ->
         val bytes = pendingBytes
-        if (treeUri != null && bytes != null) {
-            val filename = "account-${java.text.SimpleDateFormat("yyyy-MM-dd-HHmm", java.util.Locale.US).format(java.util.Date())}.acc"
-            val fileUri = runCatching {
-                DocumentsContract.createDocument(context.contentResolver, treeUri, "application/octet-stream", filename)
-            }.getOrNull()
-            if (fileUri != null) runCatching {
+        if (fileUri != null && bytes != null) {
+            val result = runCatching {
                 context.contentResolver.openOutputStream(fileUri)?.use { it.write(bytes) }
+                    ?: error("无法写入所选文件")
             }
+            exportSucceeded = result.isSuccess
+            exportError = result.exceptionOrNull()?.message ?: "导出失败，请更换保存位置后重试"
+            if (result.isSuccess) exportError = "导出成功：文件已保存"
+        } else if (bytes != null) {
+            exportSucceeded = false
+            exportError = "未选择保存位置"
         }
+        bytes?.fill(0)
         pendingBytes = null
     }
-    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { TopAppBar(colors = accountTopBarColors(), title = { Text("备份与 WebDAV") }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }) }) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("本地加密备份", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("默认保存到 Download，可在系统目录选择器中改用其他目录。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = { password = ""; error = ""; showPasswordDialog = true }) { Text("导出加密备份 .acc") }
-            TextButton(onClick = {}) { Text("从备份文件恢复（即将支持）") }
-            Text("WebDAV", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp))
-            OutlinedTextField("", {}, label = { Text("服务器地址") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField("", {}, label = { Text("用户名") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            TextButton(onClick = {}) { Text("测试连接") }
+    val openDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) {
+            pendingImportPassword = ""
+            return@rememberLauncherForActivityResult
+        }
+        val password = pendingImportPassword
+        val result = runCatching {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: error("无法读取备份文件")
+            try {
+                onImportBackup(bytes, password) ?: error("主密码错误或文件已损坏")
+            } finally {
+                bytes.fill(0)
+            }
+        }.getOrNull()
+        pendingImportPassword = ""
+        if (result == null) {
+            importError = "备份密码错误或文件已损坏"
+            showImportPasswordDialog = true
+        } else {
+            pendingImportResult = result
+            showImportConfirmDialog = true
         }
     }
-    if (showPasswordDialog) AlertDialog(
-        onDismissRequest = { showPasswordDialog = false },
-        title = { Text("设置备份密码") },
+    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { TopAppBar(colors = accountTopBarColors(), title = { Text("加密备份", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }) }) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("本地加密备份", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("导出使用当前主密码作为备份密码，不需要再次输入。系统会请求你选择保存文件的位置。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = { exportError = ""; exportSucceeded = false; showExportReminder = true }) { Text("导出加密备份 .acc") }
+            TextButton(onClick = { importPassword = ""; importError = ""; showImportPasswordDialog = true }) { Text("从 .acc 恢复") }
+            if (exportError.isNotBlank()) Text(exportError, color = if (exportSucceeded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    if (showExportReminder) AlertDialog(
+        onDismissRequest = { showExportReminder = false },
+        title = { Text("导出加密备份") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("备份密码独立于主密码，用于在其他设备恢复 .acc。", style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(password, { password = it; error = "" }, label = { Text("备份密码") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
-                if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
+                Text("导出文件使用当前主密码加密。导入时必须输入相同的主密码，请务必记住。", style = MaterialTheme.typography.bodySmall)
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                if (password.isBlank()) {
-                    error = "请输入备份密码"
+                val result = onCreateBackup()
+                if (result.isFailure) {
+                    exportSucceeded = false
+                    exportError = result.exceptionOrNull()?.message ?: "备份生成失败，请先解锁后重试"
+                    showExportReminder = false
                 } else {
-                    val bytes = onCreateBackup(password)
-                    if (bytes == null) error = "备份生成失败，请重试" else {
-                        pendingBytes = bytes
-                        showPasswordDialog = false
-                        val initial = Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload")
-                        // OpenDocumentTree starts in Download when supported by the picker.
-                        createDocument.launch(initial)
-                    }
+                    pendingBytes = result.getOrThrow()
+                    showExportReminder = false
+                    val filename = "account-${java.text.SimpleDateFormat("yyyy-MM-dd-HHmm", java.util.Locale.US).format(java.util.Date())}.acc"
+                    createDocument.launch(filename)
                 }
-            }) { Text("选择目录并导出") }
+            }) { Text("选择位置并导出", color = MaterialTheme.colorScheme.primary) }
         },
-        dismissButton = { TextButton(onClick = { showPasswordDialog = false }) { Text("取消") } }
+        dismissButton = { TextButton(onClick = { showExportReminder = false }) { Text("取消", color = MaterialTheme.colorScheme.primary) } }
     )
+    if (showImportPasswordDialog) AlertDialog(
+        onDismissRequest = { showImportPasswordDialog = false },
+        title = { Text("恢复加密备份") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("请输入当前主密码以验证并解密备份。", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(importPassword, { importPassword = it; importError = "" }, label = { Text("主密码（4-20 个字符）") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                if (importError.isNotBlank()) Text(importError, color = MaterialTheme.colorScheme.error)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                if (!isMasterPasswordValid(importPassword)) {
+                    importError = "主密码长度需为 4-20 个字符"
+                } else {
+                    pendingImportPassword = importPassword
+                    showImportPasswordDialog = false
+                    openDocument.launch(arrayOf("application/json", "application/octet-stream", "*/*"))
+                }
+            }) { Text("选择文件", color = MaterialTheme.colorScheme.primary) }
+        },
+        dismissButton = { TextButton(onClick = { showImportPasswordDialog = false }) { Text("取消", color = MaterialTheme.colorScheme.primary) } }
+    )
+    if (showImportConfirmDialog) {
+        val result = pendingImportResult
+        if (result != null) AlertDialog(
+            onDismissRequest = { showImportConfirmDialog = false; pendingImportResult = null },
+            title = { Text("确认恢复") },
+            text = { Text("将替换当前密码库，导入 ${result.vault.accounts.size} 个账号和 ${result.vault.groups.size} 个分组，并应用备份中的软件设置。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onApplyImport(result)
+                    showImportConfirmDialog = false
+                    pendingImportResult = null
+                }) { Text("确认恢复", color = MaterialTheme.colorScheme.primary) }
+            },
+            dismissButton = { TextButton(onClick = { showImportConfirmDialog = false; pendingImportResult = null }) { Text("取消", color = MaterialTheme.colorScheme.primary) } }
+        )
+    }
 }
