@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -37,7 +35,9 @@ import com.copy.account.core.crypto.AccImportResult
 import com.copy.account.core.crypto.isMasterPasswordValid
 import com.copy.account.data.backup.BackupEntry
 import com.copy.account.data.backup.listBackupFiles
+import com.copy.account.ui.components.DangerButton
 import com.copy.account.ui.components.EmptyState
+import com.copy.account.ui.components.SurfaceCard
 import com.copy.account.ui.components.accountTopBarColors
 import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
@@ -92,7 +92,7 @@ internal fun BackupScreen(
             else if (files.isEmpty()) EmptyState("暂无 .acc 文件", Modifier.fillMaxWidth().weight(1f))
             else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                 items(files, key = { it.file.uri.toString() }) { entry ->
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
+                    SurfaceCard(modifier = Modifier.fillMaxWidth()) {
                         Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(entry.file.name ?: "account.acc", maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -106,10 +106,10 @@ internal fun BackupScreen(
                                 importPassword = ""
                                 showImportPasswordDialog = true
                             }) { Text("导入") }
-                            TextButton(onClick = {
+                            DangerButton("删除", onClick = {
                                 val result = onDeleteBackup(entry.file.uri)
                                 if (result.isSuccess) refreshFiles() else exportError = result.exceptionOrNull()?.message ?: "删除失败"
-                            }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                            })
                         }
                     }
                 }

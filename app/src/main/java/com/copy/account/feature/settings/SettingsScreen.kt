@@ -3,6 +3,7 @@ package com.copy.account.feature.settings
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,13 +14,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -35,6 +33,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.core.crypto.isMasterPasswordValid
+import com.copy.account.ui.components.DangerButton
+import com.copy.account.ui.components.SettingsHeader
+import com.copy.account.ui.components.SettingsRow
+import com.copy.account.ui.components.SettingsSwitchRow
 import com.copy.account.ui.components.accountTopBarColors
 import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
@@ -63,6 +65,7 @@ internal fun SettingsScreen(
     onSaveCustomTheme: (String, String) -> Unit,
     onDeleteCustomTheme: (String) -> Unit,
     onBack: () -> Unit,
+    onReloadSettings: () -> Unit,
     onOpenBackup: () -> Unit,
     clipboardClearSeconds: Int,
     onClipboardClearChange: (Int) -> Unit,
@@ -139,13 +142,20 @@ internal fun SettingsScreen(
                 items(customThemes, key = { it.id }) { saved ->
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = { draftThemeJson = saved.json; showJsonDialog = true }, modifier = Modifier.weight(1f), content = { Text(saved.name) })
-                        TextButton(onClick = { onDeleteCustomTheme(saved.id) }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                        DangerButton("删除", onClick = { onDeleteCustomTheme(saved.id) })
                     }
                 }
             }
             item { SettingsRow("语言", languageLabel(languageTag)) }
             item { SettingsHeader("数据与备份") }
             item { SettingsRow("备份文件管理", "打开", onOpenBackup) }
+            item { SettingsHeader("配置文件") }
+            item {
+                SettingsRow("重新加载配置文件", "打开") {
+                    onReloadSettings()
+                    Toast.makeText(context, "配置已重新加载", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
     if (showChangePasswordDialog) AlertDialog(
@@ -311,26 +321,6 @@ internal fun languageLabel(languageTag: String): String = when (languageTag) {
 internal fun clipboardClearLabel(seconds: Int): String =
     if (seconds <= 0) "关闭" else "$seconds 秒"
 
-@Composable
-internal fun SettingsHeader(text: String) { Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp)) }
-
-@Composable
-internal fun SettingsRow(title: String, value: String, onClick: (() -> Unit)? = null) {
-    Card(onClick = onClick ?: {}, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Text(title, modifier = Modifier.weight(1f)); Text(value, color = MaterialTheme.colorScheme.primary) }
-    }
-}
-
-@Composable
-internal fun SettingsSwitchRow(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Card(onClick = { onCheckedChange(!checked) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, modifier = Modifier.weight(1f))
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
-        }
-    }
-}
-
 @Preview(showBackground = true)
 @Composable
 private fun SettingsScreenPreview() {
@@ -353,6 +343,7 @@ private fun SettingsScreenPreview() {
             onSaveCustomTheme = { _, _ -> },
             onDeleteCustomTheme = {},
             onBack = {},
+            onReloadSettings = {},
             onOpenBackup = {},
             clipboardClearSeconds = 30,
             onClipboardClearChange = {},

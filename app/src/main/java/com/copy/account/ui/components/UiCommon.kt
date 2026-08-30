@@ -50,10 +50,10 @@ internal fun accountTopBarColors() = TopAppBarDefaults.topAppBarColors(
 )
 
 @Composable
-internal fun SensitiveValueRow(label: String, value: String, masked: Boolean = false, sensitive: Boolean = masked, clearAfterSeconds: Int = 30) {
+internal fun SensitiveValueRow(label: String, value: String, masked: Boolean = false, sensitive: Boolean = masked, clearAfterSeconds: Int = 30, mask: Char = '•') {
     val context = LocalContext.current
     var revealed by remember(value, masked) { mutableStateOf(!masked) }
-    val displayed = if (masked && !revealed) "••••••••" else value
+    val displayed = if (masked && !revealed) mask.toString().repeat(8) else value
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(76.dp))
         Text(

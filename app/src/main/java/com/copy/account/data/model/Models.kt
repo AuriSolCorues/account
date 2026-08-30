@@ -46,7 +46,9 @@ internal data class AppSettings(
     val customThemeJson: String = "",
     val customThemes: List<SavedTheme> = emptyList(),
     val clipboardClearSeconds: Int = 30,
-    val allowScreenshots: Boolean = false
+    val allowScreenshots: Boolean = false,
+    /** 隐藏内容的掩码字符，可被 appsettings.json 外挂覆盖。 */
+    val maskChar: String = "•"
 )
 
 @Serializable

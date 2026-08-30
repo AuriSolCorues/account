@@ -24,6 +24,9 @@ import androidx.datastore.preferences.core.edit
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.copy.account.core.config.AppSettingsOverride
+import com.copy.account.core.config.applyOverride
+import com.copy.account.core.config.loadAppSettingsOverride
 import com.copy.account.core.crypto.AccExportInput
 import com.copy.account.core.crypto.exportAcc
 import com.copy.account.core.crypto.importAcc
@@ -101,7 +104,14 @@ fun AccountApp(
     var accounts by remember { mutableStateOf(emptyList<Account>()) }
     var dataKey by remember { mutableStateOf<ByteArray?>(null) }
     var lockGeneration by remember { mutableIntStateOf(0) }
-    var settings by remember { mutableStateOf(AppSettings(customThemeJson = customThemeJson)) }
+    /** DataStore 真值（App 正常设置）。appsettings.json 外挂只读覆盖，不写回。 */
+    var baseSettings by remember { mutableStateOf(AppSettings(customThemeJson = customThemeJson)) }
+    /** 外挂覆盖层：启动为 null（不主动读文件），仅手动「重新加载配置文件」时置入。 */
+    var appSettingsOverride by remember { mutableStateOf<AppSettingsOverride?>(null) }
+    /** 生效设置 = DataStore 真值 + 外挂覆盖（文件缺失/解析失败时与真值一致）。 */
+    val settings = applyOverride(baseSettings, appSettingsOverride)
+    /** 生效掩码符号；多字符配置取首字符，空串回退默认圆点。 */
+    val maskChar = settings.maskChar.firstOrNull() ?: '•'
     var passwordConfigured by remember { mutableStateOf(store.hasMasterPassword()) }
     var biometricPromptActive by remember { mutableStateOf(false) }
     var backupTreeUri by remember { mutableStateOf<String?>(null) }
@@ -111,7 +121,7 @@ fun AccountApp(
 
     LaunchedEffect(Unit) {
         val values = context.settingsDataStore.data.first()
-        settings = AppSettings(
+        baseSettings = AppSettings(
             biometricEnabled = values[BIOMETRIC_SETTING] ?: false,
             autoLockMinutes = (values[AUTO_LOCK_SETTING] ?: 5).coerceAtLeast(1),
             themeMode = values[THEME_MODE_SETTING] ?: themeMode,
@@ -151,6 +161,17 @@ fun AccountApp(
                 if (uri == null) it.remove(BACKUP_TREE_URI_SETTING) else it[BACKUP_TREE_URI_SETTING] = uri
             }
         }
+    }
+
+    /** 手动「重新加载配置文件」：重读 appsettings.json 并应用到生效值。文件缺失/解析失败 → 覆盖层置 null，恢复 DataStore 业务。 */
+    fun reloadSettings() {
+        val override = loadAppSettingsOverride(context)
+        appSettingsOverride = override
+        val effective = applyOverride(baseSettings, override)
+        onThemeModeChange(effective.themeMode)
+        onAccentThemeChange(effective.accentTheme)
+        onCustomThemeJsonChange(effective.customThemeJson)
+        onAllowScreenshotsChange(effective.allowScreenshots)
     }
 
     val chooseBackupDirectory = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -231,8 +252,8 @@ fun AccountApp(
     fun configureBiometric(enable: Boolean) {
         if (!enable) {
             store.disableBiometric()
-            settings = settings.copy(biometricEnabled = false)
-            persistSettings(settings)
+            baseSettings = baseSettings.copy(biometricEnabled = false)
+            persistSettings(baseSettings)
             return
         }
         val host = activity as? FragmentActivity ?: return
@@ -243,8 +264,8 @@ fun AccountApp(
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 runCatching { store.saveBiometricWrapped(result.cryptoObject?.cipher ?: cipher, key) }
                     .onSuccess {
-                        settings = settings.copy(biometricEnabled = true)
-                        persistSettings(settings)
+                        baseSettings = baseSettings.copy(biometricEnabled = true)
+                        persistSettings(baseSettings)
                     }
             }
         })
@@ -332,6 +353,7 @@ fun AccountApp(
             groups = groups,
             selectedGroupId = selectedGroupId,
             clipboardClearSeconds = settings.clipboardClearSeconds,
+            maskChar = maskChar,
             onGroupSelected = { selectedGroupId = it; persistVault() },
             onNewAccount = { editTemplate = null; page = AppPage.Edit(null) },
             onEditAccount = { editTemplate = null; page = AppPage.Edit(it) },
@@ -388,22 +410,22 @@ fun AccountApp(
             },
             autoLockMinutes = settings.autoLockMinutes,
             onAutoLockChange = { minutes ->
-                settings = settings.copy(autoLockMinutes = minutes.coerceAtLeast(1))
-                persistSettings(settings)
+                baseSettings = baseSettings.copy(autoLockMinutes = minutes.coerceAtLeast(1))
+                persistSettings(baseSettings)
             },
             themeMode = settings.themeMode,
             onThemeModeChange = { mode ->
                 val normalized = mode.lowercase().let { if (it == "light" || it == "system") it else "dark" }
-                settings = settings.copy(themeMode = normalized)
-                persistSettings(settings)
+                baseSettings = baseSettings.copy(themeMode = normalized)
+                persistSettings(baseSettings)
                 onThemeModeChange(normalized)
             },
             accentTheme = settings.accentTheme,
             onAccentThemeChange = { accent ->
                 val normalized = if (accent == "blue") "blue" else "green"
                 // 选择内置配色时退出 JSON 自定义主题，避免两个色板同时生效。
-                settings = settings.copy(accentTheme = normalized, customThemeJson = "")
-                persistSettings(settings)
+                baseSettings = baseSettings.copy(accentTheme = normalized, customThemeJson = "")
+                persistSettings(baseSettings)
                 onAccentThemeChange(normalized)
                 onCustomThemeJsonChange("")
             },
@@ -415,8 +437,8 @@ fun AccountApp(
                     false
                 } else {
                     val mode = parsed.defaultMode
-                    settings = settings.copy(customThemeJson = json.trim(), themeMode = mode)
-                    persistSettings(settings)
+                    baseSettings = baseSettings.copy(customThemeJson = json.trim(), themeMode = mode)
+                    persistSettings(baseSettings)
                     onCustomThemeJsonChange(settings.customThemeJson)
                     onThemeModeChange(mode)
                     true
@@ -426,25 +448,26 @@ fun AccountApp(
                 val parsed = parseThemeJson(json)
                 if (parsed != null) {
                     val saved = SavedTheme("custom-${System.currentTimeMillis()}", name.ifBlank { parsed.name }, json.trim())
-                    settings = settings.copy(customThemes = (settings.customThemes + saved).distinctBy { it.id })
-                    persistSettings(settings)
+                    baseSettings = baseSettings.copy(customThemes = (settings.customThemes + saved).distinctBy { it.id })
+                    persistSettings(baseSettings)
                 }
             },
             onDeleteCustomTheme = { id ->
-                settings = settings.copy(customThemes = settings.customThemes.filterNot { it.id == id })
-                persistSettings(settings)
+                baseSettings = baseSettings.copy(customThemes = settings.customThemes.filterNot { it.id == id })
+                persistSettings(baseSettings)
             },
             onBack = { page = AppPage.Home },
+            onReloadSettings = ::reloadSettings,
             languageTag = settings.languageTag,
             clipboardClearSeconds = settings.clipboardClearSeconds,
             onClipboardClearChange = { seconds ->
-                settings = settings.copy(clipboardClearSeconds = seconds.coerceIn(0, 86_400))
-                persistSettings(settings)
+                baseSettings = baseSettings.copy(clipboardClearSeconds = seconds.coerceIn(0, 86_400))
+                persistSettings(baseSettings)
             },
             allowScreenshots = settings.allowScreenshots,
             onAllowScreenshotsChange = { enabled ->
-                settings = settings.copy(allowScreenshots = enabled)
-                persistSettings(settings)
+                baseSettings = baseSettings.copy(allowScreenshots = enabled)
+                persistSettings(baseSettings)
                 onAllowScreenshotsChange(enabled)
                 // OPPO/ColorOS 清除 FLAG_SECURE 后需重建窗口才能立即生效，仅在开启截图时重建一次
                 if (enabled) activity?.recreate()
@@ -493,9 +516,9 @@ fun AccountApp(
                 accounts = imported.vault.accounts
                 groups = imported.vault.groups.ifEmpty { initialGroups }
                 selectedGroupId = imported.vault.selectedGroupId.ifBlank { "default" }
-                settings = imported.settings
+                baseSettings = imported.settings
                 persistVault()
-                persistSettings(settings)
+                persistSettings(baseSettings)
                 onThemeModeChange(settings.themeMode)
                 onAccentThemeChange(settings.accentTheme)
                 onCustomThemeJsonChange(settings.customThemeJson)
@@ -507,6 +530,7 @@ fun AccountApp(
         is AppPage.Detail -> AccountDetailScreen(
             account = accounts.firstOrNull { it.id == current.accountId },
             clipboardClearSeconds = settings.clipboardClearSeconds,
+            maskChar = maskChar,
             onBack = { page = AppPage.Home },
             onEdit = { page = AppPage.Edit(current.accountId) }
         )
@@ -517,6 +541,7 @@ fun AccountApp(
             groups = groups,
             initialGroupId = selectedGroupId,
             clipboardClearSeconds = settings.clipboardClearSeconds,
+            maskChar = maskChar,
             onBack = { page = AppPage.Home; editTemplate = null },
             onCreateGroup = ::createGroup,
             onSave = { edited ->
