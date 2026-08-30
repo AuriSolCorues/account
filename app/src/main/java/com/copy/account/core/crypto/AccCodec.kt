@@ -1,6 +1,8 @@
-package com.copy.account
+package com.copy.account.core.crypto
 
 import android.util.Base64
+import com.copy.account.data.model.AppSettings
+import com.copy.account.data.model.PersistedVault
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
