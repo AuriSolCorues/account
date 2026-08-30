@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.Surface
 import com.copy.account.ui.theme.AccountTheme
@@ -41,12 +42,16 @@ class MainActivity : FragmentActivity() {
                 "system" -> isSystemInDarkTheme()
                 else -> true
             }
-            SideEffect {
+            // 截图保护：allowScreenshots 变化时立即应用
+            DisposableEffect(allowScreenshots) {
                 if (allowScreenshots) {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 } else {
                     window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
                 }
+                onDispose { }
+            }
+            SideEffect {
                 window.statusBarColor = android.graphics.Color.TRANSPARENT
                 window.navigationBarColor = android.graphics.Color.TRANSPARENT
                 if (android.os.Build.VERSION.SDK_INT >= 29) {
