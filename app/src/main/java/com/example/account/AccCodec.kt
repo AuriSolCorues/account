@@ -21,7 +21,8 @@ private data class AccSettings(
     val customThemeJson: String = "",
     val customThemes: List<com.example.account.ui.theme.SavedTheme> = emptyList(),
     val autoLockSeconds: Int = 300,
-    val clipboardClearSeconds: Int = 30
+    val clipboardClearSeconds: Int = 30,
+    val allowScreenshots: Boolean = false
 )
 
 /** passwordVault 使用主密码派生的 KEK；导出和导入使用同一密码。 */
@@ -77,7 +78,9 @@ internal fun exportAcc(input: AccExportInput, key: ByteArray, salt: ByteArray): 
                     languageTag = settings.languageTag,
                     customThemeJson = settings.customThemeJson,
                     customThemes = settings.customThemes,
-                    autoLockSeconds = settings.autoLockMinutes.coerceAtLeast(1) * 60
+                    autoLockSeconds = settings.autoLockMinutes.coerceAtLeast(1) * 60,
+                    clipboardClearSeconds = settings.clipboardClearSeconds,
+                    allowScreenshots = settings.allowScreenshots
                 )
             )
         ).toByteArray(Charsets.UTF_8)
@@ -88,7 +91,7 @@ internal fun exportAcc(input: AccExportInput, key: ByteArray, salt: ByteArray): 
 
 /** 完整校验并解密 .acc；失败时不修改当前密码库或设置。 */
 internal fun importAcc(bytes: ByteArray, password: String): Result<AccImportResult> = runCatching {
-    require(isMasterPasswordValid(password)) { "主密码长度需为 4-20 个字符" }
+    require(isMasterPasswordValid(password)) { "备份密码长度需为 4-20 个字符" }
     val document = accJson.decodeFromString(AccDocument.serializer(), bytes.toString(Charsets.UTF_8))
     val payloadBytes = Base64.decode(document.passwordVault, Base64.DEFAULT)
     val payload = accJson.decodeFromString(AccPayload.serializer(), payloadBytes.toString(Charsets.UTF_8))
@@ -117,7 +120,9 @@ internal fun importAcc(bytes: ByteArray, password: String): Result<AccImportResu
                 languageTag = if (settings.languageTag == "zh-CN") "zh-CN" else "zh-CN",
                 customThemeJson = settings.customThemeJson,
                 customThemes = settings.customThemes,
-                autoLockMinutes = (settings.autoLockSeconds / 60).coerceIn(1, 120)
+                autoLockMinutes = (settings.autoLockSeconds / 60).coerceIn(1, 120),
+                clipboardClearSeconds = settings.clipboardClearSeconds.coerceIn(0, 86_400),
+                allowScreenshots = settings.allowScreenshots
             )
         )
     } finally {

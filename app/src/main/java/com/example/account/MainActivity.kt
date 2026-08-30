@@ -23,7 +23,6 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         // 内容延伸到系统栏后方，让顶栏覆盖刘海区域，避免全屏设备出现白色边条。
         enableEdgeToEdge()
-        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
             var themeMode by remember {
                 mutableStateOf("dark")
@@ -34,12 +33,20 @@ class MainActivity : FragmentActivity() {
             var customThemeJson by remember {
                 mutableStateOf("")
             }
+            var allowScreenshots by remember {
+                mutableStateOf(false)
+            }
             val darkTheme = when (themeMode) {
                 "light" -> false
                 "system" -> isSystemInDarkTheme()
                 else -> true
             }
             SideEffect {
+                if (allowScreenshots) {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+                }
                 window.statusBarColor = android.graphics.Color.TRANSPARENT
                 window.navigationBarColor = android.graphics.Color.TRANSPARENT
                 if (android.os.Build.VERSION.SDK_INT >= 29) {
@@ -69,6 +76,10 @@ class MainActivity : FragmentActivity() {
                         customThemeJson = customThemeJson,
                         onCustomThemeJsonChange = { json ->
                             customThemeJson = json
+                        },
+                        allowScreenshots = allowScreenshots,
+                        onAllowScreenshotsChange = { enabled ->
+                            allowScreenshots = enabled
                         }
                     )
                 }
