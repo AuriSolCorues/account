@@ -22,8 +22,15 @@ install_apk() {
     [ -z "$adb" ] && { echo "==> 未找到 adb，跳过安装。可手动: adb install -r $apk"; return 0; }
     if "$adb" devices | grep -q 'device$'; then
         echo "==> 检测到真机，安装中（OPPO/ColorOS 需在手机上点「安装」，或开启开发者选项里的「USB 安装」）..."
-        if ! timeout 300 "$adb" install -r "$apk"; then
-            echo "==> 安装超时或失败：请检查手机上的安装确认弹窗，或在开发者选项开启「USB 安装」。"
+        out="$(timeout 300 "$adb" install -r "$apk" 2>&1)"
+        if [ $? -ne 0 ]; then
+            if echo "$out" | grep -q 'INSTALL_FAILED_UPDATE_INCOMPATIBLE'; then
+                echo "==> 签名不匹配：设备上装的是另一个签名（release/debug）的包，无法覆盖。"
+                echo "    装 release 用 ./build.sh release-install；装 debug 需先 adb uninstall com.copy.account。"
+            else
+                echo "==> 安装超时或失败：请检查手机上的安装确认弹窗，或在开发者选项开启「USB 安装」。"
+                echo "$out" | tail -3
+            fi
         fi
     else
         echo "==> 未检测到真机，跳过安装。可手动: $adb install -r $apk"

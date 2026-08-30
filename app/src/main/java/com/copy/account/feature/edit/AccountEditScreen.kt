@@ -6,30 +6,21 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,10 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.core.crypto.decodeSecret
@@ -56,70 +44,18 @@ import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
 import com.copy.account.data.model.initialAccounts
 import com.copy.account.data.model.initialGroups
+import com.copy.account.ui.components.AccountFieldItem
+import com.copy.account.ui.components.DangerButton
+import com.copy.account.ui.components.DeleteConfirmDialog
+import com.copy.account.ui.components.PasswordField
+import com.copy.account.ui.components.RandomPasswordGeneratorSheet
+import com.copy.account.ui.components.SwitchRow
+import com.copy.account.ui.components.TextInputDialog
 import com.copy.account.ui.components.accountTopBarColors
 import com.copy.account.ui.components.rememberClock
 import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
-import java.security.SecureRandom
-
-/** 按用户勾选的字符类生成随机密码；每类至少出现一次，其余从合并字符池随机取。 */
-internal fun generatePassword(length: Int, upper: Boolean, lower: Boolean, digits: Boolean, symbols: Boolean): String {
-    val pools = buildList {
-        if (upper) add("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-        if (lower) add("abcdefghijklmnopqrstuvwxyz")
-        if (digits) add("0123456789")
-        if (symbols) add("\$%&^*()[].@#_!")
-    }
-    if (pools.isEmpty() || length <= 0) return ""
-    val random = SecureRandom()
-    val all = pools.joinToString("")
-    val result = CharArray(length)
-    pools.forEachIndexed { i, pool -> if (i < length) result[i] = pool[random.nextInt(pool.length)] }
-    for (i in pools.size until length) result[i] = all[random.nextInt(all.length)]
-    for (i in result.indices.reversed()) {
-        val j = random.nextInt(i + 1)
-        val tmp = result[i]; result[i] = result[j]; result[j] = tmp
-    }
-    return String(result)
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun RandomPasswordGeneratorSheet(onDismiss: () -> Unit, onFill: (String) -> Unit) {
-    var length by remember { mutableIntStateOf(16) }
-    var upper by remember { mutableStateOf(true) }
-    var lower by remember { mutableStateOf(true) }
-    var digits by remember { mutableStateOf(true) }
-    var symbols by remember { mutableStateOf(true) }
-    val generated = remember(length, upper, lower, digits, symbols) { generatePassword(length, upper, lower, digits, symbols) }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).windowInsetsPadding(WindowInsets.navigationBars),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("随机密码生成器", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text(generated, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, modifier = Modifier.fillMaxWidth())
-            Text("长度：$length", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Slider(value = length.toFloat(), onValueChange = { length = it.toInt().coerceIn(4, 20) }, valueRange = 4f..20f, steps = 15)
-            GeneratorToggle("大写字母（A-Z）", upper) { upper = it }
-            GeneratorToggle("小写字母（a-z）", lower) { lower = it }
-            GeneratorToggle("数字（0-9）", digits) { digits = it }
-            GeneratorToggle("特殊符号（\$%&^*()[].@#_!）", symbols) { symbols = it }
-            Button(onClick = { onFill(generated) }, enabled = generated.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("复制并填入") }
-            Spacer(Modifier.height(8.dp))
-        }
-    }
-}
-
-@Composable
-internal fun GeneratorToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AccountEditScreen(
@@ -128,6 +64,7 @@ internal fun AccountEditScreen(
     groups: List<Group>,
     initialGroupId: String,
     clipboardClearSeconds: Int,
+    maskChar: Char = '•',
     onBack: () -> Unit,
     onCreateGroup: (String) -> String,
     onSave: (Account) -> Unit,
@@ -165,7 +102,6 @@ internal fun AccountEditScreen(
     var fields by remember(source?.id) { mutableStateOf(source?.customFields ?: emptyList()) }
     var addFieldHidden by remember { mutableStateOf<Boolean?>(null) }
     var addGroupDialog by remember { mutableStateOf(false) }
-    var newGroupName by remember { mutableStateOf("") }
     var showMissingName by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
     var showPasswordGenerator by remember { mutableStateOf(false) }
@@ -192,27 +128,22 @@ internal fun AccountEditScreen(
                     customGroups.forEach { group ->
                         FilterChip(selected = group.id in selectedCustomGroups, onClick = { selectedCustomGroups = if (group.id in selectedCustomGroups) selectedCustomGroups - group.id else selectedCustomGroups + group.id }, label = { Text(group.name) })
                     }
-                    FilterChip(selected = false, onClick = { addGroupDialog = true; newGroupName = "" }, label = { Text("＋ 增加组") })
+                    FilterChip(selected = false, onClick = { addGroupDialog = true }, label = { Text("＋ 增加组") })
                 }
                 Text("当前进入：${groups.firstOrNull { it.id == initialGroupId }?.name ?: "默认"}；动态密码由 TOTP 自动决定。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            item { AccountFieldItem("用户名", username, false, onValueChange = { username = it }) }
+            item { AccountFieldItem("用户名", username, false, onValueChange = { username = it }, mask = maskChar) }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(password, { password = it }, label = { Text("密码") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.weight(1f))
+                    PasswordField(password, { password = it }, label = { Text("密码") }, mask = maskChar, modifier = Modifier.weight(1f))
                     TextButton(onClick = { showPasswordGenerator = true }) { Text("随机") }
                 }
             }
             items(fields, key = { it.id }) { field ->
-                AccountFieldItem(field.label, field.value, field.hidden, { value -> fields = fields.map { if (it.id == field.id) it.copy(value = value) else it } }, { fields = fields.filterNot { it.id == field.id } })
+                AccountFieldItem(field.label, field.value, field.hidden, { value -> fields = fields.map { if (it.id == field.id) it.copy(value = value) else it } }, { fields = fields.filterNot { it.id == field.id } }, mask = maskChar)
             }
             item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { TextButton(onClick = { addFieldHidden = false }) { Text("＋ 添加字段") }; TextButton(onClick = { addFieldHidden = true }) { Text("＋ 添加隐藏字段") } } }
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.weight(1f)) { Text("两步验证", style = MaterialTheme.typography.titleMedium); Text(if (hasTotp) "已配置 · 自动显示在动态密码分组" else "未配置", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    Switch(checked = hasTotp, onCheckedChange = { hasTotp = it })
-                }
-            }
+            item { SwitchRow("两步验证", hasTotp, { hasTotp = it }, subtitle = if (hasTotp) "已配置 · 自动显示在动态密码分组" else "未配置") }
             if (hasTotp) {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -263,7 +194,7 @@ internal fun AccountEditScreen(
                 if (totpError.isNotBlank()) item { Text(totpError, color = MaterialTheme.colorScheme.error) }
             }
             if (account != null && onDelete != null) {
-                item { TextButton(onClick = { deleteConfirm = true }) { Text("删除账号", color = MaterialTheme.colorScheme.error) } }
+                item { DangerButton("删除账号", onClick = { deleteConfirm = true }) }
             }
         }
     }
@@ -274,18 +205,24 @@ internal fun AccountEditScreen(
         AlertDialog(onDismissRequest = { addFieldHidden = null }, title = { Text(if (hidden) "添加隐藏字段" else "添加字段") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(label, { label = it }, label = { Text("字段名称") }, singleLine = true); OutlinedTextField(value, { value = it }, label = { Text("字段内容") }, singleLine = true) } }, confirmButton = { TextButton(enabled = label.isNotBlank(), onClick = { fields = fields + AccountField("field-${System.currentTimeMillis()}", label.trim(), value, hidden); addFieldHidden = null }) { Text("添加") } }, dismissButton = { TextButton(onClick = { addFieldHidden = null }) { Text("取消") } })
     }
     if (addGroupDialog) {
-        AlertDialog(onDismissRequest = { addGroupDialog = false }, title = { Text("新增分组") }, text = { OutlinedTextField(newGroupName, { newGroupName = it }, label = { Text("分组名称") }, singleLine = true) }, confirmButton = { TextButton(enabled = newGroupName.isNotBlank() && customGroups.none { it.name == newGroupName.trim() }, onClick = { selectedCustomGroups = selectedCustomGroups + onCreateGroup(newGroupName); addGroupDialog = false }) { Text("创建并选择") } }, dismissButton = { TextButton(onClick = { addGroupDialog = false }) { Text("取消") } })
+        TextInputDialog(
+            title = "新增分组",
+            label = "分组名称",
+            confirmText = "创建并选择",
+            validate = { it.isNotBlank() && customGroups.none { g -> g.name == it.trim() } },
+            onConfirm = { selectedCustomGroups = selectedCustomGroups + onCreateGroup(it); addGroupDialog = false },
+            onDismiss = { addGroupDialog = false }
+        )
     }
     if (showMissingName) AlertDialog(onDismissRequest = { showMissingName = false }, title = { Text("缺少账号名称") }, text = { Text("请输入账号名称后再保存。") }, confirmButton = { TextButton(onClick = { showMissingName = false }) { Text("确定") } })
-    if (deleteConfirm) AlertDialog(
-        onDismissRequest = { deleteConfirm = false },
-        title = { Text("删除账号") },
-        text = { Text("确定删除「${account?.name ?: ""}」吗？此操作不可撤销。") },
-        confirmButton = {
-            TextButton(onClick = { deleteConfirm = false; onDelete?.invoke() }) { Text("删除", color = MaterialTheme.colorScheme.error) }
-        },
-        dismissButton = { TextButton(onClick = { deleteConfirm = false }) { Text("取消") } }
-    )
+    if (deleteConfirm) {
+        DeleteConfirmDialog(
+            title = "删除账号",
+            message = "确定删除「${account?.name ?: ""}」吗？此操作不可撤销。",
+            onConfirm = { deleteConfirm = false; onDelete?.invoke() },
+            onDismiss = { deleteConfirm = false }
+        )
+    }
     if (showPasswordGenerator) {
         RandomPasswordGeneratorSheet(
             onDismiss = { showPasswordGenerator = false },
@@ -295,14 +232,6 @@ internal fun AccountEditScreen(
                 showPasswordGenerator = false
             }
         )
-    }
-}
-
-@Composable
-internal fun AccountFieldItem(label: String, value: String, hidden: Boolean, onValueChange: (String) -> Unit, onDelete: (() -> Unit)? = null) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        OutlinedTextField(value, onValueChange, label = { Text(label) }, singleLine = true, visualTransformation = if (hidden) PasswordVisualTransformation() else VisualTransformation.None, modifier = Modifier.weight(1f))
-        if (onDelete != null) TextButton(onClick = onDelete) { Text("删除") }
     }
 }
 

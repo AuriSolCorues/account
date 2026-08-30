@@ -57,13 +57,14 @@
 - 提供绿色/蓝色两套内置配色，以及可导入的 JSONC 自定义主题（`customThemeJson`/`customThemes`，解析见 `ui/theme/Theme.kt`）。
 - 语言默认使用 `zh-CN`，保留 `languageTag` 供后续增加语言资源。
 - 界面只使用文字、颜色、Compose 组件和 Material 矢量图标，不引入图片资源。
+- 掩码符号默认 `•`，可通过 `appsettings.json` 外挂的 `maskChar` 覆盖（多字符取首字符）；编辑页密码框带「显示/隐藏」明文切换。
 
 ### `.acc` 导入与导出
 
 - 仅支持一种完整加密备份：扩展名为 `.acc`，文件内容为 JSON。
 - `.acc` 根节点严格只有两个同级字段：`passwordVault` 和 `appSettings`。不兼容旧版 `ACCOUNTBOX_BACKUP_13` 密文，也不再导出旧版明文格式。
 - `passwordVault` 是 Base64 加密数据，内部打包格式版本、KDF 参数（PBKDF2-HMAC-SHA256、300,000 次迭代）、随机盐、随机 IV、认证标签及加密后的自定义分组、账号、自定义字段、隐藏字段标记和单个 TOTP；默认分组和动态密码分组均由账号状态派生，不单独保存。
-- `appSettings` 是可读、可手工编辑的软件设置，保存主题模式、配色、语言标识、自定义主题、自动锁定时长、剪贴板清除时长和允许截图开关；不做完整性校验。
+- `appSettings` 是可读、可手工编辑的软件设置，保存主题模式、配色、语言标识、掩码符号、自定义主题、自动锁定时长、剪贴板清除时长和允许截图开关；不做完整性校验。
 - 导出不显示密码输入框，直接复用当前主密码派生的密钥；导出前提示用户记住主密码。
 - 导入从 `backups/account` 文件列表选择 `.acc` 文件，再输入该备份设置的密码（4-20 个 Unicode 字符，可含中文、英文、数字和符号），通过 AES-GCM 认证后才允许恢复；不校验本机当前主密码。
 - 导入成功前只在内存中解析，用户确认后整体替换当前密码库与软件设置；失败不修改现有数据。
@@ -79,6 +80,7 @@
     "themeMode": "light",
     "accentTheme": "green",
     "languageTag": "zh-CN",
+    "maskChar": "•",
     "customThemeJson": "",
     "customThemes": [],
     "autoLockSeconds": 300,
@@ -105,6 +107,7 @@ com.copy.account/
 ├── MainActivity.kt        # FragmentActivity、edge-to-edge、FLAG_SECURE、主题默认值装配
 ├── AccountApp.kt          # 应用状态、解锁会话、sealed AppPage 页面路由、SAF 回调
 ├── core/
+│   ├── config/            # AppSettingsStore（appsettings.json 外挂覆盖层，只读不写）
 │   ├── crypto/            # Crypto（KEK/DEK/AES-GCM/PBKDF2）、Totp、AccCodec（.acc 编解码）
 │   ├── security/          # Clipboard（受控复制与定时清除）
 │   └── storage/           # VaultStore（加密文件/Keystore/生物识别）、Preferences（DataStore）
@@ -114,7 +117,7 @@ com.copy.account/
 ├── feature/               # unlock、accounts、edit、detail、groups、settings、backup
 └── ui/
     ├── theme/             # AccountTheme、深/浅色、绿色/蓝色配色、JSONC 自定义主题
-    └── components/        # UiCommon（顶栏配色、敏感值行、空状态、时钟）
+    └── components/        # UiCommon、Rows、Panels、Sheet、Dialogs、ComponentsPreview（见下）
 ```
 
 ### 当前实现文件与数据流
@@ -126,6 +129,13 @@ com.copy.account/
 - `app/src/main/java/com/copy/account/core/crypto/AccCodec.kt`：`.acc` 的 JSON 外层、PBKDF2/AES-GCM 导出与导入校验；只返回内存结果，确认后才由 `AccountApp` 保存。
 - `app/src/main/java/com/copy/account/core/crypto/Totp.kt`：TOTP 与 Steam Guard 验证码计算（RFC 6238）。
 - `app/src/main/java/com/copy/account/ui/theme/Theme.kt`：深色/浅色/系统模式、绿色/蓝色配色和 JSONC 自定义主题解析。
+- `app/src/main/java/com/copy/account/core/config/AppSettingsStore.kt`：`appsettings.json` 外挂覆盖层。与 `vault.bin` 同级，文件缺失或解析失败返回 null（不生效），`applyOverride` 逐字段合并（只覆盖非 null 键）；App 只读不写，启动不主动读，仅设置页手动「重新加载配置文件」加载。
+- `app/src/main/java/com/copy/account/ui/components/Rows.kt`：设置行/开关行（SettingsHeader、SettingsRow、SettingsSwitchRow、通用 SwitchRow）、`DangerButton`（红字危险按钮）、`SurfaceCard`（扁平卡，surface 色 0dp 阴影）、`PasswordField`（密码框右侧「显示/隐藏」切换明文，掩码字符可配置）、`AccountFieldItem`（自定义字段行）。
+- `app/src/main/java/com/copy/account/ui/components/Dialogs.kt`：`DeleteConfirmDialog`（红「删除」+「取消」）与 `TextInputDialog`（单输入框，改名/新增分组共用，内部持文本）。
+- `app/src/main/java/com/copy/account/ui/components/Panels.kt`、`Sheet.kt`：账号速览/操作底部面板、随机密码生成器、底部面板通用行（AppBottomSheet、ActionSheetRow）。
+- `app/src/main/java/com/copy/account/ui/components/ComponentsPreview.kt`：组件集中预览，Design/Split 视图查看全部 UI 组件。
+- 掩码与显隐：`AppSettings.maskChar`（默认 `•`）→ `AccountApp` 派生生效 `maskChar`（多字符取首字符）→ Home/Detail/Edit → `SensitiveValueRow`/`AccountFieldItem`/`PasswordField`；掩码固定 8 位不泄真实长度。
+- 组件复用：Home/Edit/Groups 删除确认框、GroupManage/Edit 改名与新增分组框、Edit 两步验证开关行与密码框、Home 账号卡、Backup 备份卡、AccountActionSheet 删除按钮，均改用上述通用组件。
 - `app/src/main/java/com/copy/account/feature/*`：unlock、accounts、edit、detail、groups、settings、backup 七个页面，均带 `@Preview` 静态预览（跟随 `gradle.properties` 默认主题）。
 - `plan/REFERENCE_ACCOUNT_APP.md`：手机端 `com.wei.account` 的真机交互研究记录；只用于初步验证，不作为最终视觉模板，不复制图标、源码或旧加密。
 - 真机截图中的像素仅用于比例测量；首页分栏、底部面板和编辑内容均按窗口约束自适应，不固定某一台手机的分辨率。
@@ -136,6 +146,7 @@ com.copy.account/
 - 密码库不使用数据库。`filesDir/vault.bin` 保存 AES-256-GCM 加密后的完整 `PersistedVault` JSON；默认分组和动态密码分组按账号状态实时派生。
 - DataStore Preferences 保存主题、配色、自定义主题、自动锁定和剪贴板清除时长等非敏感设置；导出时组装为 `.acc` 的明文 `appSettings`。
 - 每次保存密码库或本机敏感设置时，先完整序列化并加密，再用 `android.util.AtomicFile` 原子替换旧文件；中断写入不破坏现有密码库。
+- `filesDir/appsettings.json` 为可选「外挂」配置（与 `vault.bin` 同级，支持 JSONC 注释）：只写想覆盖的键，启动不主动读，仅设置页手动「重新加载配置文件」时加载并覆盖 DataStore 生效值；文件缺失/解析失败/删除均恢复正常，App 只读不写。
 - 解锁后将 `PersistedVault` 解密到内存中完成几百条账号的搜索、筛选、排序和去重；锁定后关闭会话并清除 DEK 与敏感内存引用。
 
 ## 4. 加密与数据设计
@@ -183,6 +194,7 @@ com.copy.account/
 6. [x] 实现剪贴板定时清除。
 7. [x] 完成 `.acc` 加密导入导出与 SAF 文件授权。
 8. [x] 在真机验证主题切换、密码校验和备份恢复流程。
+9. [x] 抽取通用组件（开关/卡片/删除编辑对话框）、编辑页密码显隐切换、可配置掩码符号，并接入 `appsettings.json` 外挂手动加载。
 
 ## 7. 验收标准
 

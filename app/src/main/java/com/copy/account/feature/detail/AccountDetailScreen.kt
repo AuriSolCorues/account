@@ -29,7 +29,7 @@ import com.copy.account.ui.theme.LocalAccountThemePalette
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AccountDetailScreen(account: Account?, clipboardClearSeconds: Int, onBack: () -> Unit, onEdit: () -> Unit) {
+internal fun AccountDetailScreen(account: Account?, clipboardClearSeconds: Int, onBack: () -> Unit, onEdit: () -> Unit, maskChar: Char = '•') {
     val nowMillis = rememberClock()
     Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
         TopAppBar(colors = accountTopBarColors(), title = { Text(account?.name ?: "账号详情", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }, actions = { TextButton(onClick = onEdit) { Text("编辑", color = LocalAccountThemePalette.current.topBarText) } })
@@ -40,11 +40,11 @@ internal fun AccountDetailScreen(account: Account?, clipboardClearSeconds: Int, 
             LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 item { Text("分组：${account.groups.joinToString().ifBlank { "默认" }}", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 12.dp)) }
                 item { Text("登录信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
-                item { SensitiveValueRow("用户名", account.username, clearAfterSeconds = clipboardClearSeconds) }
-                item { SensitiveValueRow("密码", account.password, masked = true, sensitive = true, clearAfterSeconds = clipboardClearSeconds) }
+                item { SensitiveValueRow("用户名", account.username, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
+                item { SensitiveValueRow("密码", account.password, masked = true, sensitive = true, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
                 item { Text("两步验证", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
                 item { if (account.hasTotp) SensitiveValueRow("动态密码", totpCode(account, nowMillis), sensitive = true, clearAfterSeconds = clipboardClearSeconds) else Text("未配置", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                items(account.customFields, key = { it.id }) { field -> SensitiveValueRow(field.label, field.value, masked = field.hidden, sensitive = field.hidden, clearAfterSeconds = clipboardClearSeconds) }
+                items(account.customFields, key = { it.id }) { field -> SensitiveValueRow(field.label, field.value, masked = field.hidden, sensitive = field.hidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
             }
         }
     }

@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,26 +11,19 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -40,7 +32,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,10 +56,12 @@ import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
 import com.copy.account.data.model.initialAccounts
 import com.copy.account.data.model.initialGroups
+import com.copy.account.ui.components.AccountActionSheet
+import com.copy.account.ui.components.AccountPreviewSheet
+import com.copy.account.ui.components.DeleteConfirmDialog
 import com.copy.account.ui.components.EmptyState
-import com.copy.account.ui.components.SensitiveValueRow
+import com.copy.account.ui.components.SurfaceCard
 import com.copy.account.ui.components.accountTopBarColors
-import com.copy.account.ui.components.rememberClock
 import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
@@ -81,6 +74,7 @@ internal fun HomeScreen(
     groups: List<Group>,
     selectedGroupId: String,
     clipboardClearSeconds: Int,
+    maskChar: Char = '•',
     onGroupSelected: (String) -> Unit,
     onNewAccount: () -> Unit,
     onEditAccount: (String) -> Unit,
@@ -191,7 +185,7 @@ internal fun HomeScreen(
             }
         }
     }
-    previewAccount?.let { account -> AccountPreviewSheet(account, clipboardClearSeconds, { previewAccount = null }, { previewAccount = null; onEditAccount(account.id) }, { previewAccount = null; onOpenDetail(account.id) }) }
+    previewAccount?.let { account -> AccountPreviewSheet(account, clipboardClearSeconds, { previewAccount = null }, { previewAccount = null; onEditAccount(account.id) }, { previewAccount = null; onOpenDetail(account.id) }, maskChar = maskChar) }
     menuAccount?.let { account ->
         AccountActionSheet(
             account = account,
@@ -203,18 +197,15 @@ internal fun HomeScreen(
         )
     }
     deleteConfirmAccount?.let { account ->
-        AlertDialog(
-            onDismissRequest = { deleteConfirmAccount = null },
-            title = { Text("删除账号") },
-            text = { Text("确定删除「${account.name}」吗？此操作不可撤销。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    onDeleteAccount(account.id)
-                    if (previewAccount?.id == account.id) previewAccount = null
-                    deleteConfirmAccount = null
-                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+        DeleteConfirmDialog(
+            title = "删除账号",
+            message = "确定删除「${account.name}」吗？此操作不可撤销。",
+            onConfirm = {
+                onDeleteAccount(account.id)
+                if (previewAccount?.id == account.id) previewAccount = null
+                deleteConfirmAccount = null
             },
-            dismissButton = { TextButton(onClick = { deleteConfirmAccount = null }) { Text("取消") } }
+            onDismiss = { deleteConfirmAccount = null }
         )
     }
 }
@@ -265,7 +256,7 @@ internal fun GroupSidebar(
 
 @Composable
 internal fun AccountCard(account: Account, showTotp: Boolean, nowMillis: Long, onClick: () -> Unit, onLongClick: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp), modifier = Modifier
+    SurfaceCard(modifier = Modifier
         .fillMaxWidth()
         .pointerInput(account.id) {
             detectTapGestures(onTap = { onClick() }, onLongPress = { onLongClick() })
@@ -298,23 +289,6 @@ internal fun AccountCard(account: Account, showTotp: Boolean, nowMillis: Long, o
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun AccountPreviewSheet(account: Account, clipboardClearSeconds: Int, onDismiss: () -> Unit, onEdit: () -> Unit, onDetail: () -> Unit) {
-    val nowMillis = rememberClock()
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState()) {
-        Column(modifier = Modifier.fillMaxWidth().padding(20.dp).windowInsetsPadding(WindowInsets.navigationBars)) {
-            Row(verticalAlignment = Alignment.CenterVertically) { Text(account.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Spacer(Modifier.weight(1f)); TextButton(onClick = onDetail) { Text("详情") }; TextButton(onClick = onEdit) { Text("编辑") } }
-            Spacer(Modifier.height(12.dp))
-            SensitiveValueRow("用户名", account.username, clearAfterSeconds = clipboardClearSeconds)
-            SensitiveValueRow("密码", account.password, masked = true, sensitive = true, clearAfterSeconds = clipboardClearSeconds)
-            if (account.hasTotp) SensitiveValueRow("动态密码", totpCode(account, nowMillis), sensitive = true, clearAfterSeconds = clipboardClearSeconds)
-            account.customFields.forEach { field -> SensitiveValueRow(field.label, field.value, masked = field.hidden, sensitive = field.hidden, clearAfterSeconds = clipboardClearSeconds) }
-            Spacer(Modifier.height(16.dp))
-        }
-    }
-}
-
 /** 判断账号是否属于某个分组（默认=未分组、动态=已配置 TOTP、自定义=显式关联）。 */
 internal fun accountInGroup(account: Account, groups: List<Group>, groupId: String): Boolean {
     val group = groups.firstOrNull { it.id == groupId } ?: return false
@@ -342,47 +316,6 @@ internal fun accountCopyableText(account: Account): String = buildList {
     add("密码：${account.password}")
     account.customFields.forEach { add("${it.label}：${it.value}") }
 }.joinToString("\n")
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun AccountActionSheet(
-    account: Account,
-    onDismiss: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-    onTemplateNew: () -> Unit,
-    onCopyAll: () -> Unit
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).windowInsetsPadding(WindowInsets.navigationBars),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(account.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { onDismiss(); onEdit() }, modifier = Modifier.weight(1f)) { Text("编辑") }
-                TextButton(onClick = { onDismiss(); onDelete() }, modifier = Modifier.weight(1f)) { Text("删除", color = MaterialTheme.colorScheme.error) }
-            }
-            ActionSheetRow("作为模板新建账号") { onDismiss(); onTemplateNew() }
-            ActionSheetRow("复制账号全部内容") { onDismiss(); onCopyAll() }
-            ActionSheetRow("取消", muted = true) { onDismiss() }
-            Spacer(Modifier.height(8.dp))
-        }
-    }
-}
-
-@Composable
-internal fun ActionSheetRow(text: String, muted: Boolean = false, onClick: () -> Unit) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
-    ) {
-        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
-            Text(text, color = if (muted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
-        }
-    }
-}
 
 @Preview(showBackground = true)
 @Composable
