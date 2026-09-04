@@ -16,7 +16,7 @@
 - 用户可新增、改名、删除和拖动排序自定义分组；删除账号最后一个自定义分组后自动回到默认分组。
 - 支持长按一个或多个分组做交集筛选（动态密码可与自定义分组组合）；长按账号可选择作为模板新建或复制该账号的全部可复制字段。
 - 账号列表、详情、新增、编辑、删除和以既有条目为模板新建。
-- 每条账号可有任意数量的自定义字段，例如账号、密码、邮箱、网址、恢复码、备注；编辑页提供“新增字段”和“新增隐藏字段”，已有字段可切换隐藏状态。
+- 每条账号可有任意数量的自定义字段，例如账号、密码、邮箱、网址、恢复码、备注；编辑页只提供“新增字段”，在单条字段编辑窗口内切换隐藏状态。
 - 搜索跨所有账号查找名称、分组和字段内容；后续支持中文、拼音和拼音首字母搜索。
 - 复制字段内容；密码和验证码默认在设定时间后自动清除剪贴板。
 - 点击账号条目打开底部速览面板，点击面板外空白处或向下滑关闭；不因快速复制而进入详情页。
@@ -100,43 +100,45 @@
 - 不引入二维码扫描、WebDAV 或其他网络依赖，控制安装包大小。
 - 不使用 Room、SQLite、SQLCipher、Bouncy Castle 或其他数据库/加密库，控制安装包大小。
 
-### 代码结构
+### 代码目录（已整理）
 
 ```text
 com.copy.account/
-├── MainActivity.kt        # FragmentActivity、edge-to-edge、FLAG_SECURE、主题默认值装配
-├── AccountApp.kt          # 应用状态、解锁会话、sealed AppPage 页面路由、SAF 回调
-├── core/
-│   ├── config/            # AppSettingsStore（appsettings.json 外挂覆盖层，只读不写）
-│   ├── crypto/            # Crypto（KEK/DEK/AES-GCM/PBKDF2）、Totp、AccCodec（.acc 编解码）
-│   ├── security/          # Clipboard（受控复制与定时清除）
-│   └── storage/           # VaultStore（加密文件/Keystore/生物识别）、Preferences（DataStore）
+├── MainActivity.kt        # Activity、窗口安全、主题装配
+├── AccountApp.kt          # 全局状态、页面路由、SAF 回调
+├── page/                  # 只放页面：Unlock、Home、Detail、Edit、Groups、Settings、Backup
+├── ui/
+│   ├── components/        # 只放可复用控件、弹窗、底部框与 ComponentsPreview
+│   └── theme/             # 颜色、字体、主题
+├── security/              # 独立安全区：Crypto、VaultStore、AccCodec、Totp、Clipboard
 ├── data/
 │   ├── model/             # Account、Group、AccountField、AppSettings、PersistedVault
+│   ├── config/            # Preferences、AppSettingsStore
 │   └── backup/            # BackupFiles（SAF 目录与文件操作）
-├── feature/               # unlock、accounts、edit、detail、groups、settings、backup
-└── ui/
-    ├── theme/             # AccountTheme、深/浅色、绿色/蓝色配色、JSONC 自定义主题
-    └── components/        # UiCommon、Rows、Panels、Sheet、Dialogs、ComponentsPreview（见下）
+└── navigation/            # AppPage；仅页面路由定义
 ```
+
+- `page` 只组装页面；`ui/components` 只提供可复用控件，不放页面业务。
+- `security` 不依赖 Compose 或页面；全部加密、密码库、备份编解码和敏感剪贴板代码集中在此。
+- 本次仅移动文件、修正包名与 import；功能行为不因目录整理而改变。
 
 ### 当前实现文件与数据流
 
 - `app/src/main/java/com/copy/account/MainActivity.kt`：`FragmentActivity`、edge-to-edge 布局、`FLAG_SECURE` 截图保护、主题状态装配；首次启动主题取 `BuildConfig.DEFAULT_THEME_MODE`（来自 `gradle.properties`）。
 - `app/src/main/java/com/copy/account/AccountApp.kt`：应用状态、解锁会话、sealed `AppPage` 页面路由、账号管理、剪贴板复制和 SAF 回调；复制敏感字段后由 `ClipboardManager` 写入并定时校验清除。
-- `app/src/main/java/com/copy/account/core/storage/VaultStore.kt`：`filesDir/vault.bin` 加密读写、主密码 KEK/DEK、AndroidKeyStore 生物识别包装、改密与解锁。
-- `app/src/main/java/com/copy/account/core/storage/Preferences.kt`：DataStore 保存主题/配色/自定义主题/自动锁定/剪贴板清除/截图开关/备份目录 URI。
-- `app/src/main/java/com/copy/account/core/crypto/AccCodec.kt`：`.acc` 的 JSON 外层、PBKDF2/AES-GCM 导出与导入校验；只返回内存结果，确认后才由 `AccountApp` 保存。
-- `app/src/main/java/com/copy/account/core/crypto/Totp.kt`：TOTP 与 Steam Guard 验证码计算（RFC 6238）。
+- `app/src/main/java/com/copy/account/security/VaultStore.kt`：`filesDir/vault.bin` 加密读写、主密码 KEK/DEK、AndroidKeyStore 生物识别包装、改密与解锁。
+- `app/src/main/java/com/copy/account/data/config/Preferences.kt`：DataStore 保存主题/配色/自定义主题/自动锁定/剪贴板清除/截图开关/备份目录 URI。
+- `app/src/main/java/com/copy/account/security/AccCodec.kt`：`.acc` 的 JSON 外层、PBKDF2/AES-GCM 导出与导入校验；只返回内存结果，确认后才由 `AccountApp` 保存。
+- `app/src/main/java/com/copy/account/security/Totp.kt`：TOTP 与 Steam Guard 验证码计算（RFC 6238）。
 - `app/src/main/java/com/copy/account/ui/theme/Theme.kt`：深色/浅色/系统模式、绿色/蓝色配色和 JSONC 自定义主题解析。
-- `app/src/main/java/com/copy/account/core/config/AppSettingsStore.kt`：`appsettings.json` 外挂覆盖层。与 `vault.bin` 同级，文件缺失或解析失败返回 null（不生效），`applyOverride` 逐字段合并（只覆盖非 null 键）；App 只读不写，启动不主动读，仅设置页手动「重新加载配置文件」加载。
-- `app/src/main/java/com/copy/account/ui/components/Rows.kt`：设置行/开关行（SettingsHeader、SettingsRow、SettingsSwitchRow、通用 SwitchRow）、`DangerButton`（红字危险按钮）、`SurfaceCard`（扁平卡，surface 色 0dp 阴影）、`PasswordField`（密码框右侧「显示/隐藏」切换明文，掩码字符可配置）、`AccountFieldItem`（自定义字段行）。
-- `app/src/main/java/com/copy/account/ui/components/Dialogs.kt`：`DeleteConfirmDialog`（红「删除」+「取消」）与 `TextInputDialog`（单输入框，改名/新增分组共用，内部持文本）。
+- `app/src/main/java/com/copy/account/data/config/AppSettingsStore.kt`：`appsettings.json` 外挂覆盖层。与 `vault.bin` 同级，文件缺失或解析失败返回 null（不生效），`applyOverride` 逐字段合并（只覆盖非 null 键）；App 只读不写，启动不主动读，仅设置页手动「重新加载配置文件」加载。
+- `app/src/main/java/com/copy/account/ui/components/Rows.kt`：设置行/开关行（SettingsHeader、SettingsRow、SettingsSwitchRow、通用 SwitchRow）、`DangerButton`（红字危险按钮）、`SurfaceCard`（扁平卡，surface 色 0dp 阴影）。`FieldTextBox.kt` 统一文本/密码输入、`TextActionButton` 提供文字按钮图标 slot；`FieldEditorSheet.kt` 负责单条字段编辑。
+- `app/src/main/java/com/copy/account/ui/components/Dialogs.kt`：`DeleteConfirmDialog`（红「删除」+「取消」）与 `TextInputDialog`（单输入框，账号编辑页新增分组共用，内部持文本）。
 - `app/src/main/java/com/copy/account/ui/components/Panels.kt`、`Sheet.kt`：账号速览/操作底部面板、随机密码生成器、底部面板通用行（AppBottomSheet、ActionSheetRow）。
 - `app/src/main/java/com/copy/account/ui/components/ComponentsPreview.kt`：组件集中预览，Design/Split 视图查看全部 UI 组件。
 - 掩码与显隐：`AppSettings.maskChar`（默认 `•`）→ `AccountApp` 派生生效 `maskChar`（多字符取首字符）→ Home/Detail/Edit → `SensitiveValueRow`/`AccountFieldItem`/`PasswordField`；掩码固定 8 位不泄真实长度。
-- 组件复用：Home/Edit/Groups 删除确认框、GroupManage/Edit 改名与新增分组框、Edit 两步验证开关行与密码框、Home 账号卡、Backup 备份卡、AccountActionSheet 删除按钮，均改用上述通用组件。
-- `app/src/main/java/com/copy/account/feature/*`：unlock、accounts、edit、detail、groups、settings、backup 七个页面，均带 `@Preview` 静态预览（跟随 `gradle.properties` 默认主题）。
+- 组件复用：Home/Edit/Groups 删除确认框、GroupManage 的新增/直接编辑分组底部框、AccountEdit 新增分组对话框、Edit 两步验证开关行与密码框、Home 账号卡、Backup 备份卡、AccountActionSheet 删除按钮，均改用上述通用组件。
+- `app/src/main/java/com/copy/account/page/*`：unlock、home、edit、detail、groups、settings、backup 七个页面，均带 `@Preview` 静态预览（跟随 `gradle.properties` 默认主题）。
 - `plan/REFERENCE_ACCOUNT_APP.md`：手机端 `com.wei.account` 的真机交互研究记录；只用于初步验证，不作为最终视觉模板，不复制图标、源码或旧加密。
 - 真机截图中的像素仅用于比例测量；首页分栏、底部面板和编辑内容均按窗口约束自适应，不固定某一台手机的分辨率。
 - 数据流：主密码 → KEK/本地 DEK → 内存密码库；首次进入备份页 → `OpenDocumentTree` 授权 → 自动创建 `backups/account`；导出时读取当前 KEK → 生成 `.acc` → 在固定目录创建文件；备份管理页列出目录中的 `.acc` → 输入该文件密码并验证解密 → 用户确认 → 原子保存。
@@ -180,11 +182,13 @@ com.copy.account/
 3. 分组管理页：默认/动态密码名称修改，以及自定义分组的新增、改名、删除与拖动排序。
 4. 账号速览面板：快速复制字段与 2FA；点击空白处或下滑关闭。
 5. 账号详情页：字段和 2FA 验证码，不展示额外操作记录。
-6. 账号编辑页：新增、修改、排序、删除字段，新增隐藏字段及单个 2FA。
+6. 账号编辑页：两列字段、单条字段编辑窗口、排序/删除/随机密码/新增字段工具条及单个 2FA（详见 §8）。
 7. 设置页：安全、修改主密码、剪贴板、主题和导入导出。
 8. 备份文件管理页：授权并创建 `backups/account`、导出 `.acc`、列出/刷新/删除备份，以及输入备份文件密码后恢复。
 
 ## 6. 实施顺序
+
+> 以下 `[x]` 仅表示现有旧版功能；§3 的目录重排和 §8 的字段体系重构独立待完成。
 
 1. [x] 建立 Compose 应用框架、导航、主题和前端设计中的基础组件。
 2. [x] 实现安全窗口、自动锁定、主密码与生物识别解锁。
@@ -193,8 +197,9 @@ com.copy.account/
 5. [x] 实现 TOTP 计算、验证码展示与受控复制。
 6. [x] 实现剪贴板定时清除。
 7. [x] 完成 `.acc` 加密导入导出与 SAF 文件授权。
-8. [x] 在真机验证主题切换、密码校验和备份恢复流程。
+8. [ ] 在真机复验主题切换、密码校验和备份恢复流程，并记录日期与结果。
 9. [x] 抽取通用组件（开关/卡片/删除编辑对话框）、编辑页密码显隐切换、可配置掩码符号，并接入 `appsettings.json` 外挂手动加载。
+10. [x] 按 §3 整理页面、控件与安全代码目录；按 §8 落地字段体系。已通过 `:app:assembleDebug --offline`；真机验证仍见第 8 项。
 
 ## 7. 验收标准
 
@@ -210,3 +215,21 @@ com.copy.account/
 - 所有分组均可改名；默认和动态密码改名后仍保持固定位置及系统行为。
 - 从自定义分组新建账号会自动加入该分组；从默认分组新建账号保持未分组；从动态密码分组新建账号只有在配置 TOTP 后才显示在该分组。
 - 删除账号最后一个自定义分组后，账号显示在默认分组；动态密码与自定义分组组合筛选时返回交集结果。
+
+
+## 8. 编辑页字段体系重构（已实现，待真机复验）
+
+> 已接入 `page/AccountEditScreen.kt` 与 `ui/components/FieldTextBox.kt`、`FieldEditorSheet.kt`；
+> 本节仍作为交互约束，真机体验与拖动手感待复验（详见 [FRONTEND_DESIGN.md §4](FRONTEND_DESIGN.md)）。
+
+- 字段行统一“两列”:左键名(可点)+ 右值框;用户名/密码仍为顶层固定字段,不进字段列表。
+- 键名编辑:点左侧键名 → 底部滑出“单条字段编辑窗口”(复用 `AppBottomSheet`,顶栏标题 + 右上「保存」);
+  新增字段也用同一个窗口(键名留空)。
+- 窗口内容:键名输入 + (仅自定义字段)「隐藏文本」开关/滑块 + 内容输入(开则掩码、可显隐)+
+  「随机」按钮仅在隐藏文本开时出现。
+- 用户名/密码改为保存“可选显示名标签”(`usernameLabel`/`passwordLabel`,空=默认文案),兼容旧 vault JSON。
+- 文本/密码已收敛为 `FieldTextBox`(文本为基座、隐藏文本追加 `PasswordVisualTransformation` 显隐尾按钮；用户名不提供清空按钮)，替换原 `PasswordField`/`AccountFieldItem`。
+- `TextActionButton` 已统一文字按钮，并预留可选前置/后置图标 slot；保留文字、不做纯图标按钮。图标接入时附内容描述，不改变既有按钮语义或点击区域。
+- 工具条(字段列表与两步验证之间)= 排序 / 删除 / 随机密码 / ＋新增字段;排序(☷ 长按拖动)与删除
+  (每行删除钮,整行删)为互斥模式;随机密码回填“当前字段”(明文/隐藏均可,用户名除外);行内常驻“删除/随机”
+  撤掉,ComponentsPreview 同步去样板。
