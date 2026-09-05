@@ -5,6 +5,7 @@
 #   ./build.sh release-install 构建已签名 release 并安装（发布/真机用，体积小）
 #   ./build.sh all            同时构建 debug 和 release
 set -euo pipefail
+trap 'echo "==> 构建失败，exit $?" >&2' ERR
 cd "$(dirname "$0")"
 
 # 定位 adb：先 PATH，再 SDK platform-tools。
@@ -22,8 +23,7 @@ install_apk() {
     [ -z "$adb" ] && { echo "==> 未找到 adb，跳过安装。可手动: adb install -r $apk"; return 0; }
     if "$adb" devices | grep -q 'device$'; then
         echo "==> 检测到真机，安装中（OPPO/ColorOS 需在手机上点「安装」，或开启开发者选项里的「USB 安装」）..."
-        out="$(timeout 300 "$adb" install -r "$apk" 2>&1)"
-        if [ $? -ne 0 ]; then
+        if ! out="$(timeout 300 "$adb" install -r "$apk" 2>&1)"; then
             if echo "$out" | grep -q 'INSTALL_FAILED_UPDATE_INCOMPATIBLE'; then
                 echo "==> 签名不匹配：设备上装的是另一个签名（release/debug）的包，无法覆盖。"
                 echo "    装 release 用 ./build.sh release-install；装 debug 需先 adb uninstall com.copy.account。"
@@ -69,3 +69,4 @@ case "${1:-}" in
     all)             build_debug && echo && build_release 0 ;;
     *)               build_debug ;;
 esac
+echo "==> 成功，exit 0"
