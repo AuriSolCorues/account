@@ -43,3 +43,15 @@ Thumbs.db
 
 # 本地研究笔记(另一 App 的交互记录),不公开
 plan/REFERENCE_ACCOUNT_APP.md
+
+# 本地指令与设计资源，不入库
+AGENTS.md
+CLAUDE.md
+plan/*.svg
+plan/*.png
+plan/*.jpg
+plan/*.jpeg
+plan/*.gif
+plan/*.webp
+plan/*.html
+plan/*.htm
