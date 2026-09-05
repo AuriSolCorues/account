@@ -1,3 +1,13 @@
+/**
+ * 职责：中央组装点——全应用状态（页面路由、账号/分组、DEK、生效设置、备份授权）全部集中于此。
+ *       无 ViewModel：页面组件一律无状态、只收数据 props 与事件回调，数据流单向
+ *       （状态下发、事件上传）。解锁/生物识别、备份导入导出、ON_STOP 自动锁定、
+ *       DataStore 读写与 appsettings.json 外挂覆盖也都装配在这里。
+ * 架构位置：MainActivity 的 setContent → 本函数 → when(page) 渲染 page/ 各屏。
+ *           加新页面 = navigation/AppPage 加分支 + 本文件 when 加一支。
+ * Python 类比：≈ 一个顶层 App 类——所有实例属性、所有事件处理方法都放这儿，
+ *           各页面只是纯渲染函数；remember ≈ 给「函数局部变量」挂跨重渲染的缓存。
+ */
 package com.copy.account
 
 import android.content.Context
@@ -93,6 +103,8 @@ fun AccountApp(
 ) {
     val context = LocalContext.current
     val activity = context as? ComponentActivity
+    // remember { ... }：首次组合求值一次、之后重渲染复用同一实例（按调用点缓存）。
+    // SecureVaultStore 只包着 prefs 与文件路径、不持密钥，常驻内存安全。
     val store = remember { SecureVaultStore(context) }
     val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf<AppPage>(AppPage.Unlock) }
@@ -123,6 +135,8 @@ fun AccountApp(
     /** 当前是否处于前台 RESUME 状态，用于在回到前台时触发一次生物识别。 */
     var resumed by remember { mutableStateOf(false) }
 
+    // LaunchedEffect(Unit)：首帧启动、键不变只跑一次的协程——冷启动从 DataStore 读一次设置真值。
+    // .data.first() 取 Flow 首值即退出（不持续订阅），之后的变更靠各回调增量更新。
     LaunchedEffect(Unit) {
         val values = context.settingsDataStore.data.first()
         baseSettings = AppSettings(
@@ -178,6 +192,8 @@ fun AccountApp(
         onAllowScreenshotsChange(effective.allowScreenshots)
     }
 
+    // 声明式版 startActivityForResult：rememberLauncherForActivityResult 注册「意图+回调」，
+    // launch() 发出（这里是 SAF 选目录树），用户操作完在回调里拿结果（content URI）。
     val chooseBackupDirectory = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) {
             backupDirectoryMessage = "未选择目录"
@@ -303,6 +319,7 @@ fun AccountApp(
         )
     }
 
+    // 手写返回栈：无导航框架，系统返回键在此映射回上级页；enabled 让一级页（Unlock/Home）不拦截。
     BackHandler(enabled = page != AppPage.Unlock && page != AppPage.Home) {
         page = when (page) {
             AppPage.Settings, AppPage.Groups, is AppPage.Detail, is AppPage.Edit -> AppPage.Home
@@ -312,6 +329,8 @@ fun AccountApp(
     }
 
     // 统一生命周期：进入后台立即锁定；回到前台且仍处于解锁页时触发一次生物识别。
+    // DisposableEffect ≈ setup/teardown 的 context manager：进入组合时注册生命周期观察者，
+    // onDispose（离开组合）时注销，防止泄漏。
     DisposableEffect(activity) {
         if (activity == null) return@DisposableEffect onDispose { }
         val observer = LifecycleEventObserver { _, event ->
