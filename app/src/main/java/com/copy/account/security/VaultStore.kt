@@ -1,3 +1,13 @@
+/**
+ * 职责：密码库 vault.bin 的建库、加解锁与原子落盘。核心是 KEK/DEK 双层密钥模型——
+ *       主密码经 PBKDF2 派生 KEK（只用来包一层 DEK），随机 32 字节 DEK 才真正加密 vault.bin；
+ *       生物识别再用 AndroidKeyStore 里不可导出的密钥包第二份 DEK。改主密码只重新包装、不重加密数据。
+ * 架构位置：AccountApp 解锁流程调用（remember { SecureVaultStore(context) } 持有实例）；
+ *           加解密原语来自 security/Crypto.kt；密钥元数据存 SharedPreferences(account_security)，
+ *           库文件是 filesDir/vault.bin。
+ * Python 类比：SharedPreferences ≈ 同步阻塞的 configparser（内存缓存 + 整文件重写落盘）；
+ *           AtomicFile ≈ 先写临时文件再 os.replace 的原子写；AndroidKeyStore 无 Python 等价物（见下）。
+ */
 package com.copy.account.security
 
 import android.content.Context
@@ -16,6 +26,8 @@ import com.copy.account.data.model.PersistedVault
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.Account
 
+// 以下常量是 SharedPreferences(account_security) 的 key 与库文件名：里面只存密钥元数据
+// （盐、KEK 校验值、包装后的 DEK、PBKDF2 迭代数），绝不存明文主密码或裸 DEK。
 private const val SECURITY_PREFS = "account_security"
 private const val PASSWORD_HASH = "master_password_hash"
 private const val PASSWORD_SALT = "master_password_salt"
@@ -71,6 +83,7 @@ internal class SecureVaultStore(private val context: Context) {
         return if (salt.isNotEmpty() && key.size == 32) Triple(key, salt, iterations) else null
     }
 
+    // 首建：随机盐 + 随机 DEK；KEK 只在内存短暂存在，落盘的是「盐 + KEK（兼当校验值）+ 包装后的 DEK」。
     fun createInitial(password: String, state: PersistedVault): ByteArray {
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val dek = ByteArray(32).also { SecureRandom().nextBytes(it) }
@@ -93,6 +106,7 @@ internal class SecureVaultStore(private val context: Context) {
         val iterations = prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS)
         val kek = passwordHash(password, salt, iterations)
         return try {
+            // isEqual 逐字节恒时比较（≈ hmac.compare_digest）：不因第一个错误字节提前返回，抗计时侧信道。
             if (!MessageDigest.isEqual(expected, kek)) return null
             val wrapped = prefs.getString(PASSWORD_WRAPPED_DEK, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
             val iv = prefs.getString(PASSWORD_WRAP_IV, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
@@ -114,6 +128,8 @@ internal class SecureVaultStore(private val context: Context) {
             EncryptedFile.serializer(),
             EncryptedFile(iv = Base64.encodeToString(payload.iv, Base64.NO_WRAP), ciphertext = Base64.encodeToString(payload.ciphertext, Base64.NO_WRAP))
         ).toByteArray(Charsets.UTF_8)
+        // AtomicFile 原子写：先写同目录临时文件、成功才改名顶替（≈ tmp 文件 + os.replace），
+        // 写到一半崩溃或断电都不会损坏旧的 vault.bin。
         val atomic = AtomicFile(vaultFile)
         val stream = atomic.startWrite()
         try {
@@ -136,6 +152,8 @@ internal class SecureVaultStore(private val context: Context) {
 
     fun biometricAvailable(): Boolean = BiometricManager.from(context).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
 
+    // AndroidKeyStore：硬件背书的系统密钥库，密钥不可导出（连 App 自己都取不走字节），Python 无等价物。
+    // setUserAuthenticationRequired(true) = 每次使用该密钥必须先通过生物识别，由系统强制把关。
     private fun biometricKey(): SecretKey {
         val ks = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (ks.getKey(BIOMETRIC_ALIAS, null) as? SecretKey)?.let { return it }

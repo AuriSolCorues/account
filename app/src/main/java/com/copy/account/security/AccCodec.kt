@@ -1,3 +1,11 @@
+/**
+ * 职责：.acc 备份文件的编解码。外层是明文 JSON（AccDocument：密码库密文 + 明文软件设置），
+ *       内层 AccPayload 记录 KDF 参数与 AES-GCM 密文；导出复用当前主密码的 KEK 与盐，无需再输密码。
+ * 架构位置：AccountApp 的导出/导入回调调 exportAcc/importAcc；产物字节交给 data/backup 双轨写盘。
+ *           加密原语来自 security/Crypto.kt。
+ * Python 类比：结构像一个 JSON 信封——{"passwordVault": base64(json(payload)), "appSettings": {...}}，
+ *           payload 里再藏 base64 的 AES-GCM 密文；信封明文可读，盒子必须用备份密码打开。
+ */
 package com.copy.account.security
 
 import android.util.Base64
@@ -48,6 +56,8 @@ internal data class AccImportResult(
     val settings: AppSettings
 )
 
+// 与 vaultJson 的分工：accJson 严格（未知字段即拒收，防把无关文件误当备份）；vaultJson 宽松
+// （容忍旧版数据缺字段）。内外两层 .acc 解析都走 accJson 的严格模式。
 private val accJson = Json {
     encodeDefaults = true
     // 外层格式保持严格，根节点出现未知字段时直接拒绝，避免误读其他格式。
@@ -88,6 +98,7 @@ internal fun exportAcc(input: AccExportInput, key: ByteArray, salt: ByteArray, i
             )
         ).toByteArray(Charsets.UTF_8)
     } finally {
+        // 明文字节用完立刻清零：GC 时代这是尽力而为的内存卫生，缩短敏感数据在堆上的暴露窗口。
         plain.fill(0)
     }
 }
@@ -98,6 +109,8 @@ internal fun importAcc(bytes: ByteArray, password: String): Result<AccImportResu
     val document = accJson.decodeFromString(AccDocument.serializer(), bytes.toString(Charsets.UTF_8))
     val payloadBytes = Base64.decode(document.passwordVault, Base64.DEFAULT)
     val payload = accJson.decodeFromString(AccPayload.serializer(), payloadBytes.toString(Charsets.UTF_8))
+    // 逐条 require 校验版本/KDF/迭代数/字段长度，任一不满足抛 IllegalArgumentException
+    // （被外层 runCatching 捕成 Result.failure）——先验形再解密，防误读与参数降级攻击。
     require(payload.version == 1) { "不支持的备份版本" }
     require(payload.kdf == "PBKDF2-HMAC-SHA256") { "不支持的密钥派生算法" }
     require(payload.iterations in 10_000..2_000_000) { "无效的密钥派生参数" }
