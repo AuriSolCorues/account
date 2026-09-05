@@ -1,3 +1,8 @@
+/**
+ * 职责：账号底部速览面板——不进详情页即可复制用户名/密码/验证码/自定义字段。
+ * 架构位置：HomeScreen 点账号卡弹出；行组件复用 UiCommon 的 SensitiveValueRow/AccountTotpRow。
+ * Python 类比：@Composable 无状态组件 ≈ 只吃 props 的模板函数；显示什么全由外部重传的数据决定。
+ */
 package com.copy.account.ui.components
 
 import androidx.compose.foundation.layout.Spacer

@@ -1,3 +1,10 @@
+/**
+ * 职责：文本输入与按钮基座——TextActionButton/PrimaryButton、PasswordField（无显隐密码框）、
+ *       FieldTextBox（可掩码、带显隐尾按钮的通用输入框）。
+ * 架构位置：解锁页、编辑页、各弹层统一取用；掩码字符来自 AppSettings.maskChar。
+ * Python 类比：VisualTransformation ≈ 输入框的「显示层变换」——存储值仍是明文，
+ *           仅渲染时逐字符替换（PasswordVisualTransformation 即打点显示，≈ type="password"）。
+ */
 package com.copy.account.ui.components
 
 import androidx.compose.foundation.layout.height
@@ -80,7 +87,10 @@ internal fun FieldTextBox(
     var revealed by remember(hidden) { mutableStateOf(false) }
     val maskedTransformation = remember(mask) { PasswordVisualTransformation(mask = mask) }
     val visualTransformation = if (hidden && !revealed) maskedTransformation else VisualTransformation.None
+    // MutableInteractionSource：本组件自持的交互状态源（按下/聚焦），DecorationBox 据此画涟漪与高亮。
     val interactionSource = remember { MutableInteractionSource() }
+    // 用 BasicTextField + DecorationBox 而非成品 OutlinedTextField：掩码字符、紧凑高度、
+    // 自定义尾按钮都要深度定制，成品组件的可调面不够。
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
