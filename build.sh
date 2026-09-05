@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 一键构建与安装。
-#   ./build.sh                构建 debug APK 并安装到真机（开发用，约 34MB，未裁剪）
-#   ./build.sh release        构建已签名 release APK（不安装，约 3.5MB，已 R8 裁剪）
+#   ./build.sh                构建 debug APK 并安装到真机（开发用，约 37MB，未裁剪）
+#   ./build.sh release        构建已签名 release APK（不安装，约 3.7MB，已 R8 裁剪）
 #   ./build.sh release-install 构建已签名 release 并安装（发布/真机用，体积小）
 #   ./build.sh all            同时构建 debug 和 release
 set -euo pipefail
@@ -60,7 +60,7 @@ build_release() {
     [ -n "$apk" ] || { echo "未找到 release APK"; return 1; }
     echo "==> 产物: $apk"
     ls -lh "$apk" 2>/dev/null || true
-    [ "$do_install" = "1" ] && install_apk "$apk"
+    if [ "$do_install" = "1" ]; then install_apk "$apk"; fi
 }
 
 case "${1:-}" in
