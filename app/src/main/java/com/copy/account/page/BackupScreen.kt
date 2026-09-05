@@ -1,4 +1,4 @@
-package com.copy.account.feature.backup
+package com.copy.account.page
 
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
@@ -10,14 +10,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,32 +22,40 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.copy.account.core.crypto.AccImportResult
-import com.copy.account.core.crypto.isMasterPasswordValid
+import com.copy.account.security.AccImportResult
+import com.copy.account.security.isMasterPasswordValid
 import com.copy.account.data.backup.BackupEntry
+import com.copy.account.data.backup.FileBackupEntry
 import com.copy.account.data.backup.listBackupFiles
+import com.copy.account.data.backup.listFileBackups
+import com.copy.account.ui.components.AppScreen
 import com.copy.account.ui.components.DangerButton
 import com.copy.account.ui.components.EmptyState
+import com.copy.account.ui.components.PasswordField
 import com.copy.account.ui.components.SurfaceCard
-import com.copy.account.ui.components.accountTopBarColors
+import com.copy.account.ui.components.TextActionButton
 import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
+import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BackupScreen(
     onBack: () -> Unit,
+    directBackup: Boolean,
+    storageAccessGranted: Boolean,
     backupTreeUri: String?,
     directoryMessage: String,
     onChooseDirectory: () -> Unit,
+    onRequestStorageAccess: () -> Unit,
     onExportBackup: () -> Result<String>,
     onReadBackup: (Uri) -> Result<ByteArray>,
     onDeleteBackup: (Uri) -> Result<Unit>,
+    onReadFileBackup: (File) -> Result<ByteArray>,
+    onDeleteFileBackup: (File) -> Result<Unit>,
     onImportBackup: (ByteArray, String) -> Result<AccImportResult>,
     onApplyImport: (AccImportResult) -> Unit
 ) {
@@ -67,64 +70,80 @@ internal fun BackupScreen(
     var pendingImportBytes by remember { mutableStateOf<ByteArray?>(null) }
     var pendingImportResult by remember { mutableStateOf<AccImportResult?>(null) }
     var files by remember { mutableStateOf(emptyList<BackupEntry>()) }
+    var fileBackups by remember { mutableStateOf(emptyList<FileBackupEntry>()) }
     var fileError by remember { mutableStateOf("") }
     fun refreshFiles() {
-        val result = listBackupFiles(context, backupTreeUri)
-        files = result.getOrDefault(emptyList())
-        fileError = result.exceptionOrNull()?.message ?: ""
+        if (directBackup) {
+            val direct = listFileBackups()
+            fileBackups = direct.getOrDefault(emptyList())
+            fileError = direct.exceptionOrNull()?.message ?: ""
+        } else {
+            val saf = listBackupFiles(context, backupTreeUri)
+            files = saf.getOrDefault(emptyList())
+            fileError = saf.exceptionOrNull()?.message ?: ""
+        }
     }
-    LaunchedEffect(backupTreeUri) { refreshFiles() }
+    /** 读取结果转导入流程：清旧缓冲、记错误、弹密码框。 */
+    fun beginImport(read: Result<ByteArray>) {
+        pendingImportBytes?.fill(0)
+        pendingImportBytes = read.getOrNull()
+        importError = read.exceptionOrNull()?.message?.let { "无法读取备份：$it" } ?: ""
+        importPassword = ""
+        showImportPasswordDialog = true
+    }
+    LaunchedEffect(directBackup, storageAccessGranted, backupTreeUri) { refreshFiles() }
 
-    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { TopAppBar(colors = accountTopBarColors(), title = { Text("加密备份", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }, actions = { TextButton(onClick = { refreshFiles() }) { Text("刷新", color = LocalAccountThemePalette.current.topBarText) } }) }) { padding ->
+    AppScreen(title = "加密备份", onBack = onBack, actions = { TextActionButton("刷新", onClick = { refreshFiles() }, textColor = LocalAccountThemePalette.current.topBarText) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("备份目录", style = MaterialTheme.typography.titleMedium)
-            Text(if (backupTreeUri == null) "尚未授权。点击下方按钮选择一个可写目录，应用会自动创建 backups/account。" else "已固定使用授权目录下的 backups/account 文件夹。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val description = when {
+                directBackup -> if (storageAccessGranted) "已固定使用 内部存储/backups/account 文件夹。"
+                else "需授予「所有文件访问」权限，备份固定保存于 内部存储/backups/account。"
+                backupTreeUri == null -> "尚未授权。点击下方按钮选择一个可写目录，应用会自动创建 backups/account。"
+                else -> "已固定使用授权目录下的 backups/account 文件夹。"
+            }
+            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onChooseDirectory) { Text(if (backupTreeUri == null) "授权并创建目录" else "重新授权目录") }
-                if (backupTreeUri != null) TextButton(onClick = { exportError = ""; exportSucceeded = false; showExportReminder = true }) { Text("导出 .acc") }
+                if (directBackup) {
+                    TextActionButton(if (storageAccessGranted) "重新授予文件访问" else "授予文件访问权限", onRequestStorageAccess)
+                    if (storageAccessGranted) TextActionButton("导出 .acc", onClick = { exportError = ""; exportSucceeded = false; showExportReminder = true })
+                } else {
+                    TextActionButton(if (backupTreeUri == null) "授权并创建目录" else "重新授权目录", onChooseDirectory)
+                    if (backupTreeUri != null) TextActionButton("导出 .acc", onClick = { exportError = ""; exportSucceeded = false; showExportReminder = true })
+                }
             }
             if (directoryMessage.isNotBlank()) Text(directoryMessage, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
             if (fileError.isNotBlank()) Text(fileError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             if (exportError.isNotBlank()) Text(exportError, color = if (exportSucceeded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
             Text("已保存的备份", style = MaterialTheme.typography.titleMedium)
-            if (backupTreeUri == null) EmptyState("请先授权备份目录", Modifier.fillMaxWidth().weight(1f))
-            else if (files.isEmpty()) EmptyState("暂无 .acc 文件", Modifier.fillMaxWidth().weight(1f))
+            val notReady = if (directBackup) !storageAccessGranted else backupTreeUri == null
+            if (notReady) EmptyState(if (directBackup) "请先授予「所有文件访问」权限" else "请先授权备份目录", Modifier.fillMaxWidth().weight(1f))
+            else if ((if (directBackup) fileBackups else files).isEmpty()) EmptyState("暂无 .acc 文件", Modifier.fillMaxWidth().weight(1f))
             else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                items(files, key = { it.file.uri.toString() }) { entry ->
-                    SurfaceCard(modifier = Modifier.fillMaxWidth()) {
-                        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(entry.file.name ?: "account.acc", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("${formatBackupSize(entry.size)} · ${formatBackupTime(entry.modified)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            TextButton(onClick = {
-                                val read = onReadBackup(entry.file.uri)
-                                pendingImportBytes?.fill(0)
-                                pendingImportBytes = read.getOrNull()
-                                importError = read.exceptionOrNull()?.message?.let { "无法读取备份：$it" } ?: ""
-                                importPassword = ""
-                                showImportPasswordDialog = true
-                            }) { Text("导入") }
-                            DangerButton("删除", onClick = {
-                                val result = onDeleteBackup(entry.file.uri)
-                                if (result.isSuccess) refreshFiles() else exportError = result.exceptionOrNull()?.message ?: "删除失败"
-                            })
-                        }
-                    }
+                if (directBackup) items(fileBackups, key = { it.file.absolutePath }) { entry ->
+                    BackupRow(entry.file.name, entry.size, entry.modified, onImport = { beginImport(onReadFileBackup(entry.file)) }, onDelete = {
+                        val result = onDeleteFileBackup(entry.file)
+                        if (result.isSuccess) refreshFiles() else exportError = result.exceptionOrNull()?.message ?: "删除失败"
+                    })
+                } else items(files, key = { it.file.uri.toString() }) { entry ->
+                    BackupRow(entry.file.name ?: "account.acc", entry.size, entry.modified, onImport = { beginImport(onReadBackup(entry.file.uri)) }, onDelete = {
+                        val result = onDeleteBackup(entry.file.uri)
+                        if (result.isSuccess) refreshFiles() else exportError = result.exceptionOrNull()?.message ?: "删除失败"
+                    })
                 }
             }
         }
     }
     if (showExportReminder) AlertDialog(onDismissRequest = { showExportReminder = false }, title = { Text("导出加密备份") }, text = { Text("导出文件使用当前主密码加密。导入时必须输入相同的主密码，请务必记住。", style = MaterialTheme.typography.bodySmall) }, confirmButton = {
-        TextButton(onClick = {
+        TextActionButton("确认导出", onClick = {
             val result = onExportBackup()
             exportSucceeded = result.isSuccess
             exportError = if (result.isSuccess) "导出成功：${result.getOrThrow()}" else result.exceptionOrNull()?.message ?: "备份生成失败，请先解锁后重试"
             showExportReminder = false
             if (result.isSuccess) refreshFiles()
-        }) { Text("确认导出", color = MaterialTheme.colorScheme.primary) }
-    }, dismissButton = { TextButton(onClick = { showExportReminder = false }) { Text("取消") } })
+        }, textColor = MaterialTheme.colorScheme.primary)
+    }, dismissButton = { TextActionButton("取消", onClick = { showExportReminder = false }) })
 
     if (showImportPasswordDialog) AlertDialog(onDismissRequest = {
         showImportPasswordDialog = false
@@ -133,11 +152,11 @@ internal fun BackupScreen(
     }, title = { Text("恢复加密备份") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("文件已选择，请输入该备份设置的密码以验证并解密。", style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(importPassword, { importPassword = it; importError = "" }, label = { Text("备份密码（4-20 个字符）") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+            PasswordField("备份密码（4-20 个字符）", importPassword, { importPassword = it; importError = "" })
             if (importError.isNotBlank()) Text(importError, color = MaterialTheme.colorScheme.error)
         }
     }, confirmButton = {
-        TextButton(onClick = {
+        TextActionButton("验证并继续", onClick = {
             if (!isMasterPasswordValid(importPassword)) importError = "备份密码长度需为 4-20 个字符"
             else {
                 val bytes = pendingImportBytes
@@ -152,15 +171,30 @@ internal fun BackupScreen(
                     }
                 }
             }
-        }) { Text("验证并继续", color = MaterialTheme.colorScheme.primary) }
-    }, dismissButton = { TextButton(onClick = {
+        }, textColor = MaterialTheme.colorScheme.primary)
+    }, dismissButton = { TextActionButton("取消", onClick = {
         showImportPasswordDialog = false; pendingImportBytes?.fill(0); pendingImportBytes = null
-    }) { Text("取消", color = MaterialTheme.colorScheme.primary) } })
+    }, textColor = MaterialTheme.colorScheme.primary) })
 
     pendingImportResult?.let { result ->
         if (showImportConfirmDialog) AlertDialog(onDismissRequest = { showImportConfirmDialog = false; pendingImportResult = null }, title = { Text("确认恢复") }, text = { Text("将替换当前密码库，导入 ${result.vault.accounts.size} 个账号和 ${result.vault.groups.size} 个分组，并应用备份中的软件设置。") }, confirmButton = {
-            TextButton(onClick = { onApplyImport(result); showImportConfirmDialog = false; pendingImportResult = null }) { Text("确认恢复", color = MaterialTheme.colorScheme.primary) }
-        }, dismissButton = { TextButton(onClick = { showImportConfirmDialog = false; pendingImportResult = null }) { Text("取消") } })
+            TextActionButton("确认恢复", onClick = { onApplyImport(result); showImportConfirmDialog = false; pendingImportResult = null }, textColor = MaterialTheme.colorScheme.primary)
+        }, dismissButton = { TextActionButton("取消", onClick = { showImportConfirmDialog = false; pendingImportResult = null }) })
+    }
+}
+
+/** 备份列表行：名称 + 大小/时间 + 导入/删除。 */
+@Composable
+private fun BackupRow(name: String, size: Long, modified: Long, onImport: () -> Unit, onDelete: () -> Unit) {
+    SurfaceCard(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${formatBackupSize(size)} · ${formatBackupTime(modified)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            TextActionButton("导入", onClick = onImport)
+            DangerButton("删除", onClick = onDelete)
+        }
     }
 }
 
@@ -178,12 +212,17 @@ private fun BackupScreenPreview() {
     AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
         BackupScreen(
             onBack = {},
+            directBackup = true,
+            storageAccessGranted = true,
             backupTreeUri = null,
             directoryMessage = "",
             onChooseDirectory = {},
+            onRequestStorageAccess = {},
             onExportBackup = { Result.success("preview.acc") },
             onReadBackup = { Result.success(ByteArray(0)) },
             onDeleteBackup = { Result.success(Unit) },
+            onReadFileBackup = { Result.success(ByteArray(0)) },
+            onDeleteFileBackup = { Result.success(Unit) },
             onImportBackup = { _, _ -> Result.failure(RuntimeException("预览")) },
             onApplyImport = {}
         )

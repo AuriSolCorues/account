@@ -1,9 +1,9 @@
-package com.copy.account.core.storage
+package com.copy.account.data.config
 
 import android.content.Context
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
-import com.copy.account.core.crypto.vaultJson
+import com.copy.account.security.vaultJson
 import com.copy.account.ui.theme.SavedTheme
 import kotlinx.serialization.encodeToString
 

@@ -1,4 +1,4 @@
-package com.copy.account.core.security
+package com.copy.account.security
 
 import android.content.ClipData
 import android.content.ClipboardManager

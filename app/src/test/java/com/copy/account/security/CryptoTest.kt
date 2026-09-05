@@ -1,4 +1,4 @@
-package com.copy.account.core.crypto
+package com.copy.account.security
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals

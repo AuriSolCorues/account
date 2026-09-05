@@ -27,6 +27,13 @@ captures/
 *.keystore
 keystore.properties
 
+# 真实库数据与备份导出（红线：绝不提交）
+*.acc
+vault.bin
+
+# 本地转换工具（不入库）
+tools/
+
 # Operating-system files
 .DS_Store
 Thumbs.db

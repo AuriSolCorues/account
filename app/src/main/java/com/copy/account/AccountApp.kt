@@ -1,7 +1,10 @@
 package com.copy.account
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -24,30 +27,30 @@ import androidx.datastore.preferences.core.edit
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.copy.account.core.config.AppSettingsOverride
-import com.copy.account.core.config.applyOverride
-import com.copy.account.core.config.loadAppSettingsOverride
-import com.copy.account.core.crypto.AccExportInput
-import com.copy.account.core.crypto.exportAcc
-import com.copy.account.core.crypto.importAcc
-import com.copy.account.core.storage.SecureVaultStore
-import com.copy.account.core.storage.decodeSavedThemes
-import com.copy.account.core.storage.encodeSavedThemes
-import com.copy.account.core.storage.settingsDataStore
-import com.copy.account.core.storage.ALLOW_SCREENSHOTS_SETTING
-import com.copy.account.core.storage.ACCENT_THEME_SETTING
-import com.copy.account.core.storage.AUTO_LOCK_SETTING
-import com.copy.account.core.storage.BACKUP_TREE_URI_SETTING
-import com.copy.account.core.storage.BIOMETRIC_SETTING
-import com.copy.account.core.storage.CLIPBOARD_CLEAR_SETTING
-import com.copy.account.core.storage.CUSTOM_THEME_JSON_SETTING
-import com.copy.account.core.storage.CUSTOM_THEMES_SETTING
-import com.copy.account.core.storage.LANGUAGE_TAG_SETTING
-import com.copy.account.core.storage.THEME_MODE_SETTING
+import com.copy.account.data.config.ACCENT_THEME_SETTING
+import com.copy.account.data.config.ALLOW_SCREENSHOTS_SETTING
+import com.copy.account.data.config.AUTO_LOCK_SETTING
+import com.copy.account.data.config.AppSettingsOverride
+import com.copy.account.data.config.BACKUP_TREE_URI_SETTING
+import com.copy.account.data.config.BIOMETRIC_SETTING
+import com.copy.account.data.config.CLIPBOARD_CLEAR_SETTING
+import com.copy.account.data.config.CUSTOM_THEME_JSON_SETTING
+import com.copy.account.data.config.CUSTOM_THEMES_SETTING
+import com.copy.account.data.config.LANGUAGE_TAG_SETTING
+import com.copy.account.data.config.THEME_MODE_SETTING
+import com.copy.account.data.config.applyOverride
+import com.copy.account.data.config.decodeSavedThemes
+import com.copy.account.data.config.encodeSavedThemes
+import com.copy.account.data.config.loadAppSettingsOverride
+import com.copy.account.data.config.settingsDataStore
 import com.copy.account.data.backup.deleteBackupFile
+import com.copy.account.data.backup.deleteFileBackup
+import com.copy.account.data.backup.hasStorageAccess
 import com.copy.account.data.backup.initializeBackupDirectory
+import com.copy.account.data.backup.readFileBackup
 import com.copy.account.data.backup.readSelectedDocument
 import com.copy.account.data.backup.writeBackupFile
+import com.copy.account.data.backup.writeFileBackup
 import com.copy.account.data.model.Account
 import com.copy.account.data.model.AppSettings
 import com.copy.account.data.model.Group
@@ -55,13 +58,18 @@ import com.copy.account.data.model.GroupKind
 import com.copy.account.data.model.PersistedVault
 import com.copy.account.data.model.initialAccounts
 import com.copy.account.data.model.initialGroups
-import com.copy.account.feature.accounts.HomeScreen
-import com.copy.account.feature.backup.BackupScreen
-import com.copy.account.feature.detail.AccountDetailScreen
-import com.copy.account.feature.edit.AccountEditScreen
-import com.copy.account.feature.groups.GroupManageScreen
-import com.copy.account.feature.settings.SettingsScreen
-import com.copy.account.feature.unlock.UnlockScreen
+import com.copy.account.navigation.AppPage
+import com.copy.account.page.AccountDetailScreen
+import com.copy.account.page.AccountEditScreen
+import com.copy.account.page.BackupScreen
+import com.copy.account.page.GroupManageScreen
+import com.copy.account.page.HomeScreen
+import com.copy.account.page.SettingsScreen
+import com.copy.account.page.UnlockScreen
+import com.copy.account.security.AccExportInput
+import com.copy.account.security.SecureVaultStore
+import com.copy.account.security.exportAcc
+import com.copy.account.security.importAcc
 import com.copy.account.ui.theme.SavedTheme
 import com.copy.account.ui.theme.parseThemeJson
 import kotlinx.coroutines.Dispatchers
@@ -69,16 +77,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-private sealed interface AppPage {
-    data object Unlock : AppPage
-    data object Home : AppPage
-    data object Groups : AppPage
-    data object Settings : AppPage
-    data object BackupFiles : AppPage
-    data class Detail(val accountId: String) : AppPage
-    data class Edit(val accountId: String?) : AppPage
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,6 +114,11 @@ fun AccountApp(
     var biometricPromptActive by remember { mutableStateOf(false) }
     var backupTreeUri by remember { mutableStateOf<String?>(null) }
     var backupDirectoryMessage by remember { mutableStateOf("") }
+    /** API>=30 直写备份（所有文件访问 + 固定 内部存储/backups/account）；API<30 仍走 SAF 目录授权。 */
+    val directBackup = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+    var storageAccessGranted by remember {
+        mutableStateOf(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && hasStorageAccess())
+    }
     /** 当前是否处于前台 RESUME 状态，用于在回到前台时触发一次生物识别。 */
     var resumed by remember { mutableStateOf(false) }
 
@@ -194,6 +197,16 @@ fun AccountApp(
         chooseBackupDirectory.launch(null)
     }
 
+    /** 跳系统「所有文件访问」授权页；授予后返回，由 ON_RESUME 刷新 storageAccessGranted。 */
+    fun requestStorageAccess() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        val intent = Intent(
+            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+            Uri.parse("package:${context.packageName}")
+        )
+        runCatching { context.startActivity(intent) }
+    }
+
     fun persistVault() {
         val key = dataKey ?: return
         runCatching { store.save(PersistedVault(accounts = accounts, groups = groups, selectedGroupId = selectedGroupId), key) }
@@ -215,6 +228,16 @@ fun AccountApp(
         editTemplate = null
         lockGeneration++
         page = AppPage.Unlock
+    }
+
+    /** HOTP 复制即 +1：把该账号计数器 +1 并持久化，下次重绘即下一组码。 */
+    fun advanceHotp(id: String) {
+        accounts = accounts.map { account ->
+            if (account.id == id && account.totpType.equals("HOTP", ignoreCase = true)) {
+                account.copy(totpCounter = account.totpCounter + 1)
+            } else account
+        }
+        persistVault()
     }
 
     fun authenticateBiometric(onError: () -> Unit = {}) {
@@ -292,7 +315,11 @@ fun AccountApp(
         if (activity == null) return@DisposableEffect onDispose { }
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> resumed = true
+                Lifecycle.Event.ON_RESUME -> {
+                    resumed = true
+                    // 从系统设置授予/撤销「所有文件访问」后返回时刷新
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) storageAccessGranted = hasStorageAccess()
+                }
                 Lifecycle.Event.ON_PAUSE -> {
                     resumed = false
                     // 切后台时若生物识别弹窗尚未回调，标志位可能卡 true，这里强制复位。
@@ -362,9 +389,26 @@ fun AccountApp(
                 accounts = accounts.filterNot { it.id == id }
                 persistVault()
             },
+            onMoveAccounts = { ids, fromGroupId, toGroupId ->
+                val from = groups.firstOrNull { it.id == fromGroupId }
+                val to = groups.firstOrNull { it.id == toGroupId }
+                accounts = accounts.map { account ->
+                    if (account.id !in ids) account
+                    else account.copy(
+                        groups = when {
+                            // 移入默认（未分组）= 清空全部自定义归属；源自定义组则移出再入目标；动态组作源仅添加归属。
+                            to?.kind == GroupKind.DEFAULT -> emptySet()
+                            from?.kind == GroupKind.CUSTOM -> account.groups - fromGroupId + toGroupId
+                            else -> account.groups + toGroupId
+                        }
+                    )
+                }
+                persistVault()
+            },
             onManageGroups = { page = AppPage.Groups },
             onOpenSettings = { page = AppPage.Settings },
-            onOpenDetail = { page = AppPage.Detail(it) }
+            onOpenDetail = { page = AppPage.Detail(it) },
+            onHotpAdvance = ::advanceHotp
         )
 
         AppPage.Groups -> GroupManageScreen(
@@ -477,14 +521,22 @@ fun AccountApp(
 
         AppPage.BackupFiles -> BackupScreen(
             onBack = { page = AppPage.Settings },
+            directBackup = directBackup,
+            storageAccessGranted = storageAccessGranted,
             backupTreeUri = backupTreeUri,
             directoryMessage = backupDirectoryMessage,
             onChooseDirectory = ::requestBackupDirectory,
+            onRequestStorageAccess = ::requestStorageAccess,
             onExportBackup = {
                 val tree = backupTreeUri?.let(Uri::parse)
                 val material = store.masterKeyMaterial()
-                if (tree == null) {
-                    Result.failure(IllegalStateException("请先授权备份目录"))
+                val gateError = when {
+                    directBackup && !storageAccessGranted -> "请先授予「所有文件访问」权限"
+                    !directBackup && tree == null -> "请先授权备份目录"
+                    else -> null
+                }
+                if (gateError != null) {
+                    Result.failure(IllegalStateException(gateError))
                 } else if (material == null) {
                     Result.failure(IllegalStateException("未找到主密码密钥，请重新解锁"))
                 } else {
@@ -497,7 +549,8 @@ fun AccountApp(
                             ), key, salt, iterations
                         )
                         try {
-                            writeBackupFile(context, tree, bytes)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) writeFileBackup(bytes)
+                            else writeBackupFile(context, tree!!, bytes)
                         } finally {
                             bytes.fill(0)
                         }
@@ -509,6 +562,8 @@ fun AccountApp(
             },
             onReadBackup = { uri -> readSelectedDocument(context, uri) },
             onDeleteBackup = { uri -> deleteBackupFile(context, uri) },
+            onReadFileBackup = { file -> readFileBackup(file) },
+            onDeleteFileBackup = { file -> deleteFileBackup(file) },
             onImportBackup = { bytes, password ->
                 importAcc(bytes, password)
             },
@@ -532,7 +587,8 @@ fun AccountApp(
             clipboardClearSeconds = settings.clipboardClearSeconds,
             maskChar = maskChar,
             onBack = { page = AppPage.Home },
-            onEdit = { page = AppPage.Edit(current.accountId) }
+            onEdit = { page = AppPage.Edit(current.accountId) },
+            onHotpAdvance = ::advanceHotp
         )
 
         is AppPage.Edit -> AccountEditScreen(

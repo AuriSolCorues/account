@@ -1,4 +1,4 @@
-package com.copy.account.core.crypto
+package com.copy.account.security
 
 import android.net.Uri
 import android.util.Base64
@@ -68,13 +68,15 @@ internal fun totpCode(account: Account, nowMillis: Long): String {
         val secret = decodeSecret(normalizedTotpSecret(account.totpSecret), steam)
         if (secret.isEmpty()) return@runCatching "------"
         if (steam) return@runCatching steamGuardCode(secret, nowMillis, period)
+        val hotp = account.totpType.equals("HOTP", ignoreCase = true)
         val algorithm = when (account.totpAlgorithm.uppercase().replace("-", "")) {
             "SHA256" -> "SHA256"
             "SHA512" -> "SHA512"
             else -> "SHA1"
         }
-        val digits = if (account.totpDigits == 8) 8 else 6
-        val counter = nowMillis / 1000L / period
+        val digits = account.totpDigits.coerceIn(1, 10)
+        // HOTP 事件型：消息对应当前计数器；TOTP 对应当前时间片。
+        val counter = if (hotp) account.totpCounter.coerceAtLeast(0L) else nowMillis / 1000L / period
         val message = ByteArray(8)
         for (index in 7 downTo 0) message[index] = (counter ushr ((7 - index) * 8)).toByte()
         val mac = Mac.getInstance("Hmac$algorithm")
@@ -82,7 +84,8 @@ internal fun totpCode(account: Account, nowMillis: Long): String {
         val hash = mac.doFinal(message)
         val offset = hash.last().toInt() and 0x0f
         val binary = ((hash[offset].toInt() and 0x7f) shl 24) or ((hash[offset + 1].toInt() and 0xff) shl 16) or ((hash[offset + 2].toInt() and 0xff) shl 8) or (hash[offset + 3].toInt() and 0xff)
-        val modulus = if (digits == 8) 100_000_000 else 1_000_000
-        (binary % modulus).toString().padStart(digits, '0').chunked(3).joinToString(" ")
+        var modulus = 1L
+        repeat(digits) { modulus *= 10L }
+        (binary.toLong() % modulus).toString().padStart(digits, '0').chunked(3).joinToString(" ")
     }.getOrDefault("------")
 }

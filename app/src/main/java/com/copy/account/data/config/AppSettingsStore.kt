@@ -1,4 +1,4 @@
-package com.copy.account.core.config
+package com.copy.account.data.config
 
 import android.content.Context
 import com.copy.account.data.model.AppSettings

@@ -1,4 +1,4 @@
-package com.copy.account.core.crypto
+package com.copy.account.security
 
 import android.util.Base64
 import java.security.MessageDigest
