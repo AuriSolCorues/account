@@ -1,3 +1,11 @@
+/**
+ * 职责：两步验证码计算——标准 TOTP（RFC 6238）、HOTP 事件码（RFC 4226）、Steam Guard 变体，
+ *       外加 otpauth:// 链接解析与 Base32/Base64 密钥解码。纯函数，无状态无 IO。
+ * 架构位置：HomeScreen/AccountDetailScreen/AccountPreviewSheet 周期调 totpCode 刷新验证码；
+ *           编辑页扫码或粘贴密钥后调 parseOtpAuth 自动带出参数。
+ * Python 类比：核心一步 ≈ hmac.new(secret, counter.to_bytes(8), hashlib.sha256).digest()——
+ *           把「时间片或计数器」当消息做 HMAC，再从摘要里截一段数字；标准库 hmac/hashlib 可复算验证。
+ */
 package com.copy.account.security
 
 import android.net.Uri
@@ -68,11 +76,13 @@ private fun steamGuardCode(secret: ByteArray, nowMillis: Long, period: Int): Str
     val mac = Mac.getInstance("HmacSHA1")
     mac.init(SecretKeySpec(secret, "HmacSHA1"))
     val hash = mac.doFinal(message)
+    // 动态截断（RFC 4226 标准步骤）：取摘要最后一字节低 4 位当偏移，从该处拼 4 字节成 31-bit 整数。
     val offset = hash[19].toInt() and 0x0f
     var value = ((hash[offset].toInt() and 0x7f) shl 24) or
         ((hash[offset + 1].toInt() and 0xff) shl 16) or
         ((hash[offset + 2].toInt() and 0xff) shl 8) or
         (hash[offset + 3].toInt() and 0xff)
+    // Steam 专用 26 字母表（剔除易混淆的 A/E/I/L/O/S/U/Z 等），对整数反复取模逐位出 5 字符码。
     val alphabet = "23456789BCDFGHJKMNPQRTVWXY"
     val code = StringBuilder(5)
     repeat(5) {
@@ -82,6 +92,8 @@ private fun steamGuardCode(secret: ByteArray, nowMillis: Long, period: Int): Str
     return code.toString()
 }
 
+// 手写 Base32（RFC 4648 字母表）：每字符 5 bit 攒进缓冲，攒满 8 bit 吐一个字节。
+// ≈ Python base64.b32decode，但额外容忍小写与混入的空白字符。
 private fun decodeBase32(input: String): ByteArray {
     val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
     val clean = input.uppercase().filter { it in alphabet }
@@ -99,6 +111,8 @@ private fun decodeBase32(input: String): ByteArray {
     return output.toByteArray()
 }
 
+// 便捷重载：每次调用现解一次密钥；低频场景用它。高频刷新（速览页）用下面缓存了密钥字节的重载，
+// 每秒只付一次 HMAC 成本。两者输入输出完全一致。
 internal fun totpCode(account: Account, nowMillis: Long): String {
     if (!account.hasTotp || account.totpSecret.isBlank()) return "------"
     val steam = account.isSteam
