@@ -26,10 +26,12 @@ import com.copy.account.data.model.PersistedVault
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.Account
 
-// 以下常量是 SharedPreferences(account_security) 的 key 与库文件名：里面只存密钥元数据
-// （盐、KEK 校验值、包装后的 DEK、PBKDF2 迭代数），绝不存明文主密码或裸 DEK。
+// 以下常量是 SharedPreferences(account_security) 的 key 与库文件名：里面只存盐、验证值、
+// 包装后的 DEK 与 PBKDF2 迭代数，绝不存明文主密码、裸 DEK 或可解开 DEK 的 KEK。
 private const val SECURITY_PREFS = "account_security"
-private const val PASSWORD_HASH = "master_password_hash"
+/** 旧版直接存 KEK 的键；仅用于首次成功解锁后迁移。 */
+private const val LEGACY_PASSWORD_HASH = "master_password_hash"
+private const val PASSWORD_VERIFIER = "master_password_verifier"
 private const val PASSWORD_SALT = "master_password_salt"
 private const val PASSWORD_WRAPPED_DEK = "password_wrapped_dek"
 private const val PASSWORD_WRAP_IV = "password_wrap_iv"
@@ -46,80 +48,127 @@ private data class EncryptedFile(
     val ciphertext: String
 )
 
+/** 仅在已解锁会话中保留，锁定时由调用方清零。 */
+internal data class BackupKeyMaterial(
+    val key: ByteArray,
+    val salt: ByteArray,
+    val iterations: Int
+) {
+    fun clear() {
+        key.fill(0)
+        salt.fill(0)
+    }
+}
+
+internal data class VaultUnlock(
+    val dataKey: ByteArray,
+    val state: PersistedVault,
+    val backupKey: BackupKeyMaterial
+)
+
 internal class SecureVaultStore(private val context: Context) {
     private val prefs = context.getSharedPreferences(SECURITY_PREFS, Context.MODE_PRIVATE)
     private val vaultFile = File(context.filesDir, VAULT_FILE_NAME)
 
-    fun hasMasterPassword(): Boolean = prefs.contains(PASSWORD_HASH)
+    fun hasMasterPassword(): Boolean = prefs.contains(PASSWORD_VERIFIER) || prefs.contains(LEGACY_PASSWORD_HASH)
 
     /** 已解锁时使用当前 DEK 重新包装，直接替换主密码的 KEK 元数据。 */
-    fun changeMasterPassword(newPassword: String, dek: ByteArray): Result<Unit> = runCatching {
+    fun changeMasterPassword(newPassword: String, dek: ByteArray): Result<BackupKeyMaterial> = runCatching {
         require(isMasterPasswordValid(newPassword)) { "主密码长度需为 4-20 个字符" }
         require(dek.size == 32) { "当前密码库密钥无效，请重新解锁" }
         val newSalt = ByteArray(16).also { SecureRandom().nextBytes(it) }
-        val newKek = passwordHash(newPassword, newSalt, prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS))
-        val wrapped = encryptBytes(newKek, dek)
+        val material = passwordKeyMaterial(newPassword, newSalt, prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS))
+        val wrapped = encryptBytes(material.wrappingKey, dek)
         try {
             val committed = prefs.edit()
                 .putString(PASSWORD_SALT, Base64.encodeToString(newSalt, Base64.NO_WRAP))
-                .putString(PASSWORD_HASH, Base64.encodeToString(newKek, Base64.NO_WRAP))
+                .putString(PASSWORD_VERIFIER, Base64.encodeToString(material.verifier, Base64.NO_WRAP))
+                .remove(LEGACY_PASSWORD_HASH)
                 .putString(PASSWORD_WRAPPED_DEK, Base64.encodeToString(wrapped.ciphertext, Base64.NO_WRAP))
                 .putString(PASSWORD_WRAP_IV, Base64.encodeToString(wrapped.iv, Base64.NO_WRAP))
                 .commit()
             require(committed) { "主密码保存失败，请重试" }
-        } finally {
+            BackupKeyMaterial(material.wrappingKey, newSalt, prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS))
+        } catch (error: Throwable) {
             newSalt.fill(0)
-            newKek.fill(0)
+            material.wrappingKey.fill(0)
+            throw error
+        } finally {
+            material.verifier.fill(0)
             wrapped.iv.fill(0)
             wrapped.ciphertext.fill(0)
         }
     }
 
-    /** 导出无需再次输入密码，复用首次设置主密码时派生的 KEK 和盐。 */
-    fun masterKeyMaterial(): Triple<ByteArray, ByteArray, Int>? {
-        val salt = prefs.getString(PASSWORD_SALT, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
-        val key = prefs.getString(PASSWORD_HASH, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
-        val iterations = prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS)
-        return if (salt.isNotEmpty() && key.size == 32) Triple(key, salt, iterations) else null
-    }
-
-    // 首建：随机盐 + 随机 DEK；KEK 只在内存短暂存在，落盘的是「盐 + KEK（兼当校验值）+ 包装后的 DEK」。
-    fun createInitial(password: String, state: PersistedVault): ByteArray {
+    /** 首建：只落盘验证值与包装后的 DEK。 */
+    fun createInitial(password: String, state: PersistedVault): VaultUnlock {
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val dek = ByteArray(32).also { SecureRandom().nextBytes(it) }
-        val kek = passwordHash(password, salt, DEFAULT_PASSWORD_ITERATIONS)
-        val wrapped = encryptBytes(kek, dek)
-        prefs.edit()
-            .putString(PASSWORD_SALT, Base64.encodeToString(salt, Base64.NO_WRAP))
-            .putString(PASSWORD_HASH, Base64.encodeToString(kek, Base64.NO_WRAP))
-            .putString(PASSWORD_WRAPPED_DEK, Base64.encodeToString(wrapped.ciphertext, Base64.NO_WRAP))
-            .putString(PASSWORD_WRAP_IV, Base64.encodeToString(wrapped.iv, Base64.NO_WRAP))
-            .putInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS)
-            .apply()
-        save(state, dek)
-        return dek
-    }
-
-    fun unlockWithPassword(password: String): Pair<ByteArray, PersistedVault>? {
-        val salt = prefs.getString(PASSWORD_SALT, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
-        val expected = prefs.getString(PASSWORD_HASH, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
-        val iterations = prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS)
-        val kek = passwordHash(password, salt, iterations)
-        return try {
-            // isEqual 逐字节恒时比较（≈ hmac.compare_digest）：不因第一个错误字节提前返回，抗计时侧信道。
-            if (!MessageDigest.isEqual(expected, kek)) return null
-            val wrapped = prefs.getString(PASSWORD_WRAPPED_DEK, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
-            val iv = prefs.getString(PASSWORD_WRAP_IV, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
-            // 密钥材料缺失或损坏时直接失败，绝不生成新 DEK 或回退到示例库，避免静默丢数据。
-            val dek = runCatching { decryptBytes(kek, iv, wrapped) }.getOrNull() ?: return null
-            val state = load(dek) ?: return null
-            dek to state
-        } finally {
+        val material = passwordKeyMaterial(password, salt, DEFAULT_PASSWORD_ITERATIONS)
+        val wrapped = encryptBytes(material.wrappingKey, dek)
+        try {
+            save(state, dek)
+            require(prefs.edit()
+                .putString(PASSWORD_SALT, Base64.encodeToString(salt, Base64.NO_WRAP))
+                .putString(PASSWORD_VERIFIER, Base64.encodeToString(material.verifier, Base64.NO_WRAP))
+                .putString(PASSWORD_WRAPPED_DEK, Base64.encodeToString(wrapped.ciphertext, Base64.NO_WRAP))
+                .putString(PASSWORD_WRAP_IV, Base64.encodeToString(wrapped.iv, Base64.NO_WRAP))
+                .putInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS)
+                .commit()) { "主密码保存失败，请重试" }
+            return VaultUnlock(dek, state, BackupKeyMaterial(material.wrappingKey, salt, DEFAULT_PASSWORD_ITERATIONS))
+        } catch (error: Throwable) {
+            dek.fill(0)
             salt.fill(0)
-            expected.fill(0)
-            kek.fill(0)
+            material.wrappingKey.fill(0)
+            throw error
+        } finally {
+            material.verifier.fill(0)
+            wrapped.iv.fill(0)
+            wrapped.ciphertext.fill(0)
         }
     }
+
+    fun unlockWithPassword(password: String): VaultUnlock? {
+        val salt = prefs.getString(PASSWORD_SALT, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
+        val iterations = prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS)
+        val verifier = prefs.getString(PASSWORD_VERIFIER, null)?.let { Base64.decode(it, Base64.DEFAULT) }
+        val legacyKek = prefs.getString(LEGACY_PASSWORD_HASH, null)?.let { Base64.decode(it, Base64.DEFAULT) }
+        var wrappingKey: ByteArray? = null
+        return try {
+            wrappingKey = if (verifier != null) {
+                val material = passwordKeyMaterial(password, salt, iterations)
+                if (!MessageDigest.isEqual(verifier, material.verifier)) {
+                    material.clear()
+                    return null
+                }
+                material.wrappingKey.also { material.verifier.fill(0) }
+            } else {
+                val legacy = legacyKek ?: return null
+                val key = passwordHash(password, salt, iterations)
+                if (!MessageDigest.isEqual(legacy, key)) {
+                    key.fill(0)
+                    return null
+                }
+                key
+            }
+            val wrapped = prefs.getString(PASSWORD_WRAPPED_DEK, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
+            val iv = prefs.getString(PASSWORD_WRAP_IV, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
+            val key = wrappingKey ?: return null
+            val dek = runCatching { decryptBytes(key, iv, wrapped) }.getOrNull() ?: return null
+            val state = load(dek) ?: return null
+            val backupKey = if (verifier == null) migrateLegacyPassword(password, dek)
+            else BackupKeyMaterial(key.copyOf(), salt.copyOf(), iterations)
+            VaultUnlock(dek, state, backupKey)
+        } finally {
+            salt.fill(0)
+            verifier?.fill(0)
+            legacyKek?.fill(0)
+            wrappingKey?.fill(0)
+        }
+    }
+
+    private fun migrateLegacyPassword(password: String, dek: ByteArray): BackupKeyMaterial =
+        changeMasterPassword(password, dek).getOrThrow()
 
     fun save(state: PersistedVault, dek: ByteArray) {
         val plain = vaultJson.encodeToString(PersistedVault.serializer(), state).toByteArray(Charsets.UTF_8)

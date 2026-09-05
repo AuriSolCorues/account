@@ -115,8 +115,8 @@ internal fun HomeScreen(
             else -> accounts.filter { accountInGroup(it, groups, selectedGroup.id) }
         }
     }
-    // 仅动态分组且有可见 TOTP 时跑 100ms 快钟（卡片进度条平滑），否则长周期空转即可。
-    val nowMillis = rememberClock(if (showTotpOnCards && visibleAccounts.any { it.hasTotp }) 100L else 60_000L)
+    // 仅动态分组且有可见 TOTP 时每秒刷新，倒计时无需 100ms 重组；否则长周期空转即可。
+    val nowMillis = rememberClock(if (showTotpOnCards && visibleAccounts.any { it.hasTotp }) 1_000L else 60_000L)
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,

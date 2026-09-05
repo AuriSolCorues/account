@@ -45,6 +45,30 @@ internal fun passwordHash(password: String, salt: ByteArray, iterations: Int = D
     }
 }
 
+/**
+ * 主密码派生两把独立密钥：包装 DEK 的密钥从不落盘，验证值也无法用于解开 DEK。
+ */
+internal data class PasswordKeyMaterial(val wrappingKey: ByteArray, val verifier: ByteArray) {
+    fun clear() {
+        wrappingKey.fill(0)
+        verifier.fill(0)
+    }
+}
+
+internal fun passwordKeyMaterial(password: String, salt: ByteArray, iterations: Int = DEFAULT_PASSWORD_ITERATIONS): PasswordKeyMaterial {
+    val spec = PBEKeySpec(normalizePassword(password).toCharArray(), salt, iterations, 512)
+    val bytes = try {
+        SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+    } finally {
+        spec.clearPassword()
+    }
+    return try {
+        PasswordKeyMaterial(bytes.copyOfRange(0, 32), bytes.copyOfRange(32, 64))
+    } finally {
+        bytes.fill(0)
+    }
+}
+
 internal data class CipherPayload(val iv: ByteArray, val ciphertext: ByteArray)
 
 internal fun encryptBytes(key: ByteArray, plaintext: ByteArray): CipherPayload {

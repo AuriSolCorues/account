@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,13 +48,14 @@ import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.SavedTheme
 import com.copy.account.ui.theme.defaultThemePresets
 import com.copy.account.ui.theme.parseThemeJson
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun SettingsScreen(
     biometricEnabled: Boolean,
     biometricAvailable: Boolean,
     onToggleBiometric: (Boolean) -> Unit,
-    onChangeMasterPassword: (String) -> Result<Unit>,
+    onChangeMasterPassword: suspend (String) -> Result<Unit>,
     autoLockMinutes: Int,
     onAutoLockChange: (Int) -> Unit,
     themeMode: String,
@@ -74,6 +76,7 @@ internal fun SettingsScreen(
     onAllowScreenshotsChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val presets = remember { defaultThemePresets() }
     var showAutoLockDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
@@ -93,7 +96,7 @@ internal fun SettingsScreen(
     AppScreen(title = "设置", onBack = onBack) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { SettingsHeader("安全") }
-            item { SettingsSwitchRow("允许截图", allowScreenshots, onAllowScreenshotsChange) }
+            item { SettingsSwitchRow("禁止截图", allowScreenshots, onAllowScreenshotsChange) }
             item { SettingsRow("自动锁定", "$autoLockMinutes 分钟") { showAutoLockDialog = true } }
             item {
                 SettingsRow(
@@ -166,8 +169,8 @@ internal fun SettingsScreen(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("请输入新的主密码。修改后请记住新密码。", style = MaterialTheme.typography.bodySmall)
-                PasswordField("新主密码（4-20 个字符）", newPassword, { newPassword = it; changePasswordError = "" })
-                PasswordField("再次输入新主密码", confirmNewPassword, { confirmNewPassword = it; changePasswordError = "" })
+                PasswordField("新主密码（4-20 个字符）", newPassword, { newPassword = it; changePasswordError = "" }, showPasswordToggle = true)
+                PasswordField("再次输入新主密码", confirmNewPassword, { confirmNewPassword = it; changePasswordError = "" }, showPasswordToggle = true)
                 if (changePasswordError.isNotBlank()) Text(changePasswordError, color = MaterialTheme.colorScheme.error)
             }
         },
@@ -177,14 +180,16 @@ internal fun SettingsScreen(
                     !isMasterPasswordValid(newPassword) -> changePasswordError = "主密码长度需为 4-20 个字符"
                     newPassword != confirmNewPassword -> changePasswordError = "两次输入的主密码不一致"
                     else -> {
-                        val result = onChangeMasterPassword(newPassword)
-                        if (result.isSuccess) {
-                            showChangePasswordDialog = false
-                            newPassword = ""
-                            confirmNewPassword = ""
-                            changePasswordMessage = "主密码已修改"
-                        } else {
-                            changePasswordError = result.exceptionOrNull()?.message ?: "主密码保存失败，请重试"
+                        scope.launch {
+                            val result = onChangeMasterPassword(newPassword)
+                            if (result.isSuccess) {
+                                showChangePasswordDialog = false
+                                newPassword = ""
+                                confirmNewPassword = ""
+                                changePasswordMessage = "主密码已修改"
+                            } else {
+                                changePasswordError = result.exceptionOrNull()?.message ?: "主密码保存失败，请重试"
+                            }
                         }
                     }
                 }

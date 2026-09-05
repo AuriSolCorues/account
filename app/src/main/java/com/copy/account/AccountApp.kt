@@ -77,7 +77,9 @@ import com.copy.account.page.HomeScreen
 import com.copy.account.page.SettingsScreen
 import com.copy.account.page.UnlockScreen
 import com.copy.account.security.AccExportInput
+import com.copy.account.security.BackupKeyMaterial
 import com.copy.account.security.SecureVaultStore
+import com.copy.account.security.VaultUnlock
 import com.copy.account.security.exportAcc
 import com.copy.account.security.importAcc
 import com.copy.account.security.isHotp
@@ -87,6 +89,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -107,6 +111,7 @@ fun AccountApp(
     // SecureVaultStore 只包着 prefs 与文件路径、不持密钥，常驻内存安全。
     val store = remember { SecureVaultStore(context) }
     val scope = rememberCoroutineScope()
+    val vaultWriteMutex = remember { Mutex() }
     var page by remember { mutableStateOf<AppPage>(AppPage.Unlock) }
     var selectedGroupId by remember { mutableStateOf("default") }
     /** 长按“作为模板新建”时临时携带的模板；进入编辑页后预填但按新账号保存。 */
@@ -114,6 +119,7 @@ fun AccountApp(
     var groups by remember { mutableStateOf(initialGroups) }
     var accounts by remember { mutableStateOf(emptyList<Account>()) }
     var dataKey by remember { mutableStateOf<ByteArray?>(null) }
+    var backupKeyMaterial by remember { mutableStateOf<BackupKeyMaterial?>(null) }
     var lockGeneration by remember { mutableIntStateOf(0) }
     /** DataStore 真值（App 正常设置）。appsettings.json 外挂只读覆盖，不写回。 */
     var baseSettings by remember { mutableStateOf(AppSettings(customThemeJson = customThemeJson)) }
@@ -139,7 +145,7 @@ fun AccountApp(
     // .data.first() 取 Flow 首值即退出（不持续订阅），之后的变更靠各回调增量更新。
     LaunchedEffect(Unit) {
         val values = context.settingsDataStore.data.first()
-        baseSettings = AppSettings(
+        val loadedSettings = AppSettings(
             biometricEnabled = values[BIOMETRIC_SETTING] ?: false,
             autoLockMinutes = (values[AUTO_LOCK_SETTING] ?: 5).coerceAtLeast(1),
             themeMode = values[THEME_MODE_SETTING] ?: themeMode,
@@ -150,11 +156,12 @@ fun AccountApp(
             clipboardClearSeconds = (values[CLIPBOARD_CLEAR_SETTING] ?: 30).coerceIn(0, 86_400),
             allowScreenshots = values[ALLOW_SCREENSHOTS_SETTING] ?: allowScreenshots
         )
+        baseSettings = loadedSettings
         backupTreeUri = values[BACKUP_TREE_URI_SETTING]
-        onThemeModeChange(settings.themeMode)
-        onAccentThemeChange(settings.accentTheme)
-        onCustomThemeJsonChange(settings.customThemeJson)
-        onAllowScreenshotsChange(settings.allowScreenshots)
+        onThemeModeChange(loadedSettings.themeMode)
+        onAccentThemeChange(loadedSettings.accentTheme)
+        onCustomThemeJsonChange(loadedSettings.customThemeJson)
+        onAllowScreenshotsChange(loadedSettings.allowScreenshots)
     }
 
     fun persistSettings(value: AppSettings) {
@@ -224,14 +231,42 @@ fun AccountApp(
         runCatching { context.startActivity(intent) }
     }
 
-    fun persistVault() {
-        val key = dataKey ?: return
-        runCatching { store.save(PersistedVault(accounts = accounts, groups = groups, selectedGroupId = selectedGroupId), key) }
+    suspend fun saveVault(
+        nextAccounts: List<Account> = accounts,
+        nextGroups: List<Group> = groups,
+        nextSelectedGroupId: String = selectedGroupId
+    ): Result<Unit> {
+        val key = dataKey?.copyOf() ?: return Result.failure(IllegalStateException("当前未解锁，请重新解锁后重试"))
+        val snapshot = PersistedVault(accounts = nextAccounts, groups = nextGroups, selectedGroupId = nextSelectedGroupId)
+        return try {
+            vaultWriteMutex.withLock {
+                withContext(Dispatchers.IO) { runCatching { store.save(snapshot, key) } }
+            }
+        } finally {
+            key.fill(0)
+        }
     }
 
-    fun finishUnlock(key: ByteArray, state: PersistedVault) {
+    fun persistVault() {
+        scope.launch { saveVault() }
+    }
+
+    fun finishUnlock(unlocked: VaultUnlock) {
         dataKey?.fill(0)
+        backupKeyMaterial?.clear()
+        dataKey = unlocked.dataKey
+        backupKeyMaterial = unlocked.backupKey
+        accounts = unlocked.state.accounts
+        groups = unlocked.state.groups.ifEmpty { initialGroups }
+        selectedGroupId = unlocked.state.selectedGroupId.ifBlank { "default" }
+        page = AppPage.Home
+    }
+
+    fun finishBiometricUnlock(key: ByteArray, state: PersistedVault) {
+        dataKey?.fill(0)
+        backupKeyMaterial?.clear()
         dataKey = key
+        backupKeyMaterial = null
         accounts = state.accounts
         groups = state.groups.ifEmpty { initialGroups }
         selectedGroupId = state.selectedGroupId.ifBlank { "default" }
@@ -240,7 +275,9 @@ fun AccountApp(
 
     fun lockApp() {
         dataKey?.fill(0)
+        backupKeyMaterial?.clear()
         dataKey = null
+        backupKeyMaterial = null
         accounts = emptyList()
         editTemplate = null
         lockGeneration++
@@ -274,7 +311,7 @@ fun AccountApp(
                 val key = runCatching { result.cryptoObject?.cipher?.doFinal(encryptedDek) }.getOrNull()
                 val state = key?.let { store.load(it) }
                 biometricPromptActive = false
-                if (key != null && state != null) finishUnlock(key, state) else onError()
+                if (key != null && state != null) finishBiometricUnlock(key, state) else onError()
             }
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) { failBiometric() }
             override fun onAuthenticationFailed() { }
@@ -381,15 +418,14 @@ fun AccountApp(
                 val unlocked = withContext(Dispatchers.Default) {
                     if (firstRun) {
                         val initialState = PersistedVault(accounts = initialAccounts, groups = initialGroups)
-                        val key = store.createInitial(password, initialState)
-                        key to initialState
+                        store.createInitial(password, initialState)
                     } else {
                         store.unlockWithPassword(password)
                     }
                 }
                 if (unlocked != null) {
                     if (firstRun) passwordConfigured = true
-                    finishUnlock(unlocked.first, unlocked.second)
+                    finishUnlock(unlocked)
                     true
                 } else false
             }
@@ -469,8 +505,12 @@ fun AccountApp(
             biometricAvailable = store.biometricAvailable(),
             onToggleBiometric = ::configureBiometric,
             onChangeMasterPassword = { newPassword ->
-                dataKey?.let { store.changeMasterPassword(newPassword, it) }
+                val result = dataKey?.let { key -> withContext(Dispatchers.Default) { store.changeMasterPassword(newPassword, key) } }
                     ?: Result.failure(IllegalStateException("当前未解锁，请重新解锁后重试"))
+                result.onSuccess { material ->
+                    backupKeyMaterial?.clear()
+                    backupKeyMaterial = material
+                }.map { }
             },
             autoLockMinutes = settings.autoLockMinutes,
             onAutoLockChange = { minutes ->
@@ -503,7 +543,7 @@ fun AccountApp(
                     val mode = parsed.defaultMode
                     baseSettings = baseSettings.copy(customThemeJson = json.trim(), themeMode = mode)
                     persistSettings(baseSettings)
-                    onCustomThemeJsonChange(settings.customThemeJson)
+                    onCustomThemeJsonChange(json.trim())
                     onThemeModeChange(mode)
                     true
                 }
@@ -527,13 +567,12 @@ fun AccountApp(
                 baseSettings = baseSettings.copy(clipboardClearSeconds = seconds.coerceIn(0, 86_400))
                 persistSettings(baseSettings)
             },
-            allowScreenshots = settings.allowScreenshots,
-            onAllowScreenshotsChange = { enabled ->
-                baseSettings = baseSettings.copy(allowScreenshots = enabled)
+            allowScreenshots = !settings.allowScreenshots,
+            onAllowScreenshotsChange = { blocked ->
+                val allow = !blocked
+                baseSettings = baseSettings.copy(allowScreenshots = allow)
                 persistSettings(baseSettings)
-                onAllowScreenshotsChange(enabled)
-                // OPPO/ColorOS 清除 FLAG_SECURE 后需重建窗口才能立即生效，仅在开启截图时重建一次
-                if (enabled) activity?.recreate()
+                onAllowScreenshotsChange(allow)
             },
             onOpenBackup = { page = AppPage.BackupFiles }
         )
@@ -548,24 +587,24 @@ fun AccountApp(
             onRequestStorageAccess = ::requestStorageAccess,
             onExportBackup = {
                 val tree = backupTreeUri?.let(Uri::parse)
-                val material = store.masterKeyMaterial()
+                val material = backupKeyMaterial
                 val gateError = when {
                     directBackup && !storageAccessGranted -> "请先授予「所有文件访问」权限"
                     !directBackup && tree == null -> "请先授权备份目录"
+                    material == null -> "请先使用主密码解锁后导出"
                     else -> null
                 }
                 if (gateError != null) {
                     Result.failure(IllegalStateException(gateError))
-                } else if (material == null) {
-                    Result.failure(IllegalStateException("未找到主密码密钥，请重新解锁"))
                 } else {
-                    val (key, salt, iterations) = material
+                    val key = material!!.key.copyOf()
+                    val salt = material.salt.copyOf()
                     runCatching {
                         val bytes = exportAcc(
                             AccExportInput(
                                 PersistedVault(accounts = accounts, groups = groups, selectedGroupId = selectedGroupId),
                                 settings
-                            ), key, salt, iterations
+                            ), key, salt, material.iterations
                         )
                         try {
                             if (directBackup) writeFileBackup(bytes)
@@ -590,13 +629,14 @@ fun AccountApp(
                 accounts = imported.vault.accounts
                 groups = imported.vault.groups.ifEmpty { initialGroups }
                 selectedGroupId = imported.vault.selectedGroupId.ifBlank { "default" }
-                baseSettings = imported.settings
+                val importedSettings = imported.settings
+                baseSettings = importedSettings
                 persistVault()
-                persistSettings(baseSettings)
-                onThemeModeChange(settings.themeMode)
-                onAccentThemeChange(settings.accentTheme)
-                onCustomThemeJsonChange(settings.customThemeJson)
-                onAllowScreenshotsChange(settings.allowScreenshots)
+                persistSettings(importedSettings)
+                onThemeModeChange(importedSettings.themeMode)
+                onAccentThemeChange(importedSettings.accentTheme)
+                onCustomThemeJsonChange(importedSettings.customThemeJson)
+                onAllowScreenshotsChange(importedSettings.allowScreenshots)
                 page = AppPage.Home
             }
         )
@@ -620,20 +660,24 @@ fun AccountApp(
             onBack = { page = AppPage.Home; editTemplate = null },
             onCreateGroup = ::createGroup,
             onSave = { edited ->
-                accounts = if (accounts.any { it.id == edited.id }) {
+                val nextAccounts = if (accounts.any { it.id == edited.id }) {
                     accounts.map { if (it.id == edited.id) edited else it }
                 } else {
                     accounts + edited
                 }
-                persistVault()
-                editTemplate = null
-                page = AppPage.Home
+                saveVault(nextAccounts = nextAccounts).onSuccess {
+                    accounts = nextAccounts
+                    editTemplate = null
+                    page = AppPage.Home
+                }
             },
             onDelete = current.accountId?.let { id ->
                 {
-                    accounts = accounts.filterNot { it.id == id }
-                    persistVault()
-                    page = AppPage.Home
+                    val nextAccounts = accounts.filterNot { it.id == id }
+                    saveVault(nextAccounts = nextAccounts).onSuccess {
+                        accounts = nextAccounts
+                        page = AppPage.Home
+                    }
                 }
             }
         )

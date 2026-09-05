@@ -31,6 +31,27 @@ class CryptoTest {
     }
 
     @Test
+    fun passwordKeyMaterial_separates_verifier_from_wrapping_key() {
+        val salt = ByteArray(16) { it.toByte() }
+        val material = passwordKeyMaterial("测试密码123", salt, 10_000)
+        try {
+            assertEquals(32, material.wrappingKey.size)
+            assertEquals(32, material.verifier.size)
+            assertFalse(material.wrappingKey.contentEquals(material.verifier))
+        } finally {
+            material.clear()
+        }
+    }
+
+    @Test
+    fun backupKeyMaterial_clear_wipes_session_key() {
+        val material = BackupKeyMaterial(ByteArray(32) { 1 }, ByteArray(16) { 2 }, 10_000)
+        material.clear()
+        assertTrue(material.key.all { it == 0.toByte() })
+        assertTrue(material.salt.all { it == 0.toByte() })
+    }
+
+    @Test
     fun encrypt_decrypt_roundTrip() {
         val key = ByteArray(32) { it.toByte() }
         val plain = "hello 账号本子".toByteArray(Charsets.UTF_8)

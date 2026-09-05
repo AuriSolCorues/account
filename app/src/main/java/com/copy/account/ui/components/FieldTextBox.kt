@@ -53,20 +53,25 @@ internal fun PrimaryButton(text: String, onClick: () -> Unit, enabled: Boolean =
     Button(onClick = onClick, enabled = enabled, modifier = modifier) { Text(text) }
 }
 
-/** 无显隐的密码输入（解锁/备份/改密）；需要显隐/掩码编辑的用 FieldTextBox(hidden=true)。 */
+/** 密码输入；改密等场景可启用显隐尾按钮。 */
 @Composable
 internal fun PasswordField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showPasswordToggle: Boolean = false
 ) {
+    var revealed by remember(showPasswordToggle) { mutableStateOf(false) }
     OutlinedTextField(
         value,
         onValueChange,
         label = { Text(label) },
         singleLine = true,
-        visualTransformation = PasswordVisualTransformation(),
+        visualTransformation = if (showPasswordToggle && revealed) VisualTransformation.None else PasswordVisualTransformation(),
+        trailingIcon = if (showPasswordToggle) {
+            { TextActionButton(if (revealed) "隐藏" else "显示", onClick = { revealed = !revealed }) }
+        } else null,
         modifier = modifier
     )
 }

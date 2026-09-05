@@ -37,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,6 +76,7 @@ import com.copy.account.ui.components.rememberClock
 import com.copy.account.ui.components.ReorderCardStyle
 import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
+import kotlinx.coroutines.launch
 
 /** ☷ 短按菜单目标：直接捕获该行的写值/显隐闭包，免做 when 分派。 */
 private data class FieldMenuTarget(
@@ -139,8 +141,8 @@ internal fun AccountEditScreen(
     maskChar: Char = '•',
     onBack: () -> Unit,
     onCreateGroup: (String) -> String,
-    onSave: (Account) -> Unit,
-    onDelete: (() -> Unit)? = null
+    onSave: suspend (Account) -> Result<Unit>,
+    onDelete: (suspend () -> Result<Unit>)? = null
 ) {
     val source = account ?: template
     // 表单状态整片以 source?.id 为 remember 键：编辑对象一换（含从模板新建），全部状态重建为初值再预填。
@@ -177,6 +179,9 @@ internal fun AccountEditScreen(
     var showPasswordGenerator by remember { mutableStateOf(false) }
     /** 两步验证二维码扫码层开关；打开时盖在当前页上方，编辑状态不丢。 */
     var showScan by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val customGroups = groups.filter { it.kind == GroupKind.CUSTOM }
 
     // Steam/HOTP 周期固定 30（HOTP 不显示周期，仅占位）；TOTP 读输入框。保存与预览共用。
@@ -214,8 +219,8 @@ internal fun AccountEditScreen(
             hasTotp && !isSteam && (period == null || period !in 1..300) -> totpError = "验证码周期需为 1-300 秒"
             hasTotp && !isSteam && totpDigits !in 1..10 -> totpError = "验证码位数需为 1-10"
             hasTotp && isHotp && counter < 0 -> totpError = "计数器需为非负整数"
-            else -> onSave(
-                Account(
+            else -> {
+                val edited = Account(
                     id = account?.id ?: "account-${System.currentTimeMillis()}",
                     name = name.trim(),
                     username = username,
@@ -234,14 +239,20 @@ internal fun AccountEditScreen(
                     customFields = fields,
                     totpType = totpType
                 )
-            )
+                scope.launch {
+                    saving = true
+                    val result = onSave(edited)
+                    saving = false
+                    saveError = result.exceptionOrNull()?.message ?: ""
+                }
+            }
         }
     }
 
     AppScreen(
         title = if (account == null) "新建账号" else "编辑账号",
         onBack = onBack,
-        actions = { TextActionButton("保存", ::saveAccount, textColor = LocalAccountThemePalette.current.topBarText) }
+        actions = { TextActionButton(if (saving) "保存中" else "保存", ::saveAccount, enabled = !saving, textColor = LocalAccountThemePalette.current.topBarText) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp),
@@ -510,6 +521,7 @@ internal fun AccountEditScreen(
                 }
                 if (totpError.isNotBlank()) item { Text(totpError, color = MaterialTheme.colorScheme.error) }
             }
+            if (saveError.isNotBlank()) item { Text(saveError, color = MaterialTheme.colorScheme.error) }
             if (account != null && onDelete != null) item { DangerButton("删除账号", onClick = { deleteConfirm = true }) }
         }
     }
@@ -568,7 +580,15 @@ internal fun AccountEditScreen(
         DeleteConfirmDialog(
             title = "删除账号",
             message = "删除「${account?.name.orEmpty()}」后无法恢复。",
-            onConfirm = { deleteConfirm = false; onDelete?.invoke() },
+            onConfirm = {
+                deleteConfirm = false
+                scope.launch {
+                    saving = true
+                    val result = onDelete?.invoke()
+                    saving = false
+                    saveError = result?.exceptionOrNull()?.message ?: ""
+                }
+            },
             onDismiss = { deleteConfirm = false }
         )
     }
@@ -696,8 +716,8 @@ private fun AccountEditScreenPreview() {
             clipboardClearSeconds = 30,
             onBack = {},
             onCreateGroup = { "preview" },
-            onSave = {},
-            onDelete = {}
+            onSave = { Result.success(Unit) },
+            onDelete = { Result.success(Unit) }
         )
     }
 }

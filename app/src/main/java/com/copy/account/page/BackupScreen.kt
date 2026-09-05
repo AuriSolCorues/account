@@ -73,7 +73,6 @@ internal fun BackupScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var showExportReminder by remember { mutableStateOf(false) }
     var showImportPasswordDialog by remember { mutableStateOf(false) }
     var showImportConfirmDialog by remember { mutableStateOf(false) }
     var importPassword by remember { mutableStateOf("") }
@@ -107,6 +106,16 @@ internal fun BackupScreen(
         importError = read.exceptionOrNull()?.message?.let { "无法读取备份：$it" } ?: ""
         importPassword = ""
         showImportPasswordDialog = true
+    }
+    fun exportBackup() {
+        exportError = ""
+        exportSucceeded = false
+        scope.launch {
+            val result = withContext(Dispatchers.Default) { onExportBackup() }
+            exportSucceeded = result.isSuccess
+            exportError = if (result.isSuccess) "导出成功：${result.getOrThrow()}" else result.exceptionOrNull()?.message ?: "备份生成失败"
+            if (result.isSuccess) refreshFiles()
+        }
     }
     LaunchedEffect(directBackup, storageAccessGranted, backupTreeUri) { refreshFiles() }
 
@@ -154,10 +163,10 @@ internal fun BackupScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (directBackup) {
                     TextActionButton(if (storageAccessGranted) "重新授予文件访问" else "授予文件访问权限", onRequestStorageAccess)
-                    if (storageAccessGranted) TextActionButton("导出 .acc", onClick = { exportError = ""; exportSucceeded = false; showExportReminder = true })
+                    if (storageAccessGranted) TextActionButton("导出 .acc", onClick = ::exportBackup)
                 } else {
                     TextActionButton(if (backupTreeUri == null) "授权并创建目录" else "重新授权目录", onChooseDirectory)
-                    if (backupTreeUri != null) TextActionButton("导出 .acc", onClick = { exportError = ""; exportSucceeded = false; showExportReminder = true })
+                    if (backupTreeUri != null) TextActionButton("导出 .acc", onClick = ::exportBackup)
                 }
             }
             if (directoryMessage.isNotBlank()) Text(directoryMessage, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
@@ -175,19 +184,6 @@ internal fun BackupScreen(
             }
         }
     }
-    if (showExportReminder) AlertDialog(onDismissRequest = { showExportReminder = false }, title = { Text("导出加密备份") }, text = { Text("导出文件使用当前主密码加密。导入时必须输入相同的主密码，请务必记住。", style = MaterialTheme.typography.bodySmall) }, confirmButton = {
-        // 导出含全库 AES-GCM，放后台线程，免主线程冻结。
-        TextActionButton("确认导出", onClick = {
-            showExportReminder = false
-            scope.launch {
-                val result = withContext(Dispatchers.Default) { onExportBackup() }
-                exportSucceeded = result.isSuccess
-                exportError = if (result.isSuccess) "导出成功：${result.getOrThrow()}" else result.exceptionOrNull()?.message ?: "备份生成失败，请先解锁后重试"
-                if (result.isSuccess) refreshFiles()
-            }
-        }, textColor = MaterialTheme.colorScheme.primary)
-    }, dismissButton = { TextActionButton("取消", onClick = { showExportReminder = false }) })
-
     if (showImportPasswordDialog) AlertDialog(onDismissRequest = {
         showImportPasswordDialog = false
         pendingImportBytes?.fill(0)

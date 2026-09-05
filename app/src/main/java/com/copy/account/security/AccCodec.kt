@@ -8,7 +8,7 @@
  */
 package com.copy.account.security
 
-import android.util.Base64
+import java.util.Base64
 import com.copy.account.data.model.AppSettings
 import com.copy.account.data.model.PersistedVault
 import kotlinx.serialization.Serializable
@@ -64,26 +64,25 @@ private val accJson = Json {
     ignoreUnknownKeys = false
 }
 
-/** 生成完整 .acc；调用方传入当前主密码的 KEK 和盐，界面无需再次输入密码。 */
+/** 生成完整 .acc；密钥来自本次主密码解锁会话，绝不落盘。 */
 internal fun exportAcc(input: AccExportInput, key: ByteArray, salt: ByteArray, iterations: Int): ByteArray {
-    require(key.size == 32) { "主密码密钥无效" }
-    require(salt.size >= 16) { "主密码盐无效" }
+    require(key.size == 32) { "备份密钥无效，请先使用主密码解锁" }
+    require(salt.size >= 16) { "备份盐无效，请先使用主密码解锁" }
     val plain = vaultJson.encodeToString(PersistedVault.serializer(), input.vault).toByteArray(Charsets.UTF_8)
     return try {
         val encrypted = encryptBytes(key, plain)
         val payload = AccPayload(
             iterations = iterations,
-            salt = Base64.encodeToString(salt, Base64.NO_WRAP),
-            iv = Base64.encodeToString(encrypted.iv, Base64.NO_WRAP),
-            ciphertext = Base64.encodeToString(encrypted.ciphertext, Base64.NO_WRAP)
+            salt = Base64.getEncoder().encodeToString(salt),
+            iv = Base64.getEncoder().encodeToString(encrypted.iv),
+            ciphertext = Base64.getEncoder().encodeToString(encrypted.ciphertext)
         )
         val settings = input.settings
         accJson.encodeToString(
             AccDocument.serializer(),
             AccDocument(
-                passwordVault = Base64.encodeToString(
+                passwordVault = Base64.getEncoder().encodeToString(
                     accJson.encodeToString(AccPayload.serializer(), payload).toByteArray(Charsets.UTF_8),
-                    Base64.NO_WRAP
                 ),
                 appSettings = AccSettings(
                     themeMode = settings.themeMode,
@@ -107,16 +106,16 @@ internal fun exportAcc(input: AccExportInput, key: ByteArray, salt: ByteArray, i
 internal fun importAcc(bytes: ByteArray, password: String): Result<AccImportResult> = runCatching {
     require(isMasterPasswordValid(password)) { "备份密码长度需为 4-20 个字符" }
     val document = accJson.decodeFromString(AccDocument.serializer(), bytes.toString(Charsets.UTF_8))
-    val payloadBytes = Base64.decode(document.passwordVault, Base64.DEFAULT)
+    val payloadBytes = Base64.getDecoder().decode(document.passwordVault)
     val payload = accJson.decodeFromString(AccPayload.serializer(), payloadBytes.toString(Charsets.UTF_8))
     // 逐条 require 校验版本/KDF/迭代数/字段长度，任一不满足抛 IllegalArgumentException
     // （被外层 runCatching 捕成 Result.failure）——先验形再解密，防误读与参数降级攻击。
     require(payload.version == 1) { "不支持的备份版本" }
     require(payload.kdf == "PBKDF2-HMAC-SHA256") { "不支持的密钥派生算法" }
     require(payload.iterations in 10_000..2_000_000) { "无效的密钥派生参数" }
-    val salt = Base64.decode(payload.salt, Base64.DEFAULT)
-    val iv = Base64.decode(payload.iv, Base64.DEFAULT)
-    val ciphertext = Base64.decode(payload.ciphertext, Base64.DEFAULT)
+    val salt = Base64.getDecoder().decode(payload.salt)
+    val iv = Base64.getDecoder().decode(payload.iv)
+    val ciphertext = Base64.getDecoder().decode(payload.ciphertext)
     require(salt.size >= 16 && iv.size == 12 && ciphertext.size > 16) { "备份数据不完整" }
 
     val key = passwordHash(password, salt, payload.iterations)
@@ -133,7 +132,7 @@ internal fun importAcc(bytes: ByteArray, password: String): Result<AccImportResu
             settings = AppSettings(
                 themeMode = settings.themeMode.lowercase().let { if (it in setOf("dark", "light", "system")) it else "dark" },
                 accentTheme = if (settings.accentTheme == "blue") "blue" else "green",
-                languageTag = if (settings.languageTag == "zh-CN") "zh-CN" else "zh-CN",
+                languageTag = "zh-CN",
                 customThemeJson = settings.customThemeJson,
                 customThemes = settings.customThemes,
                 autoLockMinutes = (settings.autoLockSeconds / 60).coerceIn(1, 120),
