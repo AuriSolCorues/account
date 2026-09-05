@@ -1,3 +1,13 @@
+/**
+ * 职责：全应用的数据模型层——账号（Account）、分组（Group）、附加字段（AccountField）、
+ *       软件设置（AppSettings）、密码库整体结构（PersistedVault）与首装示例数据，全部不可变。
+ * 架构位置：被所有层引用的中心类型表；AccountApp 在内存持有这些实例，
+ *           security/VaultStore 把 PersistedVault 整体加密进 vault.bin，
+ *           security/AccCodec 负责导出/导入 .acc 时的序列化。
+ * Python 类比：data class ≈ 自动生成 __init__/__eq__/__repr__ 的不可变 dataclass，
+ *           .copy(...) ≈ dataclasses.replace()；@Serializable ≈ pydantic 模型
+ *           （编译期生成序列化/反序列化代码，运行时无反射）。
+ */
 package com.copy.account.data.model
 
 import com.copy.account.BuildConfig
@@ -109,6 +119,9 @@ internal data class Account(
 
 // ==================== 扩展属性 (UI 辅助) ====================
 
+// 扩展属性：给 Account「挂」新属性而不改动类定义。观感像 monkey-patch 加属性，
+// 但编译期静态解析、无运行时侵入——本质就是一个以 Account 为首参的纯函数。
+
 /**
  * 固定用户名行的显示名：自定义名为空/空串时回退为“用户名”。
  */
@@ -122,6 +135,10 @@ internal val Account.passwordRowLabel: String
     get() = passwordLabel?.ifBlank { "密码" } ?: "密码"
 
 // ==================== 应用设置模型 ====================
+
+// 注意：AppSettings 不进 vault.bin（那是账号数据），软件设置走两层——
+// DataStore 存真值（见 data/config/Preferences.kt），可选 appsettings.json 只读覆盖。
+// 字段默认值须与 AccountApp 首次从 DataStore 读取失败时的回退值保持一致。
 
 /**
  * 应用全局设置数据模型（内存态或配合特定序列化器使用）。

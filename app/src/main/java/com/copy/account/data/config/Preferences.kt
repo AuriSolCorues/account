@@ -1,3 +1,11 @@
+/**
+ * 职责：软件设置的真值层——DataStore 实例（文件名 app_settings）与全部 key 常量，
+ *       外加自定义主题列表的 JSON 编解码。
+ * 架构位置：AccountApp 读写这里定义的 key 组装 AppSettings；appsettings.json 外挂覆盖在
+ *           data/config/AppSettingsStore.kt；密码库数据不在此（那是 vault.bin）。
+ * Python 类比：DataStore ≈ asyncio 化的持久配置文件——写入是挂起函数、读取经 Flow 流式推送；
+ *           xxPreferencesKey(...) ≈ 给配置项声明类型（bool/int/str），读出时不再手工转型。
+ */
 package com.copy.account.data.config
 
 import android.content.Context
@@ -7,6 +15,8 @@ import com.copy.account.security.vaultJson
 import com.copy.account.ui.theme.SavedTheme
 import kotlinx.serialization.encodeToString
 
+// 顶层委托 by：首次访问才惰性创建单例（≈ 模块级单例）；同一文件名声明两次会直接崩溃，
+// 所以 DataStore 实例全应用只放这一处，其余文件一律 import 这里的 settingsDataStore。
 // 初始化应用设置 DataStore
 internal val Context.settingsDataStore by preferencesDataStore(name = "app_settings")
 // 生物识别认证开关
