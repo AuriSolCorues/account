@@ -1,3 +1,11 @@
+/**
+ * 职责：备份页 UI 壳——目录授权状态展示、导出提醒、两轨备份列表（导入/删除）、两段式导入流程。
+ *       文件 IO 全在 AccountApp 传入的回调里（后台线程执行），本页只管展示、弹层与流程状态。
+ * 架构位置：AccountApp 的 AppPage.BackupFiles 分支；实际读写走 data/backup 双轨函数，
+ *           加解密在 security/AccCodec。
+ * Python 类比：两段式导入 ≈ 向导（wizard）——读文件暂存 bytes，验密后暂存 result，
+ *           用户确认才真正覆盖当前库；Result<T> ≈ 显式的「值或异常」返回约定。
+ */
 package com.copy.account.page
 
 import android.net.Uri
@@ -72,6 +80,7 @@ internal fun BackupScreen(
     var importError by remember { mutableStateOf("") }
     var exportError by remember { mutableStateOf("") }
     var exportSucceeded by remember { mutableStateOf(false) }
+    // 两段式导入状态机：bytes=已读未验证的文件，result=已验证未应用的库；取消或失败即清零字节。
     var pendingImportBytes by remember { mutableStateOf<ByteArray?>(null) }
     var pendingImportResult by remember { mutableStateOf<AccImportResult?>(null) }
     var files by remember { mutableStateOf(emptyList<BackupEntry>()) }

@@ -1,3 +1,10 @@
+/**
+ * 职责：全屏相机扫码层——CameraX 取流 + zxing 解 QR 码；扫到文本（通常是 otpauth:// 链接）
+ *       即回调，由编辑页回填密钥框。权限申请、相机绑定、解码线程的生命周期全在本文件自管理。
+ * 架构位置：编辑页「扫码」按钮盖层弹出（盖在当前页上方，非独立路由页，编辑状态不丢）。
+ * Python 类比：AndroidView 互操作 ≈ 在声明式 UI 里嵌一块传统命令式控件（此处的 PreviewView）；
+ *           帧解码跑在专用单线程 executor 上，≈ 一个串行消费队列的工作线程。
+ */
 package com.copy.account.page
 
 import android.Manifest
@@ -61,6 +68,8 @@ internal fun ScanQrOverlay(onScanned: (String) -> Unit, onClose: () -> Unit) {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     }
     var scanError by remember { mutableStateOf<String?>(null) }
+    // 运行时权限：Android 危险权限（相机等）须运行时弹窗征得用户同意；
+    // launch() 发出请求，用户选择完在回调里收结果（true/false）。
     val requestPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> granted = ok }
     val owner = remember { context as? LifecycleOwner }
     val previewView = remember {
@@ -72,6 +81,7 @@ internal fun ScanQrOverlay(onScanned: (String) -> Unit, onClose: () -> Unit) {
     var provider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     val decodeExecutor = remember { Executors.newSingleThreadExecutor() }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    // 跨线程原子标志：解码线程 compareAndSet(true, false) 保证「只回调一次」——首帧命中后其余帧全跳过。
     val scanning = remember { AtomicBoolean(true) }
 
     // 扫码层只显示相机画面，不露敏感内容：临时期清除窗 FLAG_SECURE，离层时还原。
@@ -114,6 +124,7 @@ internal fun ScanQrOverlay(onScanned: (String) -> Unit, onClose: () -> Unit) {
                     val luminance = if (frameCounter.incrementAndGet() % 4 == 0) luminanceOf(image) else null
                     val text = luminance?.let { decodeQr(it, reader, decodeHints) }
                     if (text != null && scanning.compareAndSet(true, false)) {
+                        // 解码在工作线程；onScanned 更新 Compose 状态，必须切回主线程调。
                         mainHandler.post { onScanned(text) }
                     }
                 }

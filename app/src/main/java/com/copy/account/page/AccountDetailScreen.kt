@@ -1,3 +1,9 @@
+/**
+ * 职责：账号详情页——只读展示登录信息、两步验证码与自定义字段；敏感行点击复制。
+ * 架构位置：AccountApp 的 AppPage.Detail(id) 分支；行组件复用 UiCommon 的
+ *           SensitiveValueRow/AccountTotpRow，骨架复用 AppScreen。
+ * Python 类比：纯展示组件——显示内容全来自 props，本页自身只持一个按验证码类型调频的时钟。
+ */
 package com.copy.account.page
 
 import androidx.compose.foundation.layout.Arrangement
