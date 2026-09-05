@@ -1,3 +1,9 @@
+/**
+ * 职责：两个最小对话框封装——删除确认与单输入框（改名/新增分组）。
+ * 架构位置：各页面按需弹出；按钮视觉复用 Rows.kt 的 TextActionButton。
+ * Python 类比：≈ tkinter.simpledialog.askstring / messagebox.askokcancel 的声明式写法——
+ *           框架管理弹窗生命周期，回调上抛结果。
+ */
 package com.copy.account.ui.components
 
 import androidx.compose.material3.AlertDialog

@@ -1,3 +1,12 @@
+/**
+ * 职责：主题引擎——三层映射：自定义 JSONC（或内置绿/蓝配色）解析成 19 色扁平色板
+ *       AccountThemePalette，再折算成 Material3 ColorScheme，经 CompositionLocal 下发给全树；
+ *       附带 JSONC 注释剥离与三个可复制预设。
+ * 架构位置：MainActivity 装配 AccountTheme；页面从 MaterialTheme.colorScheme 或
+ *           LocalAccountThemePalette.current 取色；SettingsScreen 编辑 JSONC 文本，本文件负责解析校验。
+ * Python 类比：staticCompositionLocalOf ≈ contextvars.ContextVar——向整棵组件树隐式传值、免层层穿参；
+ *           MaterialTheme.colorScheme ≈ 全局生效的一组 CSS 变量。
+ */
 package com.copy.account.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -70,6 +79,8 @@ data class ThemeJsonDefinition(
 @Serializable
 data class SavedTheme(val id: String, val name: String, val json: String)
 
+// staticCompositionLocalOf：值一变整棵子树全部重建——主题切换本就要全屏换色，正合适；
+// （普通 compositionLocalOf 只重建「读到它」的组件，粒度细但记录开销更大。）
 val LocalAccountThemePalette = staticCompositionLocalOf {
     AccountThemePalette(
         topBar = AccountGreenDark, topBarText = Color.White, background = AccountBackground,
@@ -92,6 +103,8 @@ fun stripJsonComments(source: String): String {
     var block = false
     var line = false
     var i = 0
+    // 单指针状态机，四个互斥状态：行注释内/块注释内/字符串内/普通文本。
+    // 只丢弃注释字符；字符串字面量里的双斜杠与转义引号原样保留（escaped 标志防误判字符串边界）。
     while (i < source.length) {
         val c = source[i]
         val next = source.getOrNull(i + 1)
@@ -303,6 +316,8 @@ data class ResolvedTheme(
     val colorScheme: androidx.compose.material3.ColorScheme
 )
 
+// 优先级：customThemeJson 解析有效 > accentTheme(蓝) > 内置绿（各分深浅）。
+// 自定义 JSON 只要有一个颜色非法就整体回退，绝不半套生效。
 fun resolveTheme(darkTheme: Boolean, accentTheme: String, customThemeJson: String): ResolvedTheme {
     val customPalette = themePaletteFromJson(customThemeJson)
     val palette = customPalette ?: when {
@@ -338,6 +353,8 @@ fun resolveTheme(darkTheme: Boolean, accentTheme: String, customThemeJson: Strin
     return ResolvedTheme(palette, palette.toScheme(darkTheme))
 }
 
+// 主题根组合点：resolveTheme 算一次，同时喂给 MaterialTheme（标准槽位取色）
+// 与 LocalAccountThemePalette（自定义 19 色取色）两套体系，页面两处都能取色。
 @Composable
 fun AccountTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
