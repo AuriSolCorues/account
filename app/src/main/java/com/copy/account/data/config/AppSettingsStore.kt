@@ -1,3 +1,11 @@
+/**
+ * 职责：appsettings.json 外挂配置——只读覆盖层。启动不读、App 不写，
+ *       仅设置页手动「重新加载配置文件」时加载一次；文件缺失或解析失败 → null，静默回退真值。
+ * 架构位置：SettingsScreen 触发 → loadAppSettingsOverride 读文件 → applyOverride 与
+ *           DataStore 真值（data/config/Preferences.kt）逐字段合并出最终生效的 AppSettings。
+ * Python 类比：三层合并 ≈ 默认值 dict 被配置文件覆盖——override 只写想覆盖的键；
+ *           String? 类型即 Optional[str]，?: （elvis）≈ x if x is not None else default。
+ */
 package com.copy.account.data.config
 
 import android.content.Context
@@ -40,6 +48,7 @@ fun loadAppSettingsOverride(context: Context): AppSettingsOverride? {
 /** 逐字段合并：override 里的非 null 字段覆盖 base，其余保持 base。 */
 internal fun applyOverride(base: AppSettings, override: AppSettingsOverride?): AppSettings {
     if (override == null) return base
+    // 每个字段同一模式：override 里非 null 就用它，否则保留 base——即「只覆盖写了的键」。
     return base.copy(
         maskChar = override.maskChar ?: base.maskChar,
         themeMode = override.themeMode ?: base.themeMode,

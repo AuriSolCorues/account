@@ -1,3 +1,12 @@
+/**
+ * 职责：备份文件的双轨读写——API>=30 直写固定路径 内部存储下 backups/account 目录里的 .acc 文件
+ *       （普通 File IO，需「所有文件访问」权限）；API<30 走 SAF（用户授权目录树，经 contentResolver 以
+ *       content:// URI 操作 DocumentFile）。两轨共用 uniqueBackupName 命名，产出同一种 .acc 文件。
+ * 架构位置：AccountApp 决定走哪轨（directBackup）并组装授权流程，BackupScreen 只管展示与回调；
+ *           .acc 的加密内容由 security/AccCodec 生成，本文件只做存取、不做加解密。
+ * Python 类比：SAF 无对应物——用户授权的是「句柄」（URI + 持久权限）而非路径字符串，
+ *           只能经 contentResolver 读写，类似 OS 只发 fd 不给文件名。File 轨 ≈ 普通 open()。
+ */
 package com.copy.account.data.backup
 
 import android.content.Context
@@ -11,9 +20,14 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+// Result<T>：Kotlin 标准库的「值或异常」容器——runCatching { ... } 把异常捕进 Result
+// （≈ 把 try/except 折进返回值），调用方用 isSuccess/getOrNull/getOrThrow 决定何时才真正抛。
+// 本文件所有可能失败的 IO 都返回 Result，逐层上抛由页面决定怎么提示。
+
 /** 初始化固定的 backups/account 目录，返回最终目录。 */
 internal fun initializeBackupDirectory(context: Context, treeUri: Uri): Result<Uri> = runCatching {
     val resolver = context.contentResolver
+    // 把「仅本次会话」的目录授权升级为跨重启持久授权；不调用则重启后对同一 URI 失去读写权。
     resolver.takePersistableUriPermission(
         treeUri,
         Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -59,6 +73,7 @@ internal fun backupAccountDirectory(context: Context, treeUri: Uri): Result<Docu
     account
 }
 
+// SAF 轨的列表行模型；FileBackupEntry 是直写轨的对应物，字段一一对应。
 internal data class BackupEntry(val file: DocumentFile, val size: Long, val modified: Long)
 
 internal fun listBackupFiles(context: Context, treeUri: String?): Result<List<BackupEntry>> = runCatching {
