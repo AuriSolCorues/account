@@ -1,3 +1,10 @@
+/**
+ * 职责：设置页——安全（截图/自动锁/生物识别/改主密码）、剪贴板与外观（含自定义主题 JSONC 编辑、
+ *       已存主题管理）、备份入口、appsettings.json 手动重载。纯展示 + 回调，业务全在 AccountApp。
+ * 架构位置：AccountApp 的 AppPage.Settings 分支；行组件来自 ui/components/Rows.kt。
+ * Python 类比：一排 showXxxDialog 布尔状态 ≈ 每个弹窗一个开关位——哪个为 true 弹哪个，
+ *           关闭即置 false（声明式弹窗，进出场动画框架管）。
+ */
 package com.copy.account.page
 
 import android.content.ClipData
@@ -80,6 +87,7 @@ internal fun SettingsScreen(
     var confirmNewPassword by remember { mutableStateOf("") }
     var changePasswordError by remember { mutableStateOf("") }
     var changePasswordMessage by remember { mutableStateOf("") }
+    // 草稿以 customThemeJson 为键：外部主题一变草稿随之重置，避免旧草稿悄悄盖掉新主题。
     var draftThemeJson by remember(customThemeJson) { mutableStateOf(customThemeJson.ifBlank { presets.first().json }) }
     var jsonError by remember { mutableStateOf("") }
     AppScreen(title = "设置", onBack = onBack) { padding ->

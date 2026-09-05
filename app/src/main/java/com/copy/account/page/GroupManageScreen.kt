@@ -1,3 +1,9 @@
+/**
+ * 职责：分组管理页——固定分组改名；自定义分组的增/删/改名/长按拖动排序。
+ * 架构位置：AccountApp 的 AppPage.Groups 分支；骨架复用 AppScreen，排序卡片复用
+ *           AnimatedReorderCard，弹层复用 AppBottomSheet；换位逻辑在 onMoveCustomGroup 回调（AccountApp）。
+ * Python 类比：groups 前 2 个固定、其余自定义的隐式约定，≈ 列表切片分区渲染（take(2)/drop(2)）。
+ */
 package com.copy.account.page
 
 import androidx.compose.foundation.clickable
@@ -58,6 +64,7 @@ internal fun GroupManageScreen(
     AppScreen(title = "分组管理", onBack = onBack, actions = { TextActionButton("＋ 新增", onClick = { showAddSheet = true; dialogText = "" }, textColor = LocalAccountThemePalette.current.topBarText) }) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { Text("固定分组（可改名）", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp)) }
+            // 隐式约定：groups 前 2 个是固定分组（默认/动态密码），其余为自定义；分区渲染，仅自定义可拖动。
             items(groups.take(2), key = { it.id }) { group ->
                 GroupManageItem(
                     group = group,
