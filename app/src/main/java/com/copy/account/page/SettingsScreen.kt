@@ -1,4 +1,4 @@
-package com.copy.account.feature.settings
+package com.copy.account.page
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -14,13 +14,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,23 +25,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.copy.account.core.crypto.isMasterPasswordValid
+import com.copy.account.security.isMasterPasswordValid
+import com.copy.account.ui.components.AppScreen
 import com.copy.account.ui.components.DangerButton
+import com.copy.account.ui.components.PasswordField
 import com.copy.account.ui.components.SettingsHeader
 import com.copy.account.ui.components.SettingsRow
 import com.copy.account.ui.components.SettingsSwitchRow
-import com.copy.account.ui.components.accountTopBarColors
+import com.copy.account.ui.components.TextActionButton
 import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
-import com.copy.account.ui.theme.LocalAccountThemePalette
 import com.copy.account.ui.theme.SavedTheme
 import com.copy.account.ui.theme.defaultThemePresets
 import com.copy.account.ui.theme.parseThemeJson
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SettingsScreen(
     biometricEnabled: Boolean,
@@ -88,7 +83,7 @@ internal fun SettingsScreen(
     var changePasswordMessage by remember { mutableStateOf("") }
     var draftThemeJson by remember(customThemeJson) { mutableStateOf(customThemeJson.ifBlank { presets.first().json }) }
     var jsonError by remember { mutableStateOf("") }
-    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = { TopAppBar(colors = accountTopBarColors(), title = { Text("设置", color = LocalAccountThemePalette.current.topBarText) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ 返回", color = LocalAccountThemePalette.current.topBarText) } }) }) { padding ->
+    AppScreen(title = "设置", onBack = onBack) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { SettingsHeader("安全") }
             item { SettingsSwitchRow("允许截图", allowScreenshots, onAllowScreenshotsChange) }
@@ -141,7 +136,7 @@ internal fun SettingsScreen(
                 item { SettingsHeader("已保存的自定义主题") }
                 items(customThemes, key = { it.id }) { saved ->
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { draftThemeJson = saved.json; showJsonDialog = true }, modifier = Modifier.weight(1f), content = { Text(saved.name) })
+                        TextActionButton(saved.name, onClick = { draftThemeJson = saved.json; showJsonDialog = true }, modifier = Modifier.weight(1f))
                         DangerButton("删除", onClick = { onDeleteCustomTheme(saved.id) })
                     }
                 }
@@ -164,25 +159,13 @@ internal fun SettingsScreen(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("请输入新的主密码。修改后请记住新密码。", style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(
-                    value = newPassword,
-                    onValueChange = { newPassword = it; changePasswordError = "" },
-                    label = { Text("新主密码（4-20 个字符）") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation()
-                )
-                OutlinedTextField(
-                    value = confirmNewPassword,
-                    onValueChange = { confirmNewPassword = it; changePasswordError = "" },
-                    label = { Text("再次输入新主密码") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation()
-                )
+                PasswordField("新主密码（4-20 个字符）", newPassword, { newPassword = it; changePasswordError = "" })
+                PasswordField("再次输入新主密码", confirmNewPassword, { confirmNewPassword = it; changePasswordError = "" })
                 if (changePasswordError.isNotBlank()) Text(changePasswordError, color = MaterialTheme.colorScheme.error)
             }
         },
         confirmButton = {
-            TextButton(onClick = {
+            TextActionButton("保存", onClick = {
                 when {
                     !isMasterPasswordValid(newPassword) -> changePasswordError = "主密码长度需为 4-20 个字符"
                     newPassword != confirmNewPassword -> changePasswordError = "两次输入的主密码不一致"
@@ -198,9 +181,9 @@ internal fun SettingsScreen(
                         }
                     }
                 }
-            }) { Text("保存") }
+            })
         },
-        dismissButton = { TextButton(onClick = { showChangePasswordDialog = false }) { Text("取消") } }
+        dismissButton = { TextActionButton("取消", onClick = { showChangePasswordDialog = false }) }
     )
     if (showAutoLockDialog) AlertDialog(
         onDismissRequest = { showAutoLockDialog = false },
@@ -208,13 +191,11 @@ internal fun SettingsScreen(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf(1, 5, 10, 30).forEach { minutes ->
-                    TextButton(onClick = { onAutoLockChange(minutes); showAutoLockDialog = false }, modifier = Modifier.fillMaxWidth()) {
-                        Text("${minutes} 分钟")
-                    }
+                    TextActionButton("${minutes} 分钟", onClick = { onAutoLockChange(minutes); showAutoLockDialog = false }, modifier = Modifier.fillMaxWidth())
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { showAutoLockDialog = false }) { Text("取消") } }
+        confirmButton = { TextActionButton("取消", onClick = { showAutoLockDialog = false }) }
     )
     if (showClipboardDialog) AlertDialog(
         onDismissRequest = { showClipboardDialog = false },
@@ -222,7 +203,7 @@ internal fun SettingsScreen(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf(0 to "关闭自动清除", 15 to "15 秒", 30 to "30 秒", 60 to "60 秒").forEach { (seconds, label) ->
-                    TextButton(onClick = { onClipboardClearChange(seconds); showClipboardDialog = false }, modifier = Modifier.fillMaxWidth()) { Text(label) }
+                    TextActionButton(label, onClick = { onClipboardClearChange(seconds); showClipboardDialog = false }, modifier = Modifier.fillMaxWidth())
                 }
                 OutlinedTextField(
                     value = clipboardDraft,
@@ -234,13 +215,13 @@ internal fun SettingsScreen(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
+            TextActionButton("保存", onClick = {
                 val seconds = clipboardDraft.toIntOrNull()
                 if (seconds == null || seconds !in 1..86_400) clipboardError = "请输入 1-86400 之间的整数"
                 else { onClipboardClearChange(seconds); showClipboardDialog = false }
-            }) { Text("保存") }
+            })
         },
-        dismissButton = { TextButton(onClick = { showClipboardDialog = false }) { Text("取消") } }
+        dismissButton = { TextActionButton("取消", onClick = { showClipboardDialog = false }) }
     )
     if (showThemeDialog) AlertDialog(
         onDismissRequest = { showThemeDialog = false },
@@ -248,13 +229,11 @@ internal fun SettingsScreen(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf("dark" to "深色", "light" to "浅色", "system" to "跟随系统").forEach { (mode, label) ->
-                    TextButton(onClick = { onThemeModeChange(mode); showThemeDialog = false }, modifier = Modifier.fillMaxWidth()) {
-                        Text(label)
-                    }
+                    TextActionButton(label, onClick = { onThemeModeChange(mode); showThemeDialog = false }, modifier = Modifier.fillMaxWidth())
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { showThemeDialog = false }) { Text("取消") } }
+        confirmButton = { TextActionButton("取消", onClick = { showThemeDialog = false }) }
     )
     if (showAccentDialog) AlertDialog(
         onDismissRequest = { showAccentDialog = false },
@@ -262,13 +241,11 @@ internal fun SettingsScreen(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf("green" to "绿色（设计）", "blue" to "蓝色").forEach { (accent, label) ->
-                    TextButton(onClick = { onAccentThemeChange(accent); showAccentDialog = false }, modifier = Modifier.fillMaxWidth()) {
-                        Text(label)
-                    }
+                    TextActionButton(label, onClick = { onAccentThemeChange(accent); showAccentDialog = false }, modifier = Modifier.fillMaxWidth())
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { showAccentDialog = false }) { Text("取消") } }
+        confirmButton = { TextActionButton("取消", onClick = { showAccentDialog = false }) }
     )
     if (showJsonDialog) AlertDialog(
         onDismissRequest = { showJsonDialog = false },
@@ -277,7 +254,7 @@ internal fun SettingsScreen(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("示例主题（可直接载入后修改）", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    presets.forEach { preset -> TextButton(onClick = { draftThemeJson = preset.json; jsonError = "" }) { Text(preset.name) } }
+                    presets.forEach { preset -> TextActionButton(preset.name, onClick = { draftThemeJson = preset.json; jsonError = "" }) }
                 }
                 OutlinedTextField(
                     value = draftThemeJson,
@@ -289,26 +266,26 @@ internal fun SettingsScreen(
                 )
                 if (jsonError.isNotBlank()) Text(jsonError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = {
+                    TextActionButton("复制 JSON", onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                         clipboard?.setPrimaryClip(ClipData.newPlainText("account-theme.jsonc", draftThemeJson))
-                    }) { Text("复制 JSON") }
-                    TextButton(onClick = {
+                    })
+                    TextActionButton("保存副本", onClick = {
                         val parsed = parseThemeJson(draftThemeJson)
                         if (parsed == null) jsonError = "JSON 或颜色格式无效" else onSaveCustomTheme(parsed.name, draftThemeJson)
-                    }) { Text("保存副本") }
+                    })
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = {
+            TextActionButton("应用", onClick = {
                 if (onApplyThemeJson(draftThemeJson)) {
                     jsonError = ""
                     showJsonDialog = false
                 } else jsonError = "JSON 或颜色格式无效"
-            }) { Text("应用") }
+            })
         },
-        dismissButton = { TextButton(onClick = { showJsonDialog = false }) { Text("取消") } }
+        dismissButton = { TextActionButton("取消", onClick = { showJsonDialog = false }) }
     )
 }
 

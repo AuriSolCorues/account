@@ -1,4 +1,4 @@
-package com.copy.account.core.storage
+package com.copy.account.security
 
 import android.content.Context
 import android.os.Build
@@ -12,12 +12,6 @@ import java.security.*
 import javax.crypto.*
 import javax.crypto.spec.GCMParameterSpec
 import kotlinx.serialization.*
-import com.copy.account.core.crypto.DEFAULT_PASSWORD_ITERATIONS
-import com.copy.account.core.crypto.vaultJson
-import com.copy.account.core.crypto.isMasterPasswordValid
-import com.copy.account.core.crypto.passwordHash
-import com.copy.account.core.crypto.encryptBytes
-import com.copy.account.core.crypto.decryptBytes
 import com.copy.account.data.model.PersistedVault
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.Account

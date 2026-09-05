@@ -24,12 +24,23 @@ internal data class Account(
     val name: String,
     val username: String,
     val password: String,
+    /** 固定用户名行的可选显示名；空值继续显示“用户名”。 */
+    val usernameLabel: String? = null,
+    /** 固定密码行的可选显示名；空值继续显示“密码”。 */
+    val passwordLabel: String? = null,
+    /** 固定用户名行的掩码位（详情/速览显示与复制敏感据此）。 */
+    val usernameHidden: Boolean = false,
+    /** 固定密码行的掩码位。 */
+    val passwordHidden: Boolean = true,
     val groups: Set<String> = emptySet(),
     val hasTotp: Boolean = false,
     val totpSecret: String = "",
     val totpDigits: Int = 6,
     val totpPeriod: Int = 30,
-    val totpAlgorithm: String = "SHA1",
+    /** HOTP 事件型计数器：当前显示的码即 counter 的码，复制后 +1 并持久化。TOTP/Steam 忽略。 */
+    val totpCounter: Long = 0,
+    /** 两步验证默认算法。仅影响新建账号；已有账号保留各自存储值，改算法会破坏原验证码。 */
+    val totpAlgorithm: String = "SHA256",
     val customFields: List<AccountField> = emptyList(),
     /** TOTP 为标准验证码，STEAM 为 Steam Guard 专用 5 字符验证码。 */
     val totpType: String = "TOTP",

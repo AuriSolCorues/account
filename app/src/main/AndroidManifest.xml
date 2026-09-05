@@ -4,6 +4,15 @@
 
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- API>=30 备份直写 内部存储/backups/account；部分 OEM 的 SAF 目录选择器被锁死 -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
 
     <application
         android:allowBackup="false"
