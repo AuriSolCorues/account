@@ -70,6 +70,7 @@ import com.copy.account.security.AccExportInput
 import com.copy.account.security.SecureVaultStore
 import com.copy.account.security.exportAcc
 import com.copy.account.security.importAcc
+import com.copy.account.security.isHotp
 import com.copy.account.ui.theme.SavedTheme
 import com.copy.account.ui.theme.parseThemeJson
 import kotlinx.coroutines.Dispatchers
@@ -117,7 +118,7 @@ fun AccountApp(
     /** API>=30 直写备份（所有文件访问 + 固定 内部存储/backups/account）；API<30 仍走 SAF 目录授权。 */
     val directBackup = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
     var storageAccessGranted by remember {
-        mutableStateOf(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && hasStorageAccess())
+        mutableStateOf(directBackup && hasStorageAccess())
     }
     /** 当前是否处于前台 RESUME 状态，用于在回到前台时触发一次生物识别。 */
     var resumed by remember { mutableStateOf(false) }
@@ -199,7 +200,7 @@ fun AccountApp(
 
     /** 跳系统「所有文件访问」授权页；授予后返回，由 ON_RESUME 刷新 storageAccessGranted。 */
     fun requestStorageAccess() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        if (!directBackup) return
         val intent = Intent(
             Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
             Uri.parse("package:${context.packageName}")
@@ -233,7 +234,7 @@ fun AccountApp(
     /** HOTP 复制即 +1：把该账号计数器 +1 并持久化，下次重绘即下一组码。 */
     fun advanceHotp(id: String) {
         accounts = accounts.map { account ->
-            if (account.id == id && account.totpType.equals("HOTP", ignoreCase = true)) {
+            if (account.id == id && account.isHotp) {
                 account.copy(totpCounter = account.totpCounter + 1)
             } else account
         }
@@ -318,7 +319,7 @@ fun AccountApp(
                 Lifecycle.Event.ON_RESUME -> {
                     resumed = true
                     // 从系统设置授予/撤销「所有文件访问」后返回时刷新
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) storageAccessGranted = hasStorageAccess()
+                    if (directBackup) storageAccessGranted = hasStorageAccess()
                 }
                 Lifecycle.Event.ON_PAUSE -> {
                     resumed = false
@@ -502,7 +503,6 @@ fun AccountApp(
             },
             onBack = { page = AppPage.Home },
             onReloadSettings = ::reloadSettings,
-            languageTag = settings.languageTag,
             clipboardClearSeconds = settings.clipboardClearSeconds,
             onClipboardClearChange = { seconds ->
                 baseSettings = baseSettings.copy(clipboardClearSeconds = seconds.coerceIn(0, 86_400))
@@ -549,7 +549,7 @@ fun AccountApp(
                             ), key, salt, iterations
                         )
                         try {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) writeFileBackup(bytes)
+                            if (directBackup) writeFileBackup(bytes)
                             else writeBackupFile(context, tree!!, bytes)
                         } finally {
                             bytes.fill(0)

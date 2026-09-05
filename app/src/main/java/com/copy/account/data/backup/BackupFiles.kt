@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 /** 初始化固定的 backups/account 目录，返回最终目录。 */
@@ -77,10 +78,7 @@ internal fun readSelectedDocument(context: Context, uri: Uri): Result<ByteArray>
 
 internal fun writeBackupFile(context: Context, treeUri: Uri, bytes: ByteArray): String = runCatching {
     val directory = backupAccountDirectory(context, treeUri).getOrThrow()
-    val base = "account-${java.text.SimpleDateFormat("yyyy-MM-dd-HHmmss", java.util.Locale.US).format(java.util.Date())}"
-    var filename = "$base.acc"
-    var index = 1
-    while (directory.findFile(filename) != null) filename = "$base-${index++}.acc"
+    val filename = uniqueBackupName { directory.findFile(it) != null }
     val file = directory.createFile("application/octet-stream", filename) ?: error("无法创建备份文件")
     try {
         context.contentResolver.openOutputStream(file.uri)?.use { it.write(bytes) }
@@ -94,6 +92,15 @@ internal fun writeBackupFile(context: Context, treeUri: Uri, bytes: ByteArray): 
 
 internal fun deleteBackupFile(context: Context, uri: Uri): Result<Unit> = runCatching {
     require(DocumentFile.fromSingleUri(context, uri)?.delete() == true) { "删除备份失败" }
+}
+
+/** 备份文件名：account-时间戳；重名追加 -1/-2 序号。SAF 与直写两轨共用，命名保持一致。 */
+internal fun uniqueBackupName(exists: (String) -> Boolean): String {
+    val base = "account-${SimpleDateFormat("yyyy-MM-dd-HHmmss", Locale.US).format(Date())}"
+    var filename = "$base.acc"
+    var index = 1
+    while (exists(filename)) filename = "$base-${index++}.acc"
+    return filename
 }
 
 // ===== API>=30 直写路径（所有文件访问 + 固定目录），绕开被 OEM 锁死的 SAF 目录选择器；以下函数仅在 directBackup（API>=30）时调用 =====
@@ -128,10 +135,7 @@ internal fun readFileBackup(file: File): Result<ByteArray> = runCatching { file.
 
 internal fun writeFileBackup(bytes: ByteArray): String = runCatching {
     val directory = ensureBackupDirectory().getOrThrow()
-    val base = "account-${SimpleDateFormat("yyyy-MM-dd-HHmmss", Locale.US).format(java.util.Date())}"
-    var filename = "$base.acc"
-    var index = 1
-    while (File(directory, filename).exists()) filename = "$base-${index++}.acc"
+    val filename = uniqueBackupName { File(directory, it).exists() }
     val file = File(directory, filename)
     try {
         file.writeBytes(bytes)

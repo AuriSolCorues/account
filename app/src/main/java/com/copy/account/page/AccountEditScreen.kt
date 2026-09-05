@@ -1,6 +1,5 @@
 package com.copy.account.page
 
-import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -37,8 +36,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
+import com.copy.account.data.model.DEFAULT_TOTP_ALGORITHM
+import com.copy.account.data.model.DEFAULT_TOTP_DIGITS
+import com.copy.account.data.model.DEFAULT_TOTP_PERIOD
+import com.copy.account.data.model.DEFAULT_TOTP_TYPE
 import com.copy.account.security.decodeSecret
 import com.copy.account.security.normalizedTotpSecret
+import com.copy.account.security.parseOtpAuth
 import com.copy.account.security.totpCode
 import com.copy.account.data.model.Account
 import com.copy.account.data.model.AccountField
@@ -64,12 +68,14 @@ import com.copy.account.ui.components.ReorderCardStyle
 import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
 
-/** 字段行目标：固定用户名/密码行或某条自定义字段。 */
-private sealed interface FieldTarget {
-    data object Username : FieldTarget
-    data object Password : FieldTarget
-    data class Custom(val id: String) : FieldTarget
-}
+/** ☷ 短按菜单目标：直接捕获该行的写值/显隐闭包，免做 when 分派。 */
+private data class FieldMenuTarget(
+    val label: String,
+    val hidden: Boolean,
+    val fill: (String) -> Unit,
+    val onToggleHidden: () -> Unit,
+    val onDelete: (() -> Unit)? = null
+)
 
 // 尾部共用一槽；缩窄之，输入框得以延长，☷ 仍保有可点击宽度。
 private val FieldTrailingSlotWidth = 35.dp
@@ -138,24 +144,24 @@ internal fun AccountEditScreen(
     var passwordLabel by remember(source?.id) { mutableStateOf(source?.passwordLabel.orEmpty()) }
     var hasTotp by remember(source?.id) { mutableStateOf(source?.hasTotp ?: false) }
     var totpSecret by remember(source?.id) { mutableStateOf(source?.totpSecret.orEmpty()) }
-    var totpType by remember(source?.id) { mutableStateOf(source?.totpType ?: "TOTP") }
-    var totpDigits by remember(source?.id) { mutableIntStateOf(source?.totpDigits ?: 6) }
+    var totpType by remember(source?.id) { mutableStateOf(source?.totpType ?: DEFAULT_TOTP_TYPE) }
+    var totpDigits by remember(source?.id) { mutableIntStateOf(source?.totpDigits ?: DEFAULT_TOTP_DIGITS) }
     /** 是否处于「自定义」位数输入状态（区别于 5/6/8 快捷位）。 */
     var totpCustomMode by remember(source?.id) { mutableStateOf(source?.totpDigits?.let { it !in TotpDigitPresets } ?: false) }
     /** 「自定义」输入框内容，实时同步到 totpDigits。 */
     var totpCustomDigits by remember(source?.id) { mutableStateOf(source?.totpDigits?.takeIf { it !in TotpDigitPresets }?.toString() ?: "") }
-    var totpPeriodText by remember(source?.id) { mutableStateOf((source?.totpPeriod ?: 30).toString()) }
+    var totpPeriodText by remember(source?.id) { mutableStateOf((source?.totpPeriod ?: DEFAULT_TOTP_PERIOD).toString()) }
     var totpCounterText by remember(source?.id) { mutableStateOf((source?.totpCounter ?: 0).toString()) }
-    var totpAlgorithm by remember(source?.id) { mutableStateOf(source?.totpAlgorithm ?: "SHA256") }
+    var totpAlgorithm by remember(source?.id) { mutableStateOf(source?.totpAlgorithm ?: DEFAULT_TOTP_ALGORITHM) }
     var totpError by remember(source?.id) { mutableStateOf("") }
     var selectedCustomGroups by remember(account?.id, initialGroupId) {
         mutableStateOf(account?.groups ?: if (groups.any { it.id == initialGroupId && it.kind == GroupKind.CUSTOM }) setOf(initialGroupId) else emptySet())
     }
     var fields by remember(source?.id) { mutableStateOf(source?.customFields ?: emptyList()) }
-    /** 最近聚焦的行，供底部「随机密码」填回。 */
-    var focusedTarget by remember(source?.id) { mutableStateOf<FieldTarget>(FieldTarget.Password) }
+    /** 最近聚焦行的写值闭包，供底部「随机密码」填回。 */
+    var fillTarget by remember(source?.id) { mutableStateOf<(String) -> Unit>({ password = it }) }
     /** ☷ 短按打开的目标行。 */
-    var menuTarget by remember(source?.id) { mutableStateOf<FieldTarget?>(null) }
+    var menuTarget by remember(source?.id) { mutableStateOf<FieldMenuTarget?>(null) }
     var addGroupDialog by remember { mutableStateOf(false) }
     var showMissingName by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
@@ -163,41 +169,22 @@ internal fun AccountEditScreen(
     /** 两步验证二维码扫码层开关；打开时盖在当前页上方，编辑状态不丢。 */
     var showScan by remember { mutableStateOf(false) }
     val customGroups = groups.filter { it.kind == GroupKind.CUSTOM }
-    val nowMillis = rememberClock()
 
+    // Steam/HOTP 周期固定 30（HOTP 不显示周期，仅占位）；TOTP 读输入框。保存与预览共用。
+    fun totpPeriodValue(): Int? = if (totpType == "STEAM" || totpType == "HOTP") 30 else totpPeriodText.toIntOrNull()
+
+    // 粘贴 otpauth:// 链接时自动带出算法/位数/周期/计数器与类型（解析在 security/parseOtpAuth）。
     LaunchedEffect(totpSecret) {
-        val uri = runCatching { Uri.parse(totpSecret.trim()) }.getOrNull()
-        if (uri?.scheme == "otpauth") {
-            uri.getQueryParameter("algorithm")?.uppercase()?.replace("-", "")?.let { value ->
-                if (value in setOf("SHA1", "SHA256", "SHA512")) totpAlgorithm = value
-            }
-            uri.getQueryParameter("digits")?.toIntOrNull()?.let { value ->
-                if (value in 1..10) {
-                    totpDigits = value
-                    totpCustomMode = value !in TotpDigitPresets
-                    totpCustomDigits = if (value !in TotpDigitPresets) value.toString() else ""
-                }
-            }
-            uri.getQueryParameter("counter")?.toLongOrNull()?.let { value ->
-                if (value >= 0) totpCounterText = value.toString()
-            }
-            // 提供方式：otpauth 的 host 即类型（totp/steam/hotp）；老款 Steam 常写在 issuer/path。
-            val host = uri.host.orEmpty().lowercase()
-            val looksSteam = host == "steam" || host == "totp" && (
-                uri.path.orEmpty().contains("steam", ignoreCase = true) ||
-                    uri.getQueryParameter("issuer").orEmpty().contains("steam", ignoreCase = true)
-                )
-            if (host == "hotp") {
-                totpType = "HOTP"
-            } else if (looksSteam) {
-                totpType = "STEAM"
-            } else if (host == "totp") {
-                totpType = "TOTP"
-            }
-            uri.getQueryParameter("period")?.toIntOrNull()?.let { value ->
-                if (value in 1..300) totpPeriodText = value.toString()
-            }
+        val params = parseOtpAuth(totpSecret) ?: return@LaunchedEffect
+        params.algorithm?.let { totpAlgorithm = it }
+        params.digits?.let { value ->
+            totpDigits = value
+            totpCustomMode = value !in TotpDigitPresets
+            totpCustomDigits = if (value !in TotpDigitPresets) value.toString() else ""
         }
+        params.counter?.let { totpCounterText = it.toString() }
+        params.period?.let { totpPeriodText = it.toString() }
+        params.type?.let { totpType = it }
     }
 
     fun moveField(id: String, direction: Int) {
@@ -207,44 +194,11 @@ internal fun AccountEditScreen(
         fields = fields.toMutableList().also { it.add(target, it.removeAt(from)) }
     }
 
-    fun rowLabel(target: FieldTarget): String = when (target) {
-        FieldTarget.Username -> usernameLabel.ifBlank { "用户名" }
-        FieldTarget.Password -> passwordLabel.ifBlank { "密码" }
-        is FieldTarget.Custom -> fields.firstOrNull { it.id == target.id }?.label?.ifBlank { "新字段" } ?: "新字段"
-    }
-
-    fun rowHidden(target: FieldTarget): Boolean = when (target) {
-        FieldTarget.Username -> usernameHidden
-        FieldTarget.Password -> passwordHidden
-        is FieldTarget.Custom -> fields.firstOrNull { it.id == target.id }?.hidden ?: false
-    }
-
-    fun toggleRowHidden(target: FieldTarget) {
-        when (target) {
-            FieldTarget.Username -> usernameHidden = !usernameHidden
-            FieldTarget.Password -> passwordHidden = !passwordHidden
-            is FieldTarget.Custom -> fields = fields.map { if (it.id == target.id) it.copy(hidden = !it.hidden) else it }
-        }
-    }
-
-    fun writeRowValue(target: FieldTarget, value: String) {
-        when (target) {
-            FieldTarget.Username -> username = value
-            FieldTarget.Password -> password = value
-            is FieldTarget.Custom -> fields = fields.map { if (it.id == target.id) it.copy(value = value) else it }
-        }
-    }
-
-    fun deleteCustomField(id: String) {
-        fields = fields.filterNot { it.id == id }
-    }
-
     fun saveAccount() {
         val isSteam = totpType == "STEAM"
         val isHotp = totpType == "HOTP"
         val counter = totpCounterText.toLongOrNull() ?: -1L
-        // Steam/HOTP 的周期固定 30（HOTP 不显示周期，仅占位）；TOTP 读取输入框。
-        val period = if (isSteam || isHotp) 30 else totpPeriodText.toIntOrNull()
+        val period = totpPeriodValue()
         when {
             name.isBlank() -> showMissingName = true
             hasTotp && !isSteam && (period == null || period !in 1..300) -> totpError = "验证码周期需为 1-300 秒"
@@ -320,42 +274,67 @@ internal fun AccountEditScreen(
                 )
             }
             item {
+                val fill: (String) -> Unit = { username = it }
                 FieldEditRow(
                     labelValue = usernameLabel,
                     onLabelChange = { usernameLabel = it },
                     labelPlaceholder = "用户名",
                     value = username,
-                    onValueChange = { username = it },
+                    onValueChange = fill,
                     hidden = usernameHidden,
                     mask = maskChar,
-                    onFocused = { focusedTarget = FieldTarget.Username },
-                    onHandleMenu = { menuTarget = FieldTarget.Username }
+                    onFocused = { fillTarget = fill },
+                    onHandleMenu = {
+                        menuTarget = FieldMenuTarget(
+                            label = usernameLabel.ifBlank { "用户名" },
+                            hidden = usernameHidden,
+                            fill = fill,
+                            onToggleHidden = { usernameHidden = !usernameHidden }
+                        )
+                    }
                 )
             }
             item {
+                val fill: (String) -> Unit = { password = it }
                 FieldEditRow(
                     labelValue = passwordLabel,
                     onLabelChange = { passwordLabel = it },
                     labelPlaceholder = "密码",
                     value = password,
-                    onValueChange = { password = it },
+                    onValueChange = fill,
                     hidden = passwordHidden,
                     mask = maskChar,
-                    onFocused = { focusedTarget = FieldTarget.Password },
-                    onHandleMenu = { menuTarget = FieldTarget.Password }
+                    onFocused = { fillTarget = fill },
+                    onHandleMenu = {
+                        menuTarget = FieldMenuTarget(
+                            label = passwordLabel.ifBlank { "密码" },
+                            hidden = passwordHidden,
+                            fill = fill,
+                            onToggleHidden = { passwordHidden = !passwordHidden }
+                        )
+                    }
                 )
             }
             items(fields, key = { it.id }) { field ->
+                val fill: (String) -> Unit = { value -> fields = fields.map { if (it.id == field.id) it.copy(value = value) else it } }
                 FieldEditRow(
                     labelValue = field.label,
                     onLabelChange = { label -> fields = fields.map { if (it.id == field.id) it.copy(label = label) else it } },
                     labelPlaceholder = "字段名",
                     value = field.value,
-                    onValueChange = { value -> fields = fields.map { if (it.id == field.id) it.copy(value = value) else it } },
+                    onValueChange = fill,
                     hidden = field.hidden,
                     mask = maskChar,
-                    onFocused = { focusedTarget = FieldTarget.Custom(field.id) },
-                    onHandleMenu = { menuTarget = FieldTarget.Custom(field.id) },
+                    onFocused = { fillTarget = fill },
+                    onHandleMenu = {
+                        menuTarget = FieldMenuTarget(
+                            label = field.label.ifBlank { "新字段" },
+                            hidden = field.hidden,
+                            fill = fill,
+                            onToggleHidden = { fields = fields.map { if (it.id == field.id) it.copy(hidden = !it.hidden) else it } },
+                            onDelete = { fields = fields.filterNot { it.id == field.id } }
+                        )
+                    },
                     dragKey = field.id,
                     onMove = { moveField(field.id, it) }
                 )
@@ -379,7 +358,7 @@ internal fun AccountEditScreen(
                         onClick = {
                             val id = "field-${System.currentTimeMillis()}"
                             fields = fields + AccountField(id, "", "", false)
-                            focusedTarget = FieldTarget.Custom(id)
+                            fillTarget = { value -> fields = fields.map { if (it.id == id) it.copy(value = value) else it } }
                         },
                         modifier = Modifier.weight(1f)
                     )
@@ -491,29 +470,32 @@ internal fun AccountEditScreen(
                     }
                 }
                 item {
-                    val normalizedSecret = normalizedTotpSecret(totpSecret)
-                    val previewCounter = totpCounterText.toLongOrNull() ?: 0
-                    val previewAccount = Account(
-                        "preview",
-                        name,
-                        username,
-                        password,
-                        hasTotp = true,
-                        totpSecret = normalizedSecret,
-                        totpDigits = totpDigits,
-                        totpPeriod = if (totpType == "STEAM" || totpType == "HOTP") 30 else totpPeriodText.toIntOrNull() ?: 30,
-                        totpCounter = previewCounter,
-                        totpAlgorithm = totpAlgorithm,
-                        totpType = totpType
-                    )
-                    val decodedLength = decodeSecret(normalizedSecret, totpType == "STEAM").size
+                    // 秒钟与密钥解码都收在本预览行：仅此行重绘，不带动整页输入框，也不逐秒重解密钥。
+                    val nowMillis = rememberClock()
+                    val normalizedSecret = remember(totpSecret) { normalizedTotpSecret(totpSecret) }
+                    val decodedSecret = remember(normalizedSecret, totpType) { decodeSecret(normalizedSecret, totpType == "STEAM") }
+                    val previewAccount = remember(totpDigits, totpPeriodText, totpCounterText, totpAlgorithm, totpType, normalizedSecret) {
+                        Account(
+                            "preview",
+                            name,
+                            username,
+                            password,
+                            hasTotp = true,
+                            totpSecret = normalizedSecret,
+                            totpDigits = totpDigits,
+                            totpPeriod = totpPeriodValue() ?: DEFAULT_TOTP_PERIOD,
+                            totpCounter = totpCounterText.toLongOrNull() ?: 0,
+                            totpAlgorithm = totpAlgorithm,
+                            totpType = totpType
+                        )
+                    }
                     Text(
                         when {
                             totpSecret.isBlank() -> "请输入密钥以生成验证码"
-                            decodedLength < 10 -> if (totpType == "STEAM") "Steam shared_secret 格式不正确，请检查 Base64 内容" else "密钥格式不正确，请检查 Base32 内容"
-                            else -> "当前验证码：${totpCode(previewAccount, nowMillis)}"
+                            decodedSecret.size < 10 -> if (totpType == "STEAM") "Steam shared_secret 格式不正确，请检查 Base64 内容" else "密钥格式不正确，请检查 Base32 内容"
+                            else -> "当前验证码：${totpCode(previewAccount, decodedSecret, nowMillis)}"
                         },
-                        color = if (decodedLength in 1..9) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                        color = if (decodedSecret.size in 1..9) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                     )
                 }
                 if (totpError.isNotBlank()) item { Text(totpError, color = MaterialTheme.colorScheme.error) }
@@ -524,19 +506,19 @@ internal fun AccountEditScreen(
 
     menuTarget?.let { target ->
         AppBottomSheet(onDismiss = { menuTarget = null }, skipPartiallyExpanded = true, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SheetTitleRow(rowLabel(target)) {}
-            ActionSheetRow(if (rowHidden(target)) "显示" else "隐藏") {
-                toggleRowHidden(target)
+            SheetTitleRow(target.label) {}
+            ActionSheetRow(if (target.hidden) "显示" else "隐藏") {
+                target.onToggleHidden()
                 menuTarget = null
             }
             ActionSheetRow("随机密码") {
-                focusedTarget = target
+                fillTarget = target.fill
                 menuTarget = null
                 showPasswordGenerator = true
             }
-            if (target is FieldTarget.Custom) {
+            if (target.onDelete != null) {
                 ActionSheetRow("删除字段", color = MaterialTheme.colorScheme.error) {
-                    deleteCustomField(target.id)
+                    target.onDelete?.invoke()
                     menuTarget = null
                 }
             }
@@ -548,7 +530,7 @@ internal fun AccountEditScreen(
         RandomPasswordGeneratorSheet(
             onDismiss = { showPasswordGenerator = false },
             onFill = { generated ->
-                writeRowValue(focusedTarget, generated)
+                fillTarget(generated)
                 showPasswordGenerator = false
             },
             clipboardClearSeconds = clipboardClearSeconds

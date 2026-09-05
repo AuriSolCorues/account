@@ -62,9 +62,7 @@ internal fun GroupManageScreen(
                 GroupManageItem(
                     group = group,
                     count = accountCount(group.id),
-                    fixed = true,
-                    moveUp = {},
-                    moveDown = {},
+                    onMove = null,
                     onNameClick = { editGroup = group; dialogText = group.name }
                 )
             }
@@ -73,9 +71,7 @@ internal fun GroupManageScreen(
                 GroupManageItem(
                     group = group,
                     count = accountCount(group.id),
-                    fixed = false,
-                    moveUp = { onMoveCustomGroup(group.id, -1) },
-                    moveDown = { onMoveCustomGroup(group.id, 1) },
+                    onMove = { onMoveCustomGroup(group.id, it) },
                     onNameClick = { editGroup = group; dialogText = group.name }
                 )
             }
@@ -125,9 +121,7 @@ internal fun GroupManageScreen(
 internal fun LazyItemScope.GroupManageItem(
     group: Group,
     count: Int,
-    fixed: Boolean,
-    moveUp: () -> Unit,
-    moveDown: () -> Unit,
+    onMove: ((Int) -> Unit)?,
     onNameClick: () -> Unit
 ) {
     AnimatedReorderCard(
@@ -137,12 +131,12 @@ internal fun LazyItemScope.GroupManageItem(
             draggingColor = MaterialTheme.colorScheme.primaryContainer,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)
         ),
-        onMove = if (fixed) null else { direction -> if (direction > 0) moveDown() else moveUp() }
+        onMove = onMove
     ) { dragModifier, isDragging, paddingValues ->
         Row(modifier = Modifier.fillMaxWidth().padding(paddingValues), verticalAlignment = Alignment.CenterVertically) {
             Text(group.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f).clickable(onClick = onNameClick), maxLines = 2, overflow = TextOverflow.Ellipsis, color = if (isDragging) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
             Text("$count", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-            if (!fixed) DragHandleGlyph(isDragging = isDragging, modifier = dragModifier.padding(start = 12.dp))
+            if (onMove != null) DragHandleGlyph(isDragging = isDragging, modifier = dragModifier.padding(start = 12.dp))
         }
     }
 }

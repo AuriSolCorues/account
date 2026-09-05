@@ -26,6 +26,9 @@ import com.copy.account.security.copyToClipboard
 import com.copy.account.ui.theme.AccountTheme
 import java.security.SecureRandom
 
+/** 复用单一实例：滑块每一步都会重新生成，免逐次播种。 */
+private val generatorRandom = SecureRandom()
+
 /** 按勾选的字符类生成随机密码；每类至少出现一次，其余从合并字符池随机取。 */
 internal fun generatePassword(length: Int, upper: Boolean, lower: Boolean, digits: Boolean, symbols: Boolean): String {
     val pools = buildList {
@@ -35,7 +38,7 @@ internal fun generatePassword(length: Int, upper: Boolean, lower: Boolean, digit
         if (symbols) add("\$%&^*()[].@#_!")
     }
     if (pools.isEmpty() || length <= 0) return ""
-    val random = SecureRandom()
+    val random = generatorRandom
     val all = pools.joinToString("")
     val result = CharArray(length)
     pools.forEachIndexed { i, pool -> if (i < length) result[i] = pool[random.nextInt(pool.length)] }

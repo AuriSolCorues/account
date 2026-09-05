@@ -55,7 +55,6 @@ internal fun SettingsScreen(
     onAccentThemeChange: (String) -> Unit,
     customThemeJson: String,
     customThemes: List<SavedTheme>,
-    languageTag: String,
     onApplyThemeJson: (String) -> Boolean,
     onSaveCustomTheme: (String, String) -> Unit,
     onDeleteCustomTheme: (String) -> Unit,
@@ -141,7 +140,7 @@ internal fun SettingsScreen(
                     }
                 }
             }
-            item { SettingsRow("语言", languageLabel(languageTag)) }
+            item { SettingsRow("语言", "简体中文") }
             item { SettingsHeader("数据与备份") }
             item { SettingsRow("备份文件管理", "打开", onOpenBackup) }
             item { SettingsHeader("配置文件") }
@@ -185,18 +184,10 @@ internal fun SettingsScreen(
         },
         dismissButton = { TextActionButton("取消", onClick = { showChangePasswordDialog = false }) }
     )
-    if (showAutoLockDialog) AlertDialog(
-        onDismissRequest = { showAutoLockDialog = false },
-        title = { Text("自动锁定") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                listOf(1, 5, 10, 30).forEach { minutes ->
-                    TextActionButton("${minutes} 分钟", onClick = { onAutoLockChange(minutes); showAutoLockDialog = false }, modifier = Modifier.fillMaxWidth())
-                }
-            }
-        },
-        confirmButton = { TextActionButton("取消", onClick = { showAutoLockDialog = false }) }
-    )
+    if (showAutoLockDialog) ChoiceDialog(
+        "自动锁定",
+        listOf(1, 5, 10, 30).map { minutes -> "${minutes} 分钟" to { onAutoLockChange(minutes) } }
+    ) { showAutoLockDialog = false }
     if (showClipboardDialog) AlertDialog(
         onDismissRequest = { showClipboardDialog = false },
         title = { Text("剪贴板清除时间") },
@@ -223,30 +214,14 @@ internal fun SettingsScreen(
         },
         dismissButton = { TextActionButton("取消", onClick = { showClipboardDialog = false }) }
     )
-    if (showThemeDialog) AlertDialog(
-        onDismissRequest = { showThemeDialog = false },
-        title = { Text("颜色主题") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                listOf("dark" to "深色", "light" to "浅色", "system" to "跟随系统").forEach { (mode, label) ->
-                    TextActionButton(label, onClick = { onThemeModeChange(mode); showThemeDialog = false }, modifier = Modifier.fillMaxWidth())
-                }
-            }
-        },
-        confirmButton = { TextActionButton("取消", onClick = { showThemeDialog = false }) }
-    )
-    if (showAccentDialog) AlertDialog(
-        onDismissRequest = { showAccentDialog = false },
-        title = { Text("配色方案") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                listOf("green" to "绿色（设计）", "blue" to "蓝色").forEach { (accent, label) ->
-                    TextActionButton(label, onClick = { onAccentThemeChange(accent); showAccentDialog = false }, modifier = Modifier.fillMaxWidth())
-                }
-            }
-        },
-        confirmButton = { TextActionButton("取消", onClick = { showAccentDialog = false }) }
-    )
+    if (showThemeDialog) ChoiceDialog(
+        "颜色主题",
+        listOf("dark" to "深色", "light" to "浅色", "system" to "跟随系统").map { (mode, label) -> label to { onThemeModeChange(mode) } }
+    ) { showThemeDialog = false }
+    if (showAccentDialog) ChoiceDialog(
+        "配色方案",
+        listOf("green" to "绿色（设计）", "blue" to "蓝色").map { (accent, label) -> label to { onAccentThemeChange(accent) } }
+    ) { showAccentDialog = false }
     if (showJsonDialog) AlertDialog(
         onDismissRequest = { showJsonDialog = false },
         title = { Text("自定义主题 JSONC") },
@@ -289,10 +264,21 @@ internal fun SettingsScreen(
     )
 }
 
-/** 当前只提供简体中文；未知标签回退中文，后续可直接增加语言资源。 */
-internal fun languageLabel(languageTag: String): String = when (languageTag) {
-    "zh-CN" -> "简体中文"
-    else -> "简体中文"
+/** 单选弹窗：一列选项按钮 + 取消；选项回调自带设值，选中即关闭。 */
+@Composable
+private fun ChoiceDialog(title: String, options: List<Pair<String, () -> Unit>>, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                options.forEach { (label, action) ->
+                    TextActionButton(label, onClick = { action(); onDismiss() }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+        },
+        confirmButton = { TextActionButton("取消", onClick = onDismiss) }
+    )
 }
 
 internal fun clipboardClearLabel(seconds: Int): String =
@@ -315,7 +301,6 @@ private fun SettingsScreenPreview() {
             onAccentThemeChange = {},
             customThemeJson = "",
             customThemes = emptyList(),
-            languageTag = "zh-CN",
             onApplyThemeJson = { true },
             onSaveCustomTheme = { _, _ -> },
             onDeleteCustomTheme = {},

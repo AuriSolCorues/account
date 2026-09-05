@@ -14,6 +14,45 @@ internal fun normalizedTotpSecret(raw: String): String {
     } else raw
 }
 
+/** HOTP 事件型验证码：码只随计数器变、复制后 +1，无时间倒计时。 */
+internal val Account.isHotp: Boolean get() = totpType.equals("HOTP", ignoreCase = true)
+
+/** Steam Guard 专用 5 字符验证码（Base64 密钥、SHA1、固定周期）。 */
+internal val Account.isSteam: Boolean get() = totpType.equals("STEAM", ignoreCase = true)
+
+/** otpauth:// 链接解析出的两步验证参数；非 otpauth 串返回 null。 */
+internal data class OtpAuthParams(
+    val algorithm: String?,
+    val digits: Int?,
+    val counter: Long?,
+    val period: Int?,
+    /** 提供方式；host 未知时为 null（保持现有类型不动）。 */
+    val type: String?
+)
+
+internal fun parseOtpAuth(raw: String): OtpAuthParams? {
+    val uri = runCatching { Uri.parse(raw.trim()) }.getOrNull() ?: return null
+    if (uri.scheme != "otpauth") return null
+    // 提供方式：otpauth 的 host 即类型（totp/steam/hotp）；老款 Steam 常写在 issuer/path。
+    val host = uri.host.orEmpty().lowercase()
+    val looksSteam = host == "steam" || host == "totp" && (
+        uri.path.orEmpty().contains("steam", ignoreCase = true) ||
+            uri.getQueryParameter("issuer").orEmpty().contains("steam", ignoreCase = true)
+        )
+    return OtpAuthParams(
+        algorithm = uri.getQueryParameter("algorithm")?.uppercase()?.replace("-", "")?.takeIf { it in setOf("SHA1", "SHA256", "SHA512") },
+        digits = uri.getQueryParameter("digits")?.toIntOrNull()?.takeIf { it in 1..10 },
+        counter = uri.getQueryParameter("counter")?.toLongOrNull()?.takeIf { it >= 0 },
+        period = uri.getQueryParameter("period")?.toIntOrNull()?.takeIf { it in 1..300 },
+        type = when {
+            host == "hotp" -> "HOTP"
+            looksSteam -> "STEAM"
+            host == "totp" -> "TOTP"
+            else -> null
+        }
+    )
+}
+
 internal fun decodeSecret(raw: String, steam: Boolean): ByteArray {
     val clean = raw.trim().replace(" ", "")
     if (steam && clean.matches(Regex("[A-Za-z0-9+/]+=*"))) {
@@ -62,13 +101,20 @@ private fun decodeBase32(input: String): ByteArray {
 
 internal fun totpCode(account: Account, nowMillis: Long): String {
     if (!account.hasTotp || account.totpSecret.isBlank()) return "------"
+    val steam = account.isSteam
     return runCatching {
-        val steam = account.totpType.equals("STEAM", ignoreCase = true)
+        totpCode(account, decodeSecret(normalizedTotpSecret(account.totpSecret), steam), nowMillis)
+    }.getOrDefault("------")
+}
+
+/** 已解出密钥字节的重载：调用方缓存解码结果，秒级刷新只付 HMAC 成本。 */
+internal fun totpCode(account: Account, secret: ByteArray, nowMillis: Long): String {
+    if (secret.isEmpty()) return "------"
+    return runCatching {
+        val steam = account.isSteam
         val period = account.totpPeriod.coerceAtLeast(1)
-        val secret = decodeSecret(normalizedTotpSecret(account.totpSecret), steam)
-        if (secret.isEmpty()) return@runCatching "------"
         if (steam) return@runCatching steamGuardCode(secret, nowMillis, period)
-        val hotp = account.totpType.equals("HOTP", ignoreCase = true)
+        val hotp = account.isHotp
         val algorithm = when (account.totpAlgorithm.uppercase().replace("-", "")) {
             "SHA256" -> "SHA256"
             "SHA512" -> "SHA512"

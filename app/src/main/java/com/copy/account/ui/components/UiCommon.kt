@@ -25,19 +25,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
+import com.copy.account.data.model.Account
 import com.copy.account.security.copyToClipboard
+import com.copy.account.security.isHotp
+import com.copy.account.security.totpCode
 import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
 import kotlinx.coroutines.delay
 
+/** 时钟：按间隔刷新当前毫秒，驱动验证码等时间态内容。 */
 @Composable
-internal fun rememberClock(): Long {
+internal fun rememberClock(intervalMillis: Long = 1000): Long {
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(intervalMillis) {
         while (true) {
             nowMillis = System.currentTimeMillis()
-            delay(1000)
+            delay(intervalMillis)
         }
     }
 
@@ -77,6 +81,18 @@ internal fun SensitiveValueRow(label: String, value: String, masked: Boolean = f
             afterCopy?.invoke()
         })
     }
+}
+
+/** 动态密码行（详情/速览共用）：HOTP 复制即 +1 进位。 */
+@Composable
+internal fun AccountTotpRow(account: Account, nowMillis: Long, clipboardClearSeconds: Int, onHotpAdvance: () -> Unit) {
+    SensitiveValueRow(
+        "动态密码",
+        totpCode(account, nowMillis),
+        sensitive = true,
+        clearAfterSeconds = clipboardClearSeconds,
+        afterCopy = if (account.isHotp) onHotpAdvance else null
+    )
 }
 
 @Composable
