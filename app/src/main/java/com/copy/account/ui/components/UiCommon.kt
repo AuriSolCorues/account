@@ -1,3 +1,10 @@
+/**
+ * 职责：跨页通用件——时钟 rememberClock、顶栏配色、敏感值行、动态密码行、空态文案、
+ *       长按拖动排序手势与手柄字形。
+ * 架构位置：Home/Detail/Preview/GroupManage 等页面复用；复制动作走 security/Clipboard.kt。
+ * Python 类比：rememberClock ≈ 起一个 asyncio 循环任务、每秒给「被观察的变量」赋新值——
+ *           LaunchedEffect 里的 while(true)+delay 在 key 变化或组件销毁时自动取消重启。
+ */
 package com.copy.account.ui.components
 
 import androidx.compose.foundation.clickable
@@ -38,6 +45,7 @@ import kotlinx.coroutines.delay
 internal fun rememberClock(intervalMillis: Long = 1000): Long {
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
+    // 协程随 intervalMillis 启动：间隔变了旧循环自动取消重启；组件销毁（离开页面）也自动取消。
     LaunchedEffect(intervalMillis) {
         while (true) {
             nowMillis = System.currentTimeMillis()
@@ -109,6 +117,7 @@ internal fun Modifier.reorderDragHandle(
     onDragEnd: () -> Unit = {},
     onDragCancel: () -> Unit = {}
 ): Modifier = pointerInput(key) {
+    // pointerInput(key)：key 变化即整体重启手势识别器（这里 key=行数据，内容变了手势重挂）。
     var distance = 0f
     detectDragGesturesAfterLongPress(
         onDragStart = {
@@ -119,6 +128,7 @@ internal fun Modifier.reorderDragHandle(
             change.consume()
             onDrag(amount.y)
             distance += amount.y
+            // 48dp 为触发步长：累计拖过量即折算成「移动一行」事件，余数留给下一段拖动。
             while (distance > 48f) {
                 onMove(1)
                 distance -= 48f

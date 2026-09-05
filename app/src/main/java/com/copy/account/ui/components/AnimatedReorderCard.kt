@@ -1,3 +1,9 @@
+/**
+ * 职责：可复用的长按拖动排序卡片——颜色/高度/缩放过渡动画、拖动视觉位移、拖起置顶。
+ * 架构位置：GroupManageScreen 分组排序使用；手势来自 UiCommon.reorderDragHandle。
+ * Python 类比：graphicsLayer 的 translationY ≈ CSS transform: translateY——只动「画」不动
+ *           「布局」；真实列表位置由 onMove 换列表项达成，两套动画各走各的、互不拉扯。
+ */
 package com.copy.account.ui.components
 
 import androidx.compose.animation.animateColorAsState
@@ -47,6 +53,8 @@ internal fun LazyItemScope.AnimatedReorderCard(
     var isDragging by remember(key) { mutableStateOf(false) }
     val dragModifier = if (onMove == null) Modifier else Modifier.reorderDragHandle(
         key = key,
+        // 换位后卡片会瞬间「跳」到新槽位；dragOffsetY 反向抵消这一跳（56f≈行高），
+        // 让指尖下的卡片视觉连续，松手归零即自然落位。
         onMove = { direction ->
             onMove(direction)
             dragOffsetY -= direction * 56f
@@ -68,6 +76,7 @@ internal fun LazyItemScope.AnimatedReorderCard(
         targetValue = if (isDragging) style.draggingScale else style.normalScale,
         label = "reorder-card-scale"
     )
+    // animateItem()：列表项换位时的槽位平移动画；zIndex 拖起时浮到最顶层，盖住邻卡。
     Card(
         colors = CardDefaults.cardColors(containerColor = cardColor),
         elevation = CardDefaults.cardElevation(defaultElevation = cardElevation),

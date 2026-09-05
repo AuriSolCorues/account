@@ -1,3 +1,10 @@
+/**
+ * 职责：随机密码生成——纯函数 generatePassword（每字符类至少一个 + Fisher-Yates 洗牌）
+ *       与底部生成面板（长度滑块、字符类开关、「复制并填入」）。
+ * 架构位置：编辑页经底部弹层调 RandomPasswordGeneratorSheet，onFill 把密码写回目标输入框。
+ * Python 类比：SecureRandom ≈ secrets.SystemRandom（密码学安全随机，勿用 random 模块）；
+ *           remember(五个参数) ≈ functools.lru_cache——任一输入变化才重新生成。
+ */
 package com.copy.account.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
@@ -43,6 +50,7 @@ internal fun generatePassword(length: Int, upper: Boolean, lower: Boolean, digit
     val result = CharArray(length)
     pools.forEachIndexed { i, pool -> if (i < length) result[i] = pool[random.nextInt(pool.length)] }
     for (i in pools.size until length) result[i] = all[random.nextInt(all.length)]
+    // Fisher-Yates 洗牌：打散「每类占前 N 位」的固定占位，消除位置规律。
     for (i in result.indices.reversed()) {
         val j = random.nextInt(i + 1)
         val tmp = result[i]; result[i] = result[j]; result[j] = tmp
