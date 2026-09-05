@@ -1,3 +1,10 @@
+/**
+ * 职责：主列表页——左侧分组侧栏 + 账号卡片列表 + 搜索 + 三种弹层（点卡片速览、长按操作菜单、
+ *       删除确认）+ 长按分组进入的批量转移模式。
+ * 架构位置：AccountApp 的 AppPage.Home 分支；卡片/侧栏/弹层组件来自 ui/components。
+ * Python 类比：LazyColumn ≈ 只渲染可视区域的虚拟列表（万条不卡）；弹层用「可空状态 + ?.let」
+ *           渲染，≈ modal = state and render(state)，置 null 即关。
+ */
 package com.copy.account.page
 
 import android.annotation.SuppressLint
@@ -100,6 +107,7 @@ internal fun HomeScreen(
     val batchSourceGroup = batchGroupId?.let { id -> groups.firstOrNull { it.id == id } }
     val showTotpOnCards = (batchSourceGroup ?: selectedGroup).kind == GroupKind.DYNAMIC
     // 批量转移时列源分组账号；搜索跨全部分组；否则按当前分组过滤。
+    // remember(依赖表)：任一依赖变了才重算过滤——≈ 手写的派生值缓存，免得每次重组全列表扫一遍。
     val visibleAccounts = remember(accounts, groups, selectedGroupId, searchQuery, batchGroupId) {
         when {
             batchSourceGroup != null -> accounts.filter { accountInGroup(it, groups, batchSourceGroup.id) }
@@ -201,6 +209,8 @@ internal fun HomeScreen(
                             Modifier.fillMaxWidth().weight(1f)
                         )
                     } else {
+                        // LazyColumn + items(key=账号id)：只为滚入屏幕的行创建组合（虚拟化）；
+                        // 稳定 key 让换位动画与状态跟随数据项而非位置（不写 key 用索引，删中间项会错位复用）。
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                             items(visibleAccounts, key = { it.id }) { account ->
                                 // 勾选模式：点卡片即选/取消（点击时实时读集合，勿捕获布尔快照），速览与长按菜单让位。

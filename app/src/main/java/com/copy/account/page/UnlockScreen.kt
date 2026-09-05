@@ -1,3 +1,11 @@
+/**
+ * 职责：解锁页——首装设置主密码或日常输入解锁；可选生物识别快捷入口。
+ *       局部状态（输入、错误、解锁中标志）只活在本页，锁定后随 resetKey 整组清零。
+ * 架构位置：AccountApp 的 AppPage.Unlock 分支；真正解锁逻辑在 onUnlock 回调里
+ *           （AccountApp 中 PBKDF2 派生 + 后台读写 vault.bin）。
+ * Python 类比：onUnlock: suspend (String) -> Boolean ≈ 接收一个 async def 回调——
+ *           suspend 函数可挂起等待而不阻塞 UI 线程，scope.launch 调它 ≈ create_task 后 await。
+ */
 package com.copy.account.page
 
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +48,8 @@ internal fun UnlockScreen(
     onUnlock: suspend (String) -> Boolean
 ) {
     val scope = rememberCoroutineScope()
+    // 全组 remember 以 resetKey（AccountApp 的 lockGeneration）为键：每次锁定 +1，
+    // 重组时这些状态全部重建为初值——即「锁定即清空输入与错误提示」。
     var password by remember(resetKey) { mutableStateOf("") }
     var confirmation by remember(resetKey) { mutableStateOf("") }
     var error by remember(resetKey) { mutableStateOf("") }
