@@ -1,3 +1,9 @@
+/**
+ * 职责：长按账号弹出的操作面板（编辑/删除/模板新建/复制全部内容）。
+ * 架构位置：HomeScreen 长按账号后经 AppBottomSheet 弹出；条目视觉复用 Sheet.kt 的 ActionSheetRow。
+ * Python 类比：内容与容器分离（AccountActionContent 不含弹层）——≈ 把 HTML 片段
+ *           与挂载它的 modal 分开写，同一段内容既给运行时也给 IDE 预览用。
+ */
 package com.copy.account.ui.components
 
 import androidx.compose.foundation.layout.Arrangement

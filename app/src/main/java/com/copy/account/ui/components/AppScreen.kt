@@ -1,3 +1,8 @@
+/**
+ * 职责：二级页通用骨架——Scaffold + 主题色顶栏 + 可选「‹ 返回」+ 右部 actions。
+ * 架构位置：Settings/Groups/Backup/Detail/Edit 页统一套用；Home 顶栏非标、不用它。
+ * Python 类比：≈ 一个页面基类/装饰器——每个二级页只写 content，窗口骨架这里包办。
+ */
 package com.copy.account.ui.components
 
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,6 +25,8 @@ internal fun AppScreen(
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable (PaddingValues) -> Unit
 ) {
+    // Scaffold 是页面脚手架：自动摆顶栏/内容区，content 收到的 PaddingValues 即
+    // 「扣除顶栏后的可用区域边距」；不做内边距内容会被顶栏盖住。
     Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
         TopAppBar(
             colors = accountTopBarColors(),

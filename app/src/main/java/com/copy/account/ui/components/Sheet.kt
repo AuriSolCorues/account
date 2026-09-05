@@ -1,3 +1,10 @@
+/**
+ * 职责：底部弹层（Bottom Sheet）的通用容器与条目——统一背景、内边距、导航栏避让；
+ *       另有 SheetPagePreview 做 IDE 预览底座。
+ * 架构位置：AccountActionSheet、AccountPreviewSheet、密码生成器等面板都装在 AppBottomSheet 里。
+ * Python 类比：ModalBottomSheet ≈ 系统 modal 容器；skipPartiallyExpanded=true 跳过「半开」档位，
+ *           弹出即到全高——内容不多的面板用不着先停在半屏。
+ */
 package com.copy.account.ui.components
 
 import androidx.compose.foundation.background

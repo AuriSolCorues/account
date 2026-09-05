@@ -1,3 +1,8 @@
+/**
+ * 职责：内置配色常量表——绿（主）与蓝（备用）两套色板的具体色值。
+ * 架构位置：由 ui/theme/Theme.kt 的 resolveTheme 与默认 CompositionLocal 引用。
+ * Python 类比：顶层 val ≈ 模块级常量（模块加载即单例）；Color(0xAARRGGBB) 只是十六进制色值的包装。
+ */
 package com.copy.account.ui.theme
 
 import androidx.compose.ui.graphics.Color

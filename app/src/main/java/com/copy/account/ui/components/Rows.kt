@@ -1,3 +1,9 @@
+/**
+ * 职责：设置页与表单的行组件族——标题行、标题+当前值行、开关行、危险按钮、扁平内容卡。
+ *       全部无状态：数据与回调经参数进出，组件自己不存业务状态。
+ * 架构位置：SettingsScreen 大量使用，编辑页复用 SwitchRow/SurfaceCard。
+ * Python 类比：≈ 一组纯函数模板（Jinja2 macro）：同参数进、同 UI 出，无副作用。
+ */
 package com.copy.account.ui.components
 
 import androidx.compose.foundation.layout.Column
@@ -73,6 +79,7 @@ internal fun SurfaceCard(
 ) {
     val colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     val elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    // onClick 可空双态：null 走纯展示 Card，非 null 走可点击 Card（自带涟漪与无障碍语义）。
     if (onClick == null) {
         Card(colors = colors, elevation = elevation, modifier = modifier, content = content)
     } else {
