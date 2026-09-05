@@ -1,3 +1,11 @@
+/**
+ * 职责：账号新建/编辑页——全应用可变状态最多的一屏：名称、固定用户名/密码行（可改名/显隐）、
+ *       自定义字段（增删/拖动排序）、分组勾选、两步验证（TOTP/HOTP/Steam 全参数 + 实时预览 + 扫码）。
+ * 架构位置：AccountApp 的 AppPage.Edit(id?) 分支；保存/删除经 onSave/onDelete 回调上抛，
+ *           新建分组经 onCreateGroup 同步拿回 id。
+ * Python 类比：整片 remember(source?.id) 同键——键（账号 id）一换全部表单状态重建并预填，
+ *           ≈ 切换编辑对象时重开一张空白表单；「模板新建」= 键为 null 但初值取自 template。
+ */
 package com.copy.account.page
 
 import androidx.compose.foundation.layout.Box
@@ -135,6 +143,7 @@ internal fun AccountEditScreen(
     onDelete: (() -> Unit)? = null
 ) {
     val source = account ?: template
+    // 表单状态整片以 source?.id 为 remember 键：编辑对象一换（含从模板新建），全部状态重建为初值再预填。
     var name by remember(source?.id) { mutableStateOf(source?.name.orEmpty()) }
     var username by remember(source?.id) { mutableStateOf(source?.username.orEmpty()) }
     var password by remember(source?.id) { mutableStateOf(source?.password.orEmpty()) }
@@ -194,6 +203,7 @@ internal fun AccountEditScreen(
         fields = fields.toMutableList().also { it.add(target, it.removeAt(from)) }
     }
 
+    // 保存流程：先逐项校验（名称/周期/位数/计数器），全过才构造 Account 上抛；新建以时间戳当 id。
     fun saveAccount() {
         val isSteam = totpType == "STEAM"
         val isHotp = totpType == "HOTP"
