@@ -29,15 +29,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,6 +47,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.copy.account.security.copyToClipboard
+import com.copy.account.security.isHotp
 import com.copy.account.security.totpCode
 import com.copy.account.data.model.Account
 import com.copy.account.data.model.Group
@@ -64,10 +61,10 @@ import com.copy.account.ui.components.EmptyState
 import com.copy.account.ui.components.SurfaceCard
 import com.copy.account.ui.components.TextActionButton
 import com.copy.account.ui.components.accountTopBarColors
+import com.copy.account.ui.components.rememberClock
 import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,23 +96,19 @@ internal fun HomeScreen(
     var batchGroupId by remember { mutableStateOf<String?>(null) }
     var batchSelectedIds by remember { mutableStateOf(emptySet<String>()) }
     var moveTargetGroup by remember { mutableStateOf<Group?>(null) }
-    var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            nowMillis = System.currentTimeMillis()
-            delay(100)
-        }
-    }
-    val snackbarHostState = remember { SnackbarHostState() }
     val selectedGroup = groups.firstOrNull { it.id == selectedGroupId } ?: groups.first()
     val batchSourceGroup = batchGroupId?.let { id -> groups.firstOrNull { it.id == id } }
     val showTotpOnCards = (batchSourceGroup ?: selectedGroup).kind == GroupKind.DYNAMIC
     // 批量转移时列源分组账号；搜索跨全部分组；否则按当前分组过滤。
-    val visibleAccounts = when {
-        batchSourceGroup != null -> accounts.filter { accountInGroup(it, groups, batchSourceGroup.id) }
-        searchQuery.isNotBlank() -> accounts.filter { accountMatchesSearch(it, groups, searchQuery) }
-        else -> accounts.filter { accountInGroup(it, groups, selectedGroup.id) }
+    val visibleAccounts = remember(accounts, groups, selectedGroupId, searchQuery, batchGroupId) {
+        when {
+            batchSourceGroup != null -> accounts.filter { accountInGroup(it, groups, batchSourceGroup.id) }
+            searchQuery.isNotBlank() -> accounts.filter { accountMatchesSearch(it, groups, searchQuery) }
+            else -> accounts.filter { accountInGroup(it, groups, selectedGroup.id) }
+        }
     }
+    // 仅动态分组且有可见 TOTP 时跑 100ms 快钟（卡片进度条平滑），否则长周期空转即可。
+    val nowMillis = rememberClock(if (showTotpOnCards && visibleAccounts.any { it.hasTotp }) 100L else 60_000L)
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -152,8 +145,7 @@ internal fun HomeScreen(
                     IconButton(onClick = onOpenSettings) { Text("☰", color = LocalAccountThemePalette.current.topBarText, fontSize = 20.sp) }
                 }
             )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        }
     ) { padding ->
         BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(padding)) {
             val sidebarWidth = (maxWidth * 0.24f).coerceIn(72.dp, 112.dp)
@@ -339,7 +331,7 @@ internal fun AccountCard(
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             // HOTP 是事件型（无时间倒计时），只在复制时进位，卡片上不画进度条。
-            val hotp = account.hasTotp && account.totpType.equals("HOTP", ignoreCase = true)
+            val hotp = account.hasTotp && account.isHotp
             if (showTotp && account.hasTotp && !hotp) {
                 val period = account.totpPeriod.coerceAtLeast(1)
                 val periodMillis = period * 1000L

@@ -4,12 +4,35 @@ import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.SavedTheme
 import kotlinx.serialization.Serializable
 
+/**
+ * 账号分组类型枚举。
+ * @property DEFAULT 系统默认分组
+ * @property DYNAMIC 动态密码（TOTP）专用分组
+ * @property CUSTOM 用户自定义分组
+ */
 @Serializable
 internal enum class GroupKind { DEFAULT, DYNAMIC, CUSTOM }
 
+/**
+ * 账号分组数据模型。
+ * @param id 分组唯一标识
+ * @param name 分组显示名称
+ * @param kind 分组类型
+ */
 @Serializable
-internal data class Group(val id: String, val name: String, val kind: GroupKind)
+internal data class Group(
+    val id: String,
+    val name: String,
+    val kind: GroupKind
+)
 
+/**
+ * 账号的自定义附加字段模型（如网址、备注、恢复码等）。
+ * @param id 字段唯一标识
+ * @param label 字段显示名称（如“网址”）
+ * @param value 字段实际值
+ * @param hidden 是否默认隐藏（如敏感信息需点击后才显示明文）
+ */
 @Serializable
 internal data class AccountField(
     val id: String,
@@ -18,36 +41,91 @@ internal data class AccountField(
     val hidden: Boolean = false
 )
 
+// ==================== TOTP/2FA 默认配置常量 ====================
+
+/** 新建/缺省账号的两步验证类型；编辑页预填与此保持同一来源。 */
+internal const val DEFAULT_TOTP_TYPE = "TOTP"
+/** 验证码默认位数。 */
+internal const val DEFAULT_TOTP_DIGITS = 6
+/** 验证码默认有效周期（秒）。 */
+internal const val DEFAULT_TOTP_PERIOD = 30
+/** 验证码默认哈希算法。 */
+internal const val DEFAULT_TOTP_ALGORITHM = "SHA256"
+
+// ==================== 核心数据模型 ====================
+
+/**
+ * 账号核心数据模型。
+ */
 @Serializable
 internal data class Account(
     val id: String,
     val name: String,
     val username: String,
     val password: String,
+
     /** 固定用户名行的可选显示名；空值继续显示“用户名”。 */
     val usernameLabel: String? = null,
     /** 固定密码行的可选显示名；空值继续显示“密码”。 */
     val passwordLabel: String? = null,
+
     /** 固定用户名行的掩码位（详情/速览显示与复制敏感据此）。 */
     val usernameHidden: Boolean = false,
     /** 固定密码行的掩码位。 */
     val passwordHidden: Boolean = true,
+
+    /** 账号所属的分组 ID 集合。 */
     val groups: Set<String> = emptySet(),
+
+    /** 是否启用两步验证（TOTP/HOTP）。 */
     val hasTotp: Boolean = false,
+    /** 两步验证的密钥（Secret）。 */
     val totpSecret: String = "",
-    val totpDigits: Int = 6,
-    val totpPeriod: Int = 30,
-    /** HOTP 事件型计数器：当前显示的码即 counter 的码，复制后 +1 并持久化。TOTP/Steam 忽略。 */
+    /** 验证码位数。 */
+    val totpDigits: Int = DEFAULT_TOTP_DIGITS,
+    /** 验证码有效周期（秒）。 */
+    val totpPeriod: Int = DEFAULT_TOTP_PERIOD,
+
+    /**
+     * HOTP 事件型计数器：当前显示的码即 counter 的码，复制后 +1 并持久化。
+     * TOTP/Steam 类型忽略此字段。
+     */
     val totpCounter: Long = 0,
-    /** 两步验证默认算法。仅影响新建账号；已有账号保留各自存储值，改算法会破坏原验证码。 */
-    val totpAlgorithm: String = "SHA256",
+
+    /**
+     * 两步验证默认算法。仅影响新建账号；已有账号保留各自存储值，修改算法会破坏原验证码。
+     */
+    val totpAlgorithm: String = DEFAULT_TOTP_ALGORITHM,
+
+    /** 自定义字段列表。 */
     val customFields: List<AccountField> = emptyList(),
+
     /** TOTP 为标准验证码，STEAM 为 Steam Guard 专用 5 字符验证码。 */
-    val totpType: String = "TOTP",
+    val totpType: String = DEFAULT_TOTP_TYPE,
+
     /** 预留给后续自定义图标的稳定键；当前为空时继续使用现有文字界面。 */
     val iconKey: String? = null
 )
 
+// ==================== 扩展属性 (UI 辅助) ====================
+
+/**
+ * 固定用户名行的显示名：自定义名为空/空串时回退为“用户名”。
+ */
+internal val Account.usernameRowLabel: String
+    get() = usernameLabel?.ifBlank { "用户名" } ?: "用户名"
+
+/**
+ * 固定密码行的显示名：自定义名为空/空串时回退为“密码”。
+ */
+internal val Account.passwordRowLabel: String
+    get() = passwordLabel?.ifBlank { "密码" } ?: "密码"
+
+// ==================== 应用设置模型 ====================
+
+/**
+ * 应用全局设置数据模型（内存态或配合特定序列化器使用）。
+ */
 internal data class AppSettings(
     val biometricEnabled: Boolean = false,
     val autoLockMinutes: Int = 5,
@@ -62,6 +140,15 @@ internal data class AppSettings(
     val maskChar: String = "•"
 )
 
+// ==================== 持久化仓库模型 ====================
+
+/**
+ * 持久化密码库的整体数据结构。
+ * @param version 数据版本号，用于后续平滑升级迁移
+ * @param accounts 账号列表
+ * @param groups 分组列表
+ * @param selectedGroupId 当前选中的分组 ID
+ */
 @Serializable
 internal data class PersistedVault(
     val version: Int = 1,
@@ -70,6 +157,11 @@ internal data class PersistedVault(
     val selectedGroupId: String = "default"
 )
 
+// ==================== 初始默认数据 ====================
+
+/**
+ * 首次安装时的默认分组列表。
+ */
 internal val initialGroups = listOf(
     Group("default", "默认", GroupKind.DEFAULT),
     Group("dynamic", "动态密码", GroupKind.DYNAMIC),
@@ -79,7 +171,9 @@ internal val initialGroups = listOf(
     Group("work", "工作", GroupKind.CUSTOM)
 )
 
-/** 首次安装的示例账号，用来演示用法，用户可自行删除；不含任何真实凭据。 */
+/**
+ * 首次安装的示例账号列表，用于演示用法，用户可自行删除；不含任何真实凭据。
+ */
 internal val initialAccounts = listOf(
     Account(
         id = "demo-login",

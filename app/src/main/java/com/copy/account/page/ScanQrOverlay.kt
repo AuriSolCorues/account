@@ -24,9 +24,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -42,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import com.copy.account.ui.components.TextActionButton
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
 import com.google.zxing.PlanarYUVLuminanceSource
@@ -105,12 +104,15 @@ internal fun ScanQrOverlay(onScanned: (String) -> Unit, onClose: () -> Unit) {
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
         val frameCounter = AtomicInteger(0)
+        // 解码器与提示整场复用：解码跑在单线程 executor 上，无并发之争。
+        val reader = QRCodeReader()
+        val decodeHints = mapOf(DecodeHintType.TRY_HARDER to true)
         analysis.setAnalyzer(decodeExecutor) { image ->
             try {
                 if (scanning.get()) {
                     // 每 4 帧解一次即可；对不上的普通画面自然跳过。
                     val luminance = if (frameCounter.incrementAndGet() % 4 == 0) luminanceOf(image) else null
-                    val text = luminance?.let { decodeQr(it) }
+                    val text = luminance?.let { decodeQr(it, reader, decodeHints) }
                     if (text != null && scanning.compareAndSet(true, false)) {
                         mainHandler.post { onScanned(text) }
                     }
@@ -142,8 +144,8 @@ internal fun ScanQrOverlay(onScanned: (String) -> Unit, onClose: () -> Unit) {
                     Modifier.padding(top = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    TextButton(colors = ButtonDefaults.textButtonColors(contentColor = Color.White), onClick = onClose) { Text("取消") }
-                    TextButton(colors = ButtonDefaults.textButtonColors(contentColor = Color.White), onClick = { requestPermission.launch(Manifest.permission.CAMERA) }) { Text("授予权限") }
+                    TextActionButton("取消", onClick = onClose, textColor = Color.White)
+                    TextActionButton("授予权限", onClick = { requestPermission.launch(Manifest.permission.CAMERA) }, textColor = Color.White)
                 }
             }
             scanError != null -> Column(
@@ -151,7 +153,7 @@ internal fun ScanQrOverlay(onScanned: (String) -> Unit, onClose: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(scanError.orEmpty(), color = Color.White)
-                TextButton(colors = ButtonDefaults.textButtonColors(contentColor = Color.White), onClick = onClose, modifier = Modifier.padding(top = 16.dp)) { Text("关闭") }
+                TextActionButton("关闭", onClick = onClose, modifier = Modifier.padding(top = 16.dp), textColor = Color.White)
             }
             else -> {
                 AndroidView(
@@ -169,11 +171,12 @@ internal fun ScanQrOverlay(onScanned: (String) -> Unit, onClose: () -> Unit) {
                     color = Color.White,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 60.dp)
                 )
-                TextButton(
-                    colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
+                TextActionButton(
+                    "关闭",
                     onClick = onClose,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp)
-                ) { Text("关闭") }
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp),
+                    textColor = Color.White
+                )
             }
         }
     }
@@ -209,13 +212,11 @@ private fun luminanceOf(image: ImageProxy): Luminance {
             offset += width
         }
     }
-    val w = image.width
-    val h = image.height
     return when (image.imageInfo.rotationDegrees % 360) {
-        90 -> rotatedTo(gray, w, h, h, w) { x, y -> x * h + (h - 1 - y) }
-        180 -> rotatedTo(gray, w, h, w, h) { x, y -> (h - 1 - y) * w + (w - 1 - x) }
-        270 -> rotatedTo(gray, w, h, h, w) { x, y -> (w - 1 - x) * h + y }
-        else -> Luminance(gray, w, h)
+        90 -> rotatedTo(gray, width, height, height, width) { x, y -> x * height + (height - 1 - y) }
+        180 -> rotatedTo(gray, width, height, width, height) { x, y -> (height - 1 - y) * width + (width - 1 - x) }
+        270 -> rotatedTo(gray, width, height, height, width) { x, y -> (width - 1 - x) * height + y }
+        else -> Luminance(gray, width, height)
     }
 }
 
@@ -228,12 +229,11 @@ private fun rotatedTo(src: ByteArray, w: Int, h: Int, outW: Int, outH: Int, inde
     return Luminance(out, outW, outH)
 }
 
-private fun decodeQr(lum: Luminance): String? {
+private fun decodeQr(lum: Luminance, reader: QRCodeReader, hints: Map<DecodeHintType, *>): String? {
     val source = PlanarYUVLuminanceSource(lum.data, lum.width, lum.height, 0, 0, lum.width, lum.height, false)
     val bitmap = BinaryBitmap(HybridBinarizer(source))
-    val reader = QRCodeReader()
     return try {
-        reader.decode(bitmap, mapOf(DecodeHintType.TRY_HARDER to true)).text
+        reader.decode(bitmap, hints).text
     } catch (_: Exception) {
         null
     } finally {

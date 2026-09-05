@@ -76,8 +76,10 @@ internal fun FieldTextBox(
     textStyle: TextStyle = MaterialTheme.typography.bodyLarge,
     textColor: Color = MaterialTheme.colorScheme.onSurface
 ) {
-    var revealed by remember(value, hidden) { mutableStateOf(false) }
-    val visualTransformation = if (hidden && !revealed) PasswordVisualTransformation(mask = mask) else VisualTransformation.None
+    // 显隐态只随 hidden 配置重置；以 value 为键会让打字中已显示的明文塌回掩码。
+    var revealed by remember(hidden) { mutableStateOf(false) }
+    val maskedTransformation = remember(mask) { PasswordVisualTransformation(mask = mask) }
+    val visualTransformation = if (hidden && !revealed) maskedTransformation else VisualTransformation.None
     val interactionSource = remember { MutableInteractionSource() }
     BasicTextField(
         value = value,

@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +42,9 @@ import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun BackupScreen(
@@ -60,6 +64,7 @@ internal fun BackupScreen(
     onApplyImport: (AccImportResult) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var showExportReminder by remember { mutableStateOf(false) }
     var showImportPasswordDialog by remember { mutableStateOf(false) }
     var showImportConfirmDialog by remember { mutableStateOf(false) }
@@ -72,15 +77,18 @@ internal fun BackupScreen(
     var files by remember { mutableStateOf(emptyList<BackupEntry>()) }
     var fileBackups by remember { mutableStateOf(emptyList<FileBackupEntry>()) }
     var fileError by remember { mutableStateOf("") }
+    // 目录列举（SAF 的 DocumentsContract 查询尤慢）放 IO 线程，免进页/刷新卡顿。
     fun refreshFiles() {
-        if (directBackup) {
-            val direct = listFileBackups()
-            fileBackups = direct.getOrDefault(emptyList())
-            fileError = direct.exceptionOrNull()?.message ?: ""
-        } else {
-            val saf = listBackupFiles(context, backupTreeUri)
-            files = saf.getOrDefault(emptyList())
-            fileError = saf.exceptionOrNull()?.message ?: ""
+        scope.launch {
+            if (directBackup) {
+                val direct = withContext(Dispatchers.IO) { listFileBackups() }
+                fileBackups = direct.getOrDefault(emptyList())
+                fileError = direct.exceptionOrNull()?.message ?: ""
+            } else {
+                val saf = withContext(Dispatchers.IO) { listBackupFiles(context, backupTreeUri) }
+                files = saf.getOrDefault(emptyList())
+                fileError = saf.exceptionOrNull()?.message ?: ""
+            }
         }
     }
     /** 读取结果转导入流程：清旧缓冲、记错误、弹密码框。 */
@@ -92,6 +100,37 @@ internal fun BackupScreen(
         showImportPasswordDialog = true
     }
     LaunchedEffect(directBackup, storageAccessGranted, backupTreeUri) { refreshFiles() }
+
+    // 两轨（SAF/直写）统一成一列行模型，只留读写回调差异。
+    val rows = if (directBackup) fileBackups.map { entry ->
+        BackupRowUi(
+            key = entry.file.absolutePath,
+            name = entry.file.name,
+            size = entry.size,
+            modified = entry.modified,
+            onImport = { scope.launch { beginImport(withContext(Dispatchers.IO) { onReadFileBackup(entry.file) }) } },
+            onDelete = {
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) { onDeleteFileBackup(entry.file) }
+                    if (result.isSuccess) refreshFiles() else exportError = result.exceptionOrNull()?.message ?: "删除失败"
+                }
+            }
+        )
+    } else files.map { entry ->
+        BackupRowUi(
+            key = entry.file.uri.toString(),
+            name = entry.file.name ?: "account.acc",
+            size = entry.size,
+            modified = entry.modified,
+            onImport = { scope.launch { beginImport(withContext(Dispatchers.IO) { onReadBackup(entry.file.uri) }) } },
+            onDelete = {
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) { onDeleteBackup(entry.file.uri) }
+                    if (result.isSuccess) refreshFiles() else exportError = result.exceptionOrNull()?.message ?: "删除失败"
+                }
+            }
+        )
+    }
 
     AppScreen(title = "加密备份", onBack = onBack, actions = { TextActionButton("刷新", onClick = { refreshFiles() }, textColor = LocalAccountThemePalette.current.topBarText) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -119,29 +158,24 @@ internal fun BackupScreen(
             Text("已保存的备份", style = MaterialTheme.typography.titleMedium)
             val notReady = if (directBackup) !storageAccessGranted else backupTreeUri == null
             if (notReady) EmptyState(if (directBackup) "请先授予「所有文件访问」权限" else "请先授权备份目录", Modifier.fillMaxWidth().weight(1f))
-            else if ((if (directBackup) fileBackups else files).isEmpty()) EmptyState("暂无 .acc 文件", Modifier.fillMaxWidth().weight(1f))
+            else if (rows.isEmpty()) EmptyState("暂无 .acc 文件", Modifier.fillMaxWidth().weight(1f))
             else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                if (directBackup) items(fileBackups, key = { it.file.absolutePath }) { entry ->
-                    BackupRow(entry.file.name, entry.size, entry.modified, onImport = { beginImport(onReadFileBackup(entry.file)) }, onDelete = {
-                        val result = onDeleteFileBackup(entry.file)
-                        if (result.isSuccess) refreshFiles() else exportError = result.exceptionOrNull()?.message ?: "删除失败"
-                    })
-                } else items(files, key = { it.file.uri.toString() }) { entry ->
-                    BackupRow(entry.file.name ?: "account.acc", entry.size, entry.modified, onImport = { beginImport(onReadBackup(entry.file.uri)) }, onDelete = {
-                        val result = onDeleteBackup(entry.file.uri)
-                        if (result.isSuccess) refreshFiles() else exportError = result.exceptionOrNull()?.message ?: "删除失败"
-                    })
+                items(rows, key = { it.key }) { row ->
+                    BackupRow(row.name, row.size, row.modified, row.onImport, row.onDelete)
                 }
             }
         }
     }
     if (showExportReminder) AlertDialog(onDismissRequest = { showExportReminder = false }, title = { Text("导出加密备份") }, text = { Text("导出文件使用当前主密码加密。导入时必须输入相同的主密码，请务必记住。", style = MaterialTheme.typography.bodySmall) }, confirmButton = {
+        // 导出含全库 AES-GCM，放后台线程，免主线程冻结。
         TextActionButton("确认导出", onClick = {
-            val result = onExportBackup()
-            exportSucceeded = result.isSuccess
-            exportError = if (result.isSuccess) "导出成功：${result.getOrThrow()}" else result.exceptionOrNull()?.message ?: "备份生成失败，请先解锁后重试"
             showExportReminder = false
-            if (result.isSuccess) refreshFiles()
+            scope.launch {
+                val result = withContext(Dispatchers.Default) { onExportBackup() }
+                exportSucceeded = result.isSuccess
+                exportError = if (result.isSuccess) "导出成功：${result.getOrThrow()}" else result.exceptionOrNull()?.message ?: "备份生成失败，请先解锁后重试"
+                if (result.isSuccess) refreshFiles()
+            }
         }, textColor = MaterialTheme.colorScheme.primary)
     }, dismissButton = { TextActionButton("取消", onClick = { showExportReminder = false }) })
 
@@ -163,11 +197,14 @@ internal fun BackupScreen(
                 if (bytes == null) {
                     if (importError.isBlank()) importError = "备份文件读取失败，请刷新后重试"
                 } else {
-                    val result = onImportBackup(bytes, importPassword)
-                    if (result.isFailure) importError = result.exceptionOrNull()?.message ?: "备份密码错误或文件已损坏"
-                    else {
-                        bytes.fill(0); pendingImportBytes = null; showImportPasswordDialog = false
-                        pendingImportResult = result.getOrThrow(); showImportConfirmDialog = true
+                    // 导入验证含 PBKDF2（数十万至二百万次迭代），放后台线程，否则可致 ANR。
+                    scope.launch {
+                        val result = withContext(Dispatchers.Default) { onImportBackup(bytes, importPassword) }
+                        if (result.isFailure) importError = result.exceptionOrNull()?.message ?: "备份密码错误或文件已损坏"
+                        else {
+                            bytes.fill(0); pendingImportBytes = null; showImportPasswordDialog = false
+                            pendingImportResult = result.getOrThrow(); showImportConfirmDialog = true
+                        }
                     }
                 }
             }
@@ -182,6 +219,16 @@ internal fun BackupScreen(
         }, dismissButton = { TextActionButton("取消", onClick = { showImportConfirmDialog = false; pendingImportResult = null }) })
     }
 }
+
+/** 列表行模型：SAF 与直写两轨统一成一列，只留读写回调差异。 */
+private data class BackupRowUi(
+    val key: String,
+    val name: String,
+    val size: Long,
+    val modified: Long,
+    val onImport: () -> Unit,
+    val onDelete: () -> Unit
+)
 
 /** 备份列表行：名称 + 大小/时间 + 导入/删除。 */
 @Composable
