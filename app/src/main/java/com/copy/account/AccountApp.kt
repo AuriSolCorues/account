@@ -77,7 +77,7 @@ import com.copy.account.page.HomeScreen
 import com.copy.account.page.SettingsScreen
 import com.copy.account.page.UnlockScreen
 import com.copy.account.security.AccExportInput
-import com.copy.account.security.BackupKeyMaterial
+import com.copy.account.security.ExportPasswordRequiredException
 import com.copy.account.security.SecureVaultStore
 import com.copy.account.security.VaultUnlock
 import com.copy.account.security.exportAcc
@@ -119,7 +119,6 @@ fun AccountApp(
     var groups by remember { mutableStateOf(initialGroups) }
     var accounts by remember { mutableStateOf(emptyList<Account>()) }
     var dataKey by remember { mutableStateOf<ByteArray?>(null) }
-    var backupKeyMaterial by remember { mutableStateOf<BackupKeyMaterial?>(null) }
     var lockGeneration by remember { mutableIntStateOf(0) }
     /** DataStore 真值（App 正常设置）。appsettings.json 外挂只读覆盖，不写回。 */
     var baseSettings by remember { mutableStateOf(AppSettings(customThemeJson = customThemeJson)) }
@@ -253,9 +252,7 @@ fun AccountApp(
 
     fun finishUnlock(unlocked: VaultUnlock) {
         dataKey?.fill(0)
-        backupKeyMaterial?.clear()
         dataKey = unlocked.dataKey
-        backupKeyMaterial = unlocked.backupKey
         accounts = unlocked.state.accounts
         groups = unlocked.state.groups.ifEmpty { initialGroups }
         selectedGroupId = unlocked.state.selectedGroupId.ifBlank { "default" }
@@ -264,9 +261,7 @@ fun AccountApp(
 
     fun finishBiometricUnlock(key: ByteArray, state: PersistedVault) {
         dataKey?.fill(0)
-        backupKeyMaterial?.clear()
         dataKey = key
-        backupKeyMaterial = null
         accounts = state.accounts
         groups = state.groups.ifEmpty { initialGroups }
         selectedGroupId = state.selectedGroupId.ifBlank { "default" }
@@ -275,9 +270,7 @@ fun AccountApp(
 
     fun lockApp() {
         dataKey?.fill(0)
-        backupKeyMaterial?.clear()
         dataKey = null
-        backupKeyMaterial = null
         accounts = emptyList()
         editTemplate = null
         lockGeneration++
@@ -424,6 +417,14 @@ fun AccountApp(
                     }
                 }
                 if (unlocked != null) {
+                    // 导出密钥只在这里短暂存在：缓存由 DEK 加密，完成后立刻清零。
+                    withContext(Dispatchers.Default) {
+                        try {
+                            store.cacheBackupKey(unlocked.backupKey, unlocked.dataKey)
+                        } finally {
+                            unlocked.backupKey.clear()
+                        }
+                    }
                     if (firstRun) passwordConfigured = true
                     finishUnlock(unlocked)
                     true
@@ -505,12 +506,17 @@ fun AccountApp(
             biometricAvailable = store.biometricAvailable(),
             onToggleBiometric = ::configureBiometric,
             onChangeMasterPassword = { newPassword ->
-                val result = dataKey?.let { key -> withContext(Dispatchers.Default) { store.changeMasterPassword(newPassword, key) } }
+                val result = dataKey?.let { key -> withContext(Dispatchers.Default) {
+                    store.changeMasterPassword(newPassword, key).onSuccess { material ->
+                        try {
+                            store.cacheBackupKey(material, key)
+                        } finally {
+                            material.clear()
+                        }
+                    }.map { }
+                } }
                     ?: Result.failure(IllegalStateException("当前未解锁，请重新解锁后重试"))
-                result.onSuccess { material ->
-                    backupKeyMaterial?.clear()
-                    backupKeyMaterial = material
-                }.map { }
+                result
             },
             autoLockMinutes = settings.autoLockMinutes,
             onAutoLockChange = { minutes ->
@@ -587,34 +593,53 @@ fun AccountApp(
             onRequestStorageAccess = ::requestStorageAccess,
             onExportBackup = {
                 val tree = backupTreeUri?.let(Uri::parse)
-                val material = backupKeyMaterial
                 val gateError = when {
                     directBackup && !storageAccessGranted -> "请先授予「所有文件访问」权限"
                     !directBackup && tree == null -> "请先授权备份目录"
-                    material == null -> "请先使用主密码解锁后导出"
+                    dataKey == null -> "当前未解锁，请重新解锁后重试"
                     else -> null
                 }
                 if (gateError != null) {
                     Result.failure(IllegalStateException(gateError))
                 } else {
-                    val key = material!!.key.copyOf()
-                    val salt = material.salt.copyOf()
+                    val vaultKey = dataKey!!.copyOf()
                     runCatching {
-                        val bytes = exportAcc(
-                            AccExportInput(
-                                PersistedVault(accounts = accounts, groups = groups, selectedGroupId = selectedGroupId),
-                                settings
-                            ), key, salt, material.iterations
-                        )
+                        val material = store.loadCachedBackupKey(vaultKey) ?: throw ExportPasswordRequiredException()
                         try {
-                            if (directBackup) writeFileBackup(bytes)
-                            else writeBackupFile(context, tree!!, bytes)
+                            val bytes = exportAcc(
+                                AccExportInput(
+                                    PersistedVault(accounts = accounts, groups = groups, selectedGroupId = selectedGroupId),
+                                    settings
+                                ), material.key, material.salt, material.iterations
+                            )
+                            try {
+                                if (directBackup) writeFileBackup(bytes)
+                                else writeBackupFile(context, tree!!, bytes)
+                            } finally {
+                                bytes.fill(0)
+                            }
                         } finally {
-                            bytes.fill(0)
+                            material.clear()
                         }
                     }.also {
-                        key.fill(0)
-                        salt.fill(0)
+                        vaultKey.fill(0)
+                    }
+                }
+            },
+            onPrepareExport = { password ->
+                if (dataKey == null) {
+                    Result.failure(IllegalStateException("当前未解锁，请重新解锁后重试"))
+                } else {
+                    val unlocked = store.unlockWithPassword(password)
+                    if (unlocked == null) {
+                        Result.failure(IllegalArgumentException("主密码错误"))
+                    } else {
+                        try {
+                            store.cacheBackupKey(unlocked.backupKey, unlocked.dataKey)
+                        } finally {
+                            unlocked.backupKey.clear()
+                            unlocked.dataKey.fill(0)
+                        }
                     }
                 }
             },
@@ -629,7 +654,8 @@ fun AccountApp(
                 accounts = imported.vault.accounts
                 groups = imported.vault.groups.ifEmpty { initialGroups }
                 selectedGroupId = imported.vault.selectedGroupId.ifBlank { "default" }
-                val importedSettings = imported.settings
+                // 生物识别包装密钥属于当前设备，备份不携带它；保留本机开关，使已启用的指纹解锁在导入后仍可用。
+                val importedSettings = imported.settings.copy(biometricEnabled = baseSettings.biometricEnabled)
                 baseSettings = importedSettings
                 persistVault()
                 persistSettings(importedSettings)

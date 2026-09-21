@@ -39,6 +39,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -103,6 +104,22 @@ internal fun HomeScreen(
     var batchGroupId by remember { mutableStateOf<String?>(null) }
     var batchSelectedIds by remember { mutableStateOf(emptySet<String>()) }
     var moveTargetGroup by remember { mutableStateOf<Group?>(null) }
+    val cancelBatchMove = {
+        moveTargetGroup = null
+        batchGroupId = null
+        batchSelectedIds = emptySet()
+    }
+    // 主页本身没有导航返回栈；优先退出临时操作，状态全空后才交回 Activity 退出。
+    BackHandler(enabled = moveTargetGroup != null || batchGroupId != null || searchOpen) {
+        when {
+            moveTargetGroup != null -> moveTargetGroup = null
+            batchGroupId != null -> cancelBatchMove()
+            searchOpen -> {
+                searchOpen = false
+                searchQuery = ""
+            }
+        }
+    }
     val selectedGroup = groups.firstOrNull { it.id == selectedGroupId } ?: groups.first()
     val batchSourceGroup = batchGroupId?.let { id -> groups.firstOrNull { it.id == id } }
     val showTotpOnCards = (batchSourceGroup ?: selectedGroup).kind == GroupKind.DYNAMIC
@@ -188,7 +205,7 @@ internal fun HomeScreen(
                                 Text("从「${batchSourceGroup.name}」转移 · 已选 ${batchSelectedIds.size} 个", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                                 Text("点左侧其他分组作为目标", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                             }
-                            TextActionButton("取消", onClick = { batchGroupId = null; batchSelectedIds = emptySet() })
+                            TextActionButton("取消", onClick = cancelBatchMove)
                         }
                     } else {
                         Text(
@@ -271,9 +288,7 @@ internal fun HomeScreen(
             confirmButton = {
                 TextActionButton("确认", onClick = {
                     onMoveAccounts(batchSelectedIds, source.id, target.id)
-                    moveTargetGroup = null
-                    batchGroupId = null
-                    batchSelectedIds = emptySet()
+                    cancelBatchMove()
                 }, textColor = MaterialTheme.colorScheme.primary)
             },
             dismissButton = { TextActionButton("取消", onClick = { moveTargetGroup = null }) }

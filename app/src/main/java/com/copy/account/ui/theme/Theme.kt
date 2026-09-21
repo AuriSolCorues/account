@@ -40,7 +40,10 @@ data class AccountThemePalette(
     val warning: Color,
     val success: Color,
     val disabled: Color,
-    val overlay: Color
+    val overlay: Color,
+    /** 弹层未配置专属色时为 null，继承 surface / surfaceAlt。 */
+    val popupSurface: Color? = null,
+    val popupItemSurface: Color? = null
 )
 
 /** JSONC 文件中的颜色字段。默认值让缺失字段可以安全回退。 */
@@ -51,6 +54,10 @@ data class ThemeJsonColors(
     val background: String = "#151817",
     val surface: String = "#202322",
     val surfaceAlt: String = "#171A19",
+    /** null 表示弹层容器继承 surface；填写 #RRGGBB 或 #AARRGGBB 时覆盖。 */
+    val popupSurface: String? = null,
+    /** null 表示弹层操作行继承 surfaceAlt；填写色值时覆盖。 */
+    val popupItemSurface: String? = null,
     val primary: String = "#35D28C",
     val primaryText: String = "#082016",
     val selectedBackground: String = "#1C3329",
@@ -128,17 +135,22 @@ fun stripJsonComments(source: String): String {
 }
 
 private fun parseHex(value: String): Color? = runCatching {
-    val normalized = value.trim()
-    require(Regex("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$").matches(normalized))
-    Color(android.graphics.Color.parseColor(normalized))
+    val hex = value.trim().removePrefix("#")
+    require(hex.length == 6 || hex.length == 8)
+    require(hex.all { it.digitToIntOrNull(16) != null })
+    Color((if (hex.length == 6) 0xFF000000L else 0L) or hex.toLong(16))
 }.getOrNull()
 
 private fun ThemeJsonColors.toPalette(): AccountThemePalette? {
     val values = listOf(topBar, topBarText, background, surface, surfaceAlt, primary, primaryText, selectedBackground, text, textMuted, divider, inputBackground, inputBorder, icon, danger, warning, success, disabled, overlay)
     val colors = values.map { parseHex(it) }
     if (colors.any { it == null }) return null
+    val popupSurfaceColor = popupSurface?.let(::parseHex)
+    val popupItemSurfaceColor = popupItemSurface?.let(::parseHex)
+    if (popupSurface != null && popupSurfaceColor == null) return null
+    if (popupItemSurface != null && popupItemSurfaceColor == null) return null
     val c = colors.requireNoNulls()
-    return AccountThemePalette(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18])
+    return AccountThemePalette(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18], popupSurfaceColor, popupItemSurfaceColor)
 }
 
 fun parseThemeJson(source: String): ThemeJsonDefinition? = runCatching {
@@ -164,6 +176,8 @@ fun defaultThemePresets(): List<SavedTheme> = listOf(
         "background": "#151817", // 页面背景
         "surface": "#202322", // 内容块
         "surfaceAlt": "#171A19", // 侧栏和输入框背景
+        "popupSurface": null, // null 时继承 surface；可填写弹层容器色
+        "popupItemSurface": null, // null 时继承 surfaceAlt；可填写弹层操作行色
         "primary": "#35D28C", // 主操作和动态密码
         "primaryText": "#082016",
         "selectedBackground": "#1C3329",
@@ -190,6 +204,8 @@ fun defaultThemePresets(): List<SavedTheme> = listOf(
         "background": "#F4F5F4",
         "surface": "#FFFFFF",
         "surfaceAlt": "#EDF1EE",
+        "popupSurface": null, // null 时继承 surface；可填写弹层容器色
+        "popupItemSurface": null, // null 时继承 surfaceAlt；可填写弹层操作行色
         "primary": "#008A58",
         "primaryText": "#FFFFFF",
         "selectedBackground": "#D7F1E4",
@@ -216,6 +232,8 @@ fun defaultThemePresets(): List<SavedTheme> = listOf(
         "background": "#101722",
         "surface": "#19212D",
         "surfaceAlt": "#202A38",
+        "popupSurface": null, // null 时继承 surface；可填写弹层容器色
+        "popupItemSurface": null, // null 时继承 surfaceAlt；可填写弹层操作行色
         "primary": "#69A1FF",
         "primaryText": "#10233D",
         "selectedBackground": "#294A73",
@@ -293,20 +311,28 @@ private val LightBlueColorScheme = lightColorScheme(
 )
 
 private fun AccountThemePalette.toScheme(darkTheme: Boolean) = if (darkTheme) {
+    val popup = popupSurface ?: surface
+    val popupItem = popupItemSurface ?: surfaceAlt
     darkColorScheme(
         primary = primary, onPrimary = primaryText, primaryContainer = selectedBackground,
         onPrimaryContainer = text, secondary = success, tertiary = warning,
         background = background, surface = surface, surfaceVariant = surfaceAlt,
         onBackground = text, onSurface = text, onSurfaceVariant = textMuted,
-        error = danger, onError = Color.White, outline = inputBorder, outlineVariant = divider
+        error = danger, onError = Color.White, outline = inputBorder, outlineVariant = divider,
+        surfaceContainerLowest = surface, surfaceContainerLow = popup, surfaceContainer = popupItem,
+        surfaceContainerHigh = popup, surfaceContainerHighest = popup
     )
 } else {
+    val popup = popupSurface ?: surface
+    val popupItem = popupItemSurface ?: surfaceAlt
     lightColorScheme(
         primary = primary, onPrimary = primaryText, primaryContainer = selectedBackground,
         onPrimaryContainer = text, secondary = success, tertiary = warning,
         background = background, surface = surface, surfaceVariant = surfaceAlt,
         onBackground = text, onSurface = text, onSurfaceVariant = textMuted,
-        error = danger, onError = Color.White, outline = inputBorder, outlineVariant = divider
+        error = danger, onError = Color.White, outline = inputBorder, outlineVariant = divider,
+        surfaceContainerLowest = surface, surfaceContainerLow = popup, surfaceContainer = popupItem,
+        surfaceContainerHigh = popup, surfaceContainerHighest = popup
     )
 }
 

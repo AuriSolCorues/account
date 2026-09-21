@@ -18,6 +18,7 @@ import android.util.Base64
 import androidx.biometric.BiometricManager
 import java.io.File
 import java.io.FileInputStream
+import java.nio.ByteBuffer
 import java.security.*
 import javax.crypto.*
 import javax.crypto.spec.GCMParameterSpec
@@ -39,6 +40,9 @@ private const val PASSWORD_ITERATIONS_KEY = "password_iterations"
 private const val BIOMETRIC_WRAPPED_DEK = "biometric_wrapped_dek"
 private const val BIOMETRIC_WRAP_IV = "biometric_wrap_iv"
 private const val BIOMETRIC_ALIAS = "account_vault_biometric"
+private const val BACKUP_KEY_CACHE = "backup_key_cache"
+private const val BACKUP_KEY_CACHE_IV = "backup_key_cache_iv"
+private const val BACKUP_KEY_CACHE_VERSION = 1
 private const val VAULT_FILE_NAME = "vault.bin"
 
 @Serializable
@@ -66,6 +70,9 @@ internal data class VaultUnlock(
     val backupKey: BackupKeyMaterial
 )
 
+/** 仅在旧安装尚未建立本地加密导出缓存时，用于让备份页请求一次主密码。 */
+internal class ExportPasswordRequiredException : IllegalStateException("首次导出需要输入主密码")
+
 internal class SecureVaultStore(private val context: Context) {
     private val prefs = context.getSharedPreferences(SECURITY_PREFS, Context.MODE_PRIVATE)
     private val vaultFile = File(context.filesDir, VAULT_FILE_NAME)
@@ -86,6 +93,9 @@ internal class SecureVaultStore(private val context: Context) {
                 .remove(LEGACY_PASSWORD_HASH)
                 .putString(PASSWORD_WRAPPED_DEK, Base64.encodeToString(wrapped.ciphertext, Base64.NO_WRAP))
                 .putString(PASSWORD_WRAP_IV, Base64.encodeToString(wrapped.iv, Base64.NO_WRAP))
+                // 新缓存需由新的主密码派生密钥生成；本次提交先原子废弃旧缓存。
+                .remove(BACKUP_KEY_CACHE)
+                .remove(BACKUP_KEY_CACHE_IV)
                 .commit()
             require(committed) { "主密码保存失败，请重试" }
             BackupKeyMaterial(material.wrappingKey, newSalt, prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS))
@@ -169,6 +179,67 @@ internal class SecureVaultStore(private val context: Context) {
 
     private fun migrateLegacyPassword(password: String, dek: ByteArray): BackupKeyMaterial =
         changeMasterPassword(password, dek).getOrThrow()
+
+    /**
+     * 导出密钥缓存始终由当前 DEK 加密；缓存丢失或损坏只影响免输入导出，不影响 vault.bin。
+     * SharedPreferences 的单次 commit 会将 IV 与密文一起原子替换。
+     */
+    fun cacheBackupKey(material: BackupKeyMaterial, dek: ByteArray): Result<Unit> = runCatching {
+        require(dek.size == 32 && material.key.size == 32 && material.salt.size >= 16) { "备份密钥无效" }
+        val plain = ByteBuffer.allocate(12 + material.salt.size + material.key.size)
+            .putInt(BACKUP_KEY_CACHE_VERSION)
+            .putInt(material.iterations)
+            .putInt(material.salt.size)
+            .put(material.salt)
+            .put(material.key)
+            .array()
+        try {
+            val encrypted = encryptBytes(dek, plain)
+            try {
+                require(prefs.edit()
+                    .putString(BACKUP_KEY_CACHE, Base64.encodeToString(encrypted.ciphertext, Base64.NO_WRAP))
+                    .putString(BACKUP_KEY_CACHE_IV, Base64.encodeToString(encrypted.iv, Base64.NO_WRAP))
+                    .commit()) { "导出密钥缓存保存失败" }
+            } finally {
+                encrypted.iv.fill(0)
+                encrypted.ciphertext.fill(0)
+            }
+        } finally {
+            plain.fill(0)
+        }
+    }
+
+    /** 点击导出时才解密缓存；任何校验或认证失败都按无缓存处理。 */
+    fun loadCachedBackupKey(dek: ByteArray): BackupKeyMaterial? {
+        if (dek.size != 32) return null
+        val ciphertext = prefs.getString(BACKUP_KEY_CACHE, null)?.let { runCatching { Base64.decode(it, Base64.DEFAULT) }.getOrNull() } ?: return null
+        val iv = prefs.getString(BACKUP_KEY_CACHE_IV, null)?.let { runCatching { Base64.decode(it, Base64.DEFAULT) }.getOrNull() } ?: run {
+            ciphertext.fill(0)
+            return null
+        }
+        val plain = try {
+            decryptBytes(dek, iv, ciphertext)
+        } catch (_: Throwable) {
+            null
+        } finally {
+            iv.fill(0)
+            ciphertext.fill(0)
+        } ?: return null
+        return try {
+            val buffer = ByteBuffer.wrap(plain)
+            require(buffer.int == BACKUP_KEY_CACHE_VERSION) { "未知的导出密钥缓存版本" }
+            val iterations = buffer.int
+            val saltSize = buffer.int
+            require(iterations in 10_000..2_000_000 && saltSize >= 16 && buffer.remaining() == saltSize + 32) { "导出密钥缓存无效" }
+            val salt = ByteArray(saltSize).also(buffer::get)
+            val key = ByteArray(32).also(buffer::get)
+            BackupKeyMaterial(key, salt, iterations)
+        } catch (_: Throwable) {
+            null
+        } finally {
+            plain.fill(0)
+        }
+    }
 
     fun save(state: PersistedVault, dek: ByteArray) {
         val plain = vaultJson.encodeToString(PersistedVault.serializer(), state).toByteArray(Charsets.UTF_8)

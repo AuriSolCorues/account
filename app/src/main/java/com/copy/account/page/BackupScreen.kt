@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.security.AccImportResult
+import com.copy.account.security.ExportPasswordRequiredException
 import com.copy.account.security.isMasterPasswordValid
 import com.copy.account.data.backup.BackupEntry
 import com.copy.account.data.backup.FileBackupEntry
@@ -64,6 +65,7 @@ internal fun BackupScreen(
     onChooseDirectory: () -> Unit,
     onRequestStorageAccess: () -> Unit,
     onExportBackup: () -> Result<String>,
+    onPrepareExport: (String) -> Result<Unit>,
     onReadBackup: (Uri) -> Result<ByteArray>,
     onDeleteBackup: (Uri) -> Result<Unit>,
     onReadFileBackup: (File) -> Result<ByteArray>,
@@ -74,9 +76,12 @@ internal fun BackupScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showImportPasswordDialog by remember { mutableStateOf(false) }
+    var showExportPasswordDialog by remember { mutableStateOf(false) }
     var showImportConfirmDialog by remember { mutableStateOf(false) }
     var importPassword by remember { mutableStateOf("") }
     var importError by remember { mutableStateOf("") }
+    var exportPassword by remember { mutableStateOf("") }
+    var exportPasswordError by remember { mutableStateOf("") }
     var exportError by remember { mutableStateOf("") }
     var exportSucceeded by remember { mutableStateOf(false) }
     // 两段式导入状态机：bytes=已读未验证的文件，result=已验证未应用的库；取消或失败即清零字节。
@@ -113,8 +118,17 @@ internal fun BackupScreen(
         scope.launch {
             val result = withContext(Dispatchers.Default) { onExportBackup() }
             exportSucceeded = result.isSuccess
-            exportError = if (result.isSuccess) "导出成功：${result.getOrThrow()}" else result.exceptionOrNull()?.message ?: "备份生成失败"
-            if (result.isSuccess) refreshFiles()
+            val error = result.exceptionOrNull()
+            if (result.isSuccess) {
+                exportError = "导出成功：${result.getOrThrow()}"
+                refreshFiles()
+            } else if (error is ExportPasswordRequiredException) {
+                exportPassword = ""
+                exportPasswordError = ""
+                showExportPasswordDialog = true
+            } else {
+                exportError = error?.message ?: "备份生成失败"
+            }
         }
     }
     LaunchedEffect(directBackup, storageAccessGranted, backupTreeUri) { refreshFiles() }
@@ -184,6 +198,30 @@ internal fun BackupScreen(
             }
         }
     }
+    if (showExportPasswordDialog) AlertDialog(onDismissRequest = { showExportPasswordDialog = false }, title = { Text("完成导出升级") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("首次导出需要验证一次主密码。之后指纹或主密码解锁都可直接导出。", style = MaterialTheme.typography.bodySmall)
+            PasswordField("主密码", exportPassword, { exportPassword = it; exportPasswordError = "" }, showPasswordToggle = true)
+            if (exportPasswordError.isNotBlank()) Text(exportPasswordError, color = MaterialTheme.colorScheme.error)
+        }
+    }, confirmButton = {
+        TextActionButton("验证并导出", onClick = {
+            if (!isMasterPasswordValid(exportPassword)) {
+                exportPasswordError = "主密码长度需为 4-20 个字符"
+            } else {
+                scope.launch {
+                    val result = withContext(Dispatchers.Default) { onPrepareExport(exportPassword) }
+                    if (result.isSuccess) {
+                        exportPassword = ""
+                        showExportPasswordDialog = false
+                        exportBackup()
+                    } else {
+                        exportPasswordError = result.exceptionOrNull()?.message ?: "主密码验证失败"
+                    }
+                }
+            }
+        }, textColor = MaterialTheme.colorScheme.primary)
+    }, dismissButton = { TextActionButton("取消", onClick = { showExportPasswordDialog = false }, textColor = MaterialTheme.colorScheme.primary) })
     if (showImportPasswordDialog) AlertDialog(onDismissRequest = {
         showImportPasswordDialog = false
         pendingImportBytes?.fill(0)
@@ -271,6 +309,7 @@ private fun BackupScreenPreview() {
             onChooseDirectory = {},
             onRequestStorageAccess = {},
             onExportBackup = { Result.success("preview.acc") },
+            onPrepareExport = { Result.success(Unit) },
             onReadBackup = { Result.success(ByteArray(0)) },
             onDeleteBackup = { Result.success(Unit) },
             onReadFileBackup = { Result.success(ByteArray(0)) },

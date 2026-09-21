@@ -24,10 +24,12 @@ android {
         applicationId = "com.copy.account"
         minSdk = 28
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // 仅中文应用：只打包 zh 与默认（values/）语言资源，裁掉依赖（CameraX/biometric 等）自带的多余 locale。
+        resourceConfigurations += setOf("zh")
 
         // 首次启动默认主题从 gradle.properties 的 account.defaultThemeMode 读取。
         buildConfigField(
@@ -67,6 +69,12 @@ android {
             reset()
             include("arm64-v8a", "armeabi-v7a")
             isUniversalApk = false
+        }
+    }
+    packaging {
+        jniLibs {
+            // 单进程应用用不到 DataStore 的多进程共享计数器，去掉省体积。
+            excludes += "**/libdatastore_shared_counter.so"
         }
     }
     compileOptions {

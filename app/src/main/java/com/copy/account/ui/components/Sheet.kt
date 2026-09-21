@@ -41,6 +41,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
+import com.copy.account.ui.theme.LocalAccountThemePalette
 
 /**
  * 底部弹出的通用容器：所有面板共用同一背景、内边距和导航栏避让，
@@ -52,11 +53,13 @@ internal fun AppBottomSheet(
     onDismiss: () -> Unit,
     skipPartiallyExpanded: Boolean = false,
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
+    containerColor: Color = Color.Unspecified,
     content: @Composable ColumnScope.() -> Unit
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = skipPartiallyExpanded)
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = skipPartiallyExpanded),
+        containerColor = if (containerColor == Color.Unspecified) MaterialTheme.colorScheme.surfaceContainerLow else containerColor
     ) {
         Column(
             // 内容可滚：长账号（多字段/长值）超弹层最大高时不被裁，可滚到底；短内容仍自适应高度。
@@ -87,7 +90,7 @@ internal fun SheetPagePreview(
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f))) {
+    Box(modifier = Modifier.fillMaxSize().background(LocalAccountThemePalette.current.overlay)) {
         Column(
             modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
@@ -103,9 +106,9 @@ internal fun SheetPagePreview(
 
 /** 底部面板中整行可点击的条目（同背景、同圆角，文本颜色区分主次）。 */
 @Composable
-internal fun ActionSheetRow(text: String, muted: Boolean = false, color: Color = Color.Unspecified, onClick: () -> Unit) {
+internal fun ActionSheetRow(text: String, muted: Boolean = false, color: Color = Color.Unspecified, containerColor: Color = Color.Unspecified, onClick: () -> Unit) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = if (containerColor == Color.Unspecified) MaterialTheme.colorScheme.surfaceContainer else containerColor,
         shape = RoundedCornerShape(14.dp),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
     ) {
