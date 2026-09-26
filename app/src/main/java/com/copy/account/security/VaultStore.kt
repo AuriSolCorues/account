@@ -283,6 +283,15 @@ internal class SecureVaultStore(private val context: Context) {
         if (Build.VERSION.SDK_INT >= 30) {
             builder.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
         } else {
+            // 仅 API 28/29 走到这里（minSdk 28）：替代用的 setUserAuthenticationParameters 是
+            // API 30 才引入的，平台在此版本没有等价 API，废弃调用无从回避，故显式抑制。
+            // -1 = 每次使用该密钥都必须认证，不留宽限期。
+            // 已知且不可修复的强度差异：旧接口只要求「用户已认证」而不限定认证方式，PIN/图案/
+            // 弱生物识别均可解锁，比 API 30+ 分支的 AUTH_BIOMETRIC_STRONG 弱；且上方 getKey
+            // 会直接复用已存在的密钥，用户日后升级到 30+ 也不会自动收紧——KeyGenParameterSpec
+            // 的认证约束只在生成密钥时生效，事后无法改严。UI 层由 biometricAvailable() 的
+            // canAuthenticate(BIOMETRIC_STRONG) 把关，密钥层的差异是平台限制而非疏漏。
+            @Suppress("DEPRECATION")
             builder.setUserAuthenticationValidityDurationSeconds(-1)
         }
         generator.init(builder.build())

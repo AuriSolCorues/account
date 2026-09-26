@@ -11,8 +11,8 @@
 package com.copy.account
 
 import android.os.Bundle
-import android.view.View
 import android.view.WindowManager
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
@@ -68,16 +68,18 @@ class MainActivity : FragmentActivity() {
             // 命令式世界（这里的 window 属性）。DisposableEffect 则是「进入/离开」各执行一次
             // （带 onDispose 清理），两者触发时机不同。
             SideEffect {
-                window.statusBarColor = android.graphics.Color.TRANSPARENT
-                window.navigationBarColor = android.graphics.Color.TRANSPARENT
-                if (android.os.Build.VERSION.SDK_INT >= 29) {
-                    window.isStatusBarContrastEnforced = false
-                    window.isNavigationBarContrastEnforced = false
-                }
+                // 栏色与对比度遮罩不在这里设置：onCreate 的 enableEdgeToEdge() 已经统一做了
+                // （默认参数下两栏皆透明、且 setStatusBarContrastEnforced 恒传 false），
+                // 此处重复设置既多余又用的是 API 35 已废弃的接口。
+                // 唯一需要在此覆盖的是图标明暗：enableEdgeToEdge 按系统深色模式推导，
+                // 而本应用要按自定义主题的背景亮度走，切自定义主题时才会变。
                 val customBackground = themePaletteFromJson(customThemeJson)?.background
                 val useDarkSystemIcons = customBackground?.luminance()?.let { it > 0.5f } ?: !darkTheme
-                window.decorView.systemUiVisibility = if (!useDarkSystemIcons) 0 else {
-                    View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                // isAppearanceLightXBars = true 意为「浅色系统栏」即用深色图标，与
+                // useDarkSystemIcons 语义一致，无需取反。
+                WindowInsetsControllerCompat(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = useDarkSystemIcons
+                    isAppearanceLightNavigationBars = useDarkSystemIcons
                 }
             }
             AccountTheme(dynamicColor = false, darkTheme = darkTheme, accentTheme = accentTheme, customThemeJson = customThemeJson) {
