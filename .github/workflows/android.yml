@@ -1,6 +1,7 @@
 name: Android CI
 
-# 日常：push 到 main、所有 PR、以及手动触发，都跑单测 + 构建（含 R8 release 校验）。
+# 日常：PR 与手动触发跑单测 + 构建（含 R8 release 校验）；push 到 main 只构建，
+# 单测已在 PR 通过，避免合并后再重复一遍。
 # 发布：只由「手动触发 + 勾选 publish」走 publish job，用 environment 的签名 secret 出正式包。
 on:
   push:
@@ -23,10 +24,14 @@ permissions:
 
 jobs:
   ci:
-    name: 单测 + 构建
+    name: 构建（PR 含单测）
     # 手动发布（dispatch + publish）时跳过：该 commit 合入 main 前已经过本 job 单测，
     # 发布只需 publish job；避免重复跑一遍单测+构建。
     if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.publish) }}
+    # 同一 PR 连续 push 时取消上一次未完成的 run，省掉过时构建的时间。
+    concurrency:
+      group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +55,8 @@ jobs:
         run: sed -i 's|mirrors\.cloud\.tencent\.com/gradle|services.gradle.org/distributions|' gradle/wrapper/gradle-wrapper.properties
       - uses: gradle/actions/setup-gradle@v4
       - name: 单元测试
+        # 合并到 main 的 push 跳过单测：PR 上已跑过，树内容一致，避免重复。
+        if: ${{ github.event_name != 'push' }}
         run: ./gradlew :app:testDebugUnitTest --console=plain
       # release 在此无签名文件，AGP 自动回退未签名，仅用于验证 R8/资源收缩能过。
       - name: 构建 debug + release
