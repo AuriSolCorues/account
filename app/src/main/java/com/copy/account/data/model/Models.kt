@@ -140,11 +140,15 @@ internal val Account.passwordRowLabel: String
 // DataStore 存真值（见 data/config/Preferences.kt），可选 appsettings.json 只读覆盖。
 // 字段默认值须与 AccountApp 首次从 DataStore 读取失败时的回退值保持一致。
 
+/** 自动锁定时长上限（分钟），即 24 小时；超过的设置值一律夹到此处。 */
+internal const val MAX_AUTO_LOCK_MINUTES = 1440
+
 /**
  * 应用全局设置数据模型（内存态或配合特定序列化器使用）。
  */
 internal data class AppSettings(
     val biometricEnabled: Boolean = false,
+    /** 自动锁定时长：单位为分钟，0 表示关闭自动锁定，正常范围 1..[MAX_AUTO_LOCK_MINUTES]。 */
     val autoLockMinutes: Int = 5,
     val themeMode: String = BuildConfig.DEFAULT_THEME_MODE,
     val accentTheme: String = "green",

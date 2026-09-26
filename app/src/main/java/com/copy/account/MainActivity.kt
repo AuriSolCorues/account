@@ -31,6 +31,22 @@ import androidx.compose.ui.graphics.luminance
 
 // 继承 FragmentActivity 而非普通 ComponentActivity：BiometricPrompt 需要 Fragment 宿主。
 class MainActivity : FragmentActivity() {
+    /**
+     * 窗口内任意交互（触摸或按键）的回调出口，默认 null 表示没人挂。
+     * Activity 拿不到「用户在哪个控件上动了手指」，但空闲自动锁定只需要「有没有动」，
+     * 所以这里挂一个总线的 sink，由 AccountApp 装上 IdleLock.touch()。
+     */
+    internal var userInteractionSink: (() -> Unit)? = null
+
+    /**
+     * 系统在 ACTION_DOWN 与按键事件分发前各调一次，比逐个控件挂手势省事得多。
+     * 注意它只在窗口「真正有输入」时触发，后台或无输入时不会空转。
+     */
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        userInteractionSink?.invoke()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 内容延伸到系统栏后方，让顶栏覆盖刘海区域，避免全屏设备出现白色边条。

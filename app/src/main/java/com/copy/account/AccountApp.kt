@@ -14,6 +14,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -30,6 +31,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -73,6 +75,7 @@ import com.copy.account.data.model.Account
 import com.copy.account.data.model.AppSettings
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
+import com.copy.account.data.model.MAX_AUTO_LOCK_MINUTES
 import com.copy.account.data.model.PersistedVault
 import com.copy.account.data.model.initialAccounts
 import com.copy.account.data.model.initialGroups
@@ -89,12 +92,14 @@ import com.copy.account.page.SettingsScreen
 import com.copy.account.page.UnlockScreen
 import com.copy.account.security.AccExportInput
 import com.copy.account.security.ExportPasswordRequiredException
+import com.copy.account.security.IdleLock
 import com.copy.account.security.SecureVaultStore
 import com.copy.account.security.VaultUnlock
 import com.copy.account.security.exportAcc
 import com.copy.account.security.exportPlainJson
 import com.copy.account.security.importAcc
 import com.copy.account.security.isHotp
+import com.copy.account.security.mainThreadIdleScheduler
 import com.copy.account.ui.theme.SavedTheme
 import com.copy.account.ui.theme.parseThemeJson
 import kotlinx.coroutines.Dispatchers
@@ -161,7 +166,7 @@ fun AccountApp(
         val values = context.settingsDataStore.data.first()
         val loadedSettings = AppSettings(
             biometricEnabled = values[BIOMETRIC_SETTING] ?: false,
-            autoLockMinutes = (values[AUTO_LOCK_SETTING] ?: 5).coerceAtLeast(1),
+            autoLockMinutes = (values[AUTO_LOCK_SETTING] ?: 5).coerceIn(0, MAX_AUTO_LOCK_MINUTES),
             themeMode = values[THEME_MODE_SETTING] ?: themeMode,
             accentTheme = values[ACCENT_THEME_SETTING] ?: accentTheme,
             languageTag = values[LANGUAGE_TAG_SETTING] ?: "zh-CN",
@@ -423,6 +428,41 @@ fun AccountApp(
         onDispose { activity.lifecycle.removeObserver(observer) }
     }
 
+    // 前台空闲自动锁定：切后台立刻锁（上面的 ON_STOP）之外，前台干等超过设置时长也锁。
+    //
+    // 为什么要 rememberUpdatedState：下面的 onLock 与 autoLockMinutes 都进 remember 起来的
+    // lambda／effect 闭包，而锁实例只创建一次——闭包会永远捕获首帧那次组合的值。用户改了
+    // 「自动锁定」时长后，读到的仍是旧值，且不报任何错，只表现为「改了没反应」。
+    // 换成 State 引用后每次调用都现读现用，永远是最新值。
+    // 注意不能写成 rememberUpdatedState { ... }：尾随 lambda 会被当成「要持有的值」本身
+    // （即 T = () -> Int），而不是每次求值的计算块，于是 currentAutoLockMinutes 会变成函数类型。
+    val currentOnLock by rememberUpdatedState(::lockApp)
+    val currentAutoLockMinutes by rememberUpdatedState(settings.autoLockMinutes)
+    // 生产接线：真实主线程 Handler 排程 + uptimeMillis 时钟（必须与 postDelayed 同基准，
+    // 深睡不前进、不受改系统时间影响）。
+    val idleLock = remember { IdleLock(onLock = { currentOnLock() }, scheduler = mainThreadIdleScheduler(), now = { SystemClock.uptimeMillis() }) }
+    DisposableEffect(activity) {
+        // Activity 上没有「本地 Context 就是 MainActivity」的类型保证（预览/测试会传别的），
+        // 拿不到宿主就干脆不挂 sink，onUserInteraction 里的 ?.invoke() 会自然跳过。
+        val host = activity as? MainActivity
+        host?.userInteractionSink = { idleLock.touch() }
+        onDispose {
+            host?.userInteractionSink = null
+            idleLock.stop()
+        }
+    }
+    // autoLockMinutes == 0 是用户显式选的「关闭」，这个判断在最前面：测试钩子也不许绕过它。
+    LaunchedEffect(dataKey, currentAutoLockMinutes) {
+        val testSeconds = BuildConfig.AUTO_LOCK_TEST_SECONDS
+        val timeoutMs = when {
+            dataKey == null || currentAutoLockMinutes <= 0 -> 0L
+            // debug 包把超时压到几秒，真机手测不用干等一分钟；release 恒为 0，不覆盖真实设置。
+            testSeconds > 0L -> testSeconds * 1000L
+            else -> currentAutoLockMinutes * 60_000L
+        }
+        if (timeoutMs > 0L) idleLock.start(timeoutMs) else idleLock.stop()
+    }
+
     // 解锁页 + 已恢复前台 + 已配置生物识别 => 自动弹出指纹；避免后台/前台切换的时序竞争。
     LaunchedEffect(page, resumed, passwordConfigured, settings.biometricEnabled) {
         if (page == AppPage.Unlock && resumed && passwordConfigured && settings.biometricEnabled) {
@@ -568,7 +608,7 @@ fun AccountApp(
             },
             autoLockMinutes = settings.autoLockMinutes,
             onAutoLockChange = { minutes ->
-                baseSettings = baseSettings.copy(autoLockMinutes = minutes.coerceAtLeast(1))
+                baseSettings = baseSettings.copy(autoLockMinutes = minutes.coerceIn(0, MAX_AUTO_LOCK_MINUTES))
                 persistSettings(baseSettings)
             },
             onBack = { page = AppPage.Settings },

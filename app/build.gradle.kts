@@ -1,6 +1,8 @@
 import java.io.FileInputStream
 import java.util.Properties
 
+import com.android.build.api.variant.FilterConfiguration
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -14,6 +16,11 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+// 版本号：CI 可经 -Paccount.versionName/-Paccount.versionCode 注入，本地不传时用默认值。
+// 同时被 APK 命名复用（见文末 androidComponents），保证 tag、包内版本与文件名三者一致。
+val appVersionName = providers.gradleProperty("account.versionName").getOrElse("1.3")
+val appVersionCode = providers.gradleProperty("account.versionCode").getOrElse("3").toInt()
+
 android {
     namespace = "com.copy.account"
     compileSdk {
@@ -24,8 +31,8 @@ android {
         applicationId = "com.copy.account"
         minSdk = 28
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.3"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // 仅中文应用：只打包 zh 与默认（values/）语言资源，裁掉依赖（CameraX/biometric 等）自带的多余 locale。
@@ -50,6 +57,12 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // 真机手测用：把自动锁定压到 5 秒，免去每次等一分钟。
+            // 0 表示不覆盖用户真实设置。刻意放 buildTypes 而非 defaultConfig，
+            // 否则 release 包也会带上这个「等 5 秒就锁」的行为。
+            buildConfigField("long", "AUTO_LOCK_TEST_SECONDS", "5L")
+        }
         release {
             if (keystoreProperties.isNotEmpty()) {
                 signingConfig = signingConfigs.getByName("release")
@@ -60,6 +73,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            buildConfigField("long", "AUTO_LOCK_TEST_SECONDS", "0L")
         }
     }
     // 应用本身没有原生代码；依赖将来带入原生库时，只打包手机常用 ABI，避免携带无用架构。
@@ -84,6 +98,22 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+}
+
+// APK 命名：account-<版本>-<架构>[-debug].apk。
+// release 不带构建类型后缀（发布页上本就是 release），debug 保留 -debug 以区分；
+// 架构来自 ABI 分包的 filter。这样 tag、包内 versionName 与附件名三者一致。
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.outputs.forEach { output ->
+            val abi = output.filters.firstOrNull {
+                it.filterType == FilterConfiguration.FilterType.ABI
+            }?.identifier
+            val abiPart = abi?.let { "-$it" } ?: ""
+            val buildPart = if (variant.name == "release") "" else "-${variant.name}"
+            output.outputFileName.set("account-$appVersionName$abiPart$buildPart.apk")
+        }
     }
 }
 

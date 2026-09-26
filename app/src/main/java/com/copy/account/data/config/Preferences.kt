@@ -21,7 +21,7 @@ import kotlinx.serialization.encodeToString
 internal val Context.settingsDataStore by preferencesDataStore(name = "app_settings")
 // 生物识别认证开关
 internal val BIOMETRIC_SETTING = booleanPreferencesKey("biometric_enabled")
-// 自动锁定时间（单位：分钟）
+// 自动锁定时间（单位：分钟，0 = 关闭自动锁定，正常范围 1..1440）
 internal val AUTO_LOCK_SETTING = intPreferencesKey("auto_lock_minutes")
 // 主题模式（如浅色、深色、跟随系统）
 internal val THEME_MODE_SETTING = stringPreferencesKey("theme_mode")
