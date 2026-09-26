@@ -41,8 +41,8 @@ build_debug() {
     echo "==> 构建 debug APK ..."
     ./gradlew :app:assembleDebug --console=plain
     local apk
-    apk="$(ls app/build/outputs/apk/debug/app-arm64-v8a-debug.apk 2>/dev/null \
-        || ls app/build/outputs/apk/debug/app-debug.apk 2>/dev/null \
+    apk="$(ls app/build/outputs/apk/debug/account-*-arm64-v8a-debug.apk 2>/dev/null \
+        || ls app/build/outputs/apk/debug/*-arm64-v8a-debug.apk 2>/dev/null \
         || ls app/build/outputs/apk/debug/*-debug.apk 2>/dev/null | head -1)"
     [ -n "$apk" ] || { echo "未找到 debug APK"; return 1; }
     echo "==> 产物: $apk"
@@ -54,9 +54,9 @@ build_release() {
     echo "==> 构建 release APK ..."
     ./gradlew :app:assembleRelease --console=plain
     local apk
-    apk="$(ls app/build/outputs/apk/release/app-arm64-v8a-release.apk 2>/dev/null \
-        || ls app/build/outputs/apk/release/app-release.apk 2>/dev/null \
-        || ls app/build/outputs/apk/release/*-release.apk 2>/dev/null | head -1)"
+    apk="$(ls app/build/outputs/apk/release/account-*-arm64-v8a.apk 2>/dev/null \
+        || ls app/build/outputs/apk/release/*-arm64-v8a.apk 2>/dev/null \
+        || ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -1)"
     [ -n "$apk" ] || { echo "未找到 release APK"; return 1; }
     echo "==> 产物: $apk"
     ls -lh "$apk" 2>/dev/null || true

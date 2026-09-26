@@ -1,0 +1,117 @@
+name: Android CI
+
+# 日常：push 到 main、所有 PR、以及手动触发，都跑单测 + 构建（含 R8 release 校验）。
+# 发布：只由「手动触发 + 勾选 publish」走 publish job，用 environment 的签名 secret 出正式包。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号（如 1.3）'
+        default: '1.3'
+      versionCode:
+        description: 'versionCode（留空则用 run number）'
+      publish:
+        description: '创建 tag 与 GitHub Release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: 单测 + 构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      # runner 已预装 Android SDK。刻意不用 android-actions/setup-android@v3：它会去装
+      # 已从 SDK 仓库移除的 legacy `tools` 包，直接以 exit 1 失败。这里只接受 license，
+      # 缺的 android-37.0 由 AGP 按 android.builder.sdkDownload 自动下载。
+      - name: 准备 Android SDK
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          SDKMGR="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          echo "sdkmanager=$SDKMGR"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: 单元测试
+        run: ./gradlew :app:testDebugUnitTest --console=plain
+      # release 在此无签名文件，AGP 自动回退未签名，仅用于验证 R8/资源收缩能过。
+      - name: 构建 debug + release
+        run: ./gradlew :app:assembleDebug :app:assembleRelease --console=plain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-unsigned-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: ignore
+
+  publish:
+    name: 签名 release 并发布
+    # 仅手动触发且勾了 publish；environment 带 required reviewer，即使有人改了 workflow，
+    # 没有你手动批准也取不到签名 secret。
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: 准备 Android SDK
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          SDKMGR="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          echo "sdkmanager=$SDKMGR"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: 校验版本号非空
+        run: test -n "${{ inputs.version }}" || { echo "::error::publish 需要填 version"; exit 1; }
+      - name: 还原签名文件
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        # 只写文件、不产生输出：公开仓库的 Actions 日志人人可见，绝不 echo 密钥。
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > release.jks
+          printf 'storeFile=release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
+      - name: 构建签名 release
+        run: |
+          ./gradlew :app:assembleRelease --console=plain \
+            -Paccount.versionName="${{ inputs.version }}" \
+            -Paccount.versionCode="${{ inputs.versionCode || github.run_number }}"
+      # 改名后 AGP 不再追加 -unsigned，无法靠文件名判断，改用 apksigner 真验签。
+      - name: 确认确实已签名
+        run: |
+          APKSIGNER="$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner | sort -V | tail -1)"
+          for f in app/build/outputs/apk/release/account-*.apk; do
+            echo "验证 $f"
+            "$APKSIGNER" verify --print-certs "$f"
+          done
+      - name: 创建 tag 与 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
+          generate_release_notes: true
+          files: app/build/outputs/apk/release/account-*.apk

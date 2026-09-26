@@ -10,6 +10,7 @@ package com.copy.account.security
 
 import java.util.Base64
 import com.copy.account.data.model.AppSettings
+import com.copy.account.data.model.MAX_AUTO_LOCK_MINUTES
 import com.copy.account.data.model.PersistedVault
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -30,6 +31,7 @@ private data class AccSettings(
     val languageTag: String = "zh-CN",
     val customThemeJson: String = "",
     val customThemes: List<com.copy.account.ui.theme.SavedTheme> = emptyList(),
+    /** 真正的秒（默认 300 = 5 分钟）。名字里的 "Seconds" 名副其实，别被 AppSettings 的分钟单位误导。 */
     val autoLockSeconds: Int = 300,
     val clipboardClearSeconds: Int = 30,
     val allowScreenshots: Boolean = false
@@ -90,7 +92,8 @@ internal fun exportAcc(input: AccExportInput, key: ByteArray, salt: ByteArray, i
                     languageTag = settings.languageTag,
                     customThemeJson = settings.customThemeJson,
                     customThemes = settings.customThemes,
-                    autoLockSeconds = settings.autoLockMinutes.coerceAtLeast(1) * 60,
+                    // 存档单位是秒而内存里是分钟，这里是唯一的换算点；0（关闭）原样保留为 0。
+                    autoLockSeconds = settings.autoLockMinutes.coerceIn(0, MAX_AUTO_LOCK_MINUTES) * 60,
                     clipboardClearSeconds = settings.clipboardClearSeconds,
                     allowScreenshots = settings.allowScreenshots
                 )
@@ -135,7 +138,9 @@ internal fun importAcc(bytes: ByteArray, password: String): Result<AccImportResu
                 languageTag = "zh-CN",
                 customThemeJson = settings.customThemeJson,
                 customThemes = settings.customThemes,
-                autoLockMinutes = (settings.autoLockSeconds / 60).coerceIn(1, 120),
+                // 导入按秒解回分钟（1.3 版备份的 autoLockSeconds 就是秒，漏掉这个 /60 会让 5 分钟变成 5 小时）；
+                // 放宽下界到 0 才能导入「关闭自动锁定」，上界对齐 24 小时。
+                autoLockMinutes = (settings.autoLockSeconds / 60).coerceIn(0, MAX_AUTO_LOCK_MINUTES),
                 clipboardClearSeconds = settings.clipboardClearSeconds.coerceIn(0, 86_400),
                 allowScreenshots = settings.allowScreenshots
             )

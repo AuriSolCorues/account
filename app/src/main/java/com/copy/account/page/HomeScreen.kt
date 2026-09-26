@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,12 +40,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -97,6 +99,8 @@ internal fun HomeScreen(
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
     var searchOpen by remember { mutableStateOf(false) }
+    /** 展开搜索时主动要焦点的凭据：见下方 LaunchedEffect，展开即弹键盘。 */
+    val searchFocus = remember { FocusRequester() }
     var previewAccount by remember { mutableStateOf<Account?>(null) }
     var menuAccount by remember { mutableStateOf<Account?>(null) }
     var deleteConfirmAccount by remember { mutableStateOf<Account?>(null) }
@@ -108,6 +112,11 @@ internal fun HomeScreen(
         moveTargetGroup = null
         batchGroupId = null
         batchSelectedIds = emptySet()
+    }
+    // 展开搜索即聚焦：设计稿要求「搜索展开后自动聚焦」，焦点落到搜索框后软键盘随之弹出。
+    // 收起时搜索框离开组合，焦点自然释放、键盘跟随收起，无需手动 clearFocus。
+    LaunchedEffect(searchOpen) {
+        if (searchOpen) searchFocus.requestFocus()
     }
     // 主页本身没有导航返回栈；优先退出临时操作，状态全空后才交回 Activity 退出。
     BackHandler(enabled = moveTargetGroup != null || batchGroupId != null || searchOpen) {
@@ -160,7 +169,7 @@ internal fun HomeScreen(
                                 focusedBorderColor = palette.topBarText.copy(alpha = 0.7f),
                                 unfocusedBorderColor = palette.topBarText.copy(alpha = 0.35f)
                             ),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth().focusRequester(searchFocus)
                         )
                     } else Text("账号本子", color = LocalAccountThemePalette.current.topBarText, fontWeight = FontWeight.Bold)
                 },
@@ -332,7 +341,8 @@ internal fun GroupSidebar(
             }
         }
         HorizontalDivider()
-        TextActionButton("⚙ 分组管理", onManageGroups, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.labelSmall)
+        // 刻意只留 ⚙ 不带「分组管理」文字：按钮常驻首页底部，横排 4 个汉字在窄屏会挤。
+        TextActionButton("⚙", onManageGroups, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.labelSmall)
     }
 }
 

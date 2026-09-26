@@ -9,4 +9,6 @@
     <color name="white">#FFFFFFFF</color>
     <color name="account_background">#FF101217</color>
     <color name="account_surface">#FF1A1E26</color>
+    <!-- 启动图标自适应背景：app.png 外框的 navy，圆形 mask 下补四角 -->
+    <color name="ic_launcher_background">#FF284486</color>
 </resources>

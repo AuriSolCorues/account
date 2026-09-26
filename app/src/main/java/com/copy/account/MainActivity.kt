@@ -11,8 +11,8 @@
 package com.copy.account
 
 import android.os.Bundle
-import android.view.View
 import android.view.WindowManager
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
@@ -31,6 +31,22 @@ import androidx.compose.ui.graphics.luminance
 
 // 继承 FragmentActivity 而非普通 ComponentActivity：BiometricPrompt 需要 Fragment 宿主。
 class MainActivity : FragmentActivity() {
+    /**
+     * 窗口内任意交互（触摸或按键）的回调出口，默认 null 表示没人挂。
+     * Activity 拿不到「用户在哪个控件上动了手指」，但空闲自动锁定只需要「有没有动」，
+     * 所以这里挂一个总线的 sink，由 AccountApp 装上 IdleLock.touch()。
+     */
+    internal var userInteractionSink: (() -> Unit)? = null
+
+    /**
+     * 系统在 ACTION_DOWN 与按键事件分发前各调一次，比逐个控件挂手势省事得多。
+     * 注意它只在窗口「真正有输入」时触发，后台或无输入时不会空转。
+     */
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        userInteractionSink?.invoke()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 内容延伸到系统栏后方，让顶栏覆盖刘海区域，避免全屏设备出现白色边条。
@@ -68,16 +84,18 @@ class MainActivity : FragmentActivity() {
             // 命令式世界（这里的 window 属性）。DisposableEffect 则是「进入/离开」各执行一次
             // （带 onDispose 清理），两者触发时机不同。
             SideEffect {
-                window.statusBarColor = android.graphics.Color.TRANSPARENT
-                window.navigationBarColor = android.graphics.Color.TRANSPARENT
-                if (android.os.Build.VERSION.SDK_INT >= 29) {
-                    window.isStatusBarContrastEnforced = false
-                    window.isNavigationBarContrastEnforced = false
-                }
+                // 栏色与对比度遮罩不在这里设置：onCreate 的 enableEdgeToEdge() 已经统一做了
+                // （默认参数下两栏皆透明、且 setStatusBarContrastEnforced 恒传 false），
+                // 此处重复设置既多余又用的是 API 35 已废弃的接口。
+                // 唯一需要在此覆盖的是图标明暗：enableEdgeToEdge 按系统深色模式推导，
+                // 而本应用要按自定义主题的背景亮度走，切自定义主题时才会变。
                 val customBackground = themePaletteFromJson(customThemeJson)?.background
                 val useDarkSystemIcons = customBackground?.luminance()?.let { it > 0.5f } ?: !darkTheme
-                window.decorView.systemUiVisibility = if (!useDarkSystemIcons) 0 else {
-                    View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                // isAppearanceLightXBars = true 意为「浅色系统栏」即用深色图标，与
+                // useDarkSystemIcons 语义一致，无需取反。
+                WindowInsetsControllerCompat(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = useDarkSystemIcons
+                    isAppearanceLightNavigationBars = useDarkSystemIcons
                 }
             }
             AccountTheme(dynamicColor = false, darkTheme = darkTheme, accentTheme = accentTheme, customThemeJson = customThemeJson) {

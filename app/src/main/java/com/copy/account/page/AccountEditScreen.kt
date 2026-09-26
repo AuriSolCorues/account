@@ -14,12 +14,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -59,10 +57,10 @@ import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
 import com.copy.account.data.model.initialAccounts
 import com.copy.account.data.model.initialGroups
+import com.copy.account.ui.components.AppListScreen
 import com.copy.account.ui.components.ActionSheetRow
 import com.copy.account.ui.components.AnimatedReorderCard
 import com.copy.account.ui.components.AppBottomSheet
-import com.copy.account.ui.components.AppScreen
 import com.copy.account.ui.components.DangerButton
 import com.copy.account.ui.components.DeleteConfirmDialog
 import com.copy.account.ui.components.DragHandleGlyph
@@ -249,281 +247,277 @@ internal fun AccountEditScreen(
         }
     }
 
-    AppScreen(
-        title = if (account == null) "新建账号" else "编辑账号",
-        onBack = onBack,
-        actions = { TextActionButton(if (saving) "保存中" else "保存", ::saveAccount, enabled = !saving, textColor = LocalAccountThemePalette.current.topBarText) }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("账号名称 *") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-            item {
-                Text("分组", style = MaterialTheme.typography.labelLarge)
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()).padding(top = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    customGroups.forEach { group ->
-                        FilterChip(
-                            selected = group.id in selectedCustomGroups,
-                            onClick = {
-                                selectedCustomGroups = if (group.id in selectedCustomGroups) {
-                                    selectedCustomGroups - group.id
-                                } else {
-                                    selectedCustomGroups + group.id
-                                }
-                            },
-                            label = { Text(group.name) }
-                        )
-                    }
-                    FilterChip(selected = false, onClick = { addGroupDialog = true }, label = { Text("＋ 增加组") })
-                }
-                Text(
-                    "当前进入：${groups.firstOrNull { it.id == initialGroupId }?.name ?: "默认"}；动态密码由 TOTP 自动决定。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            item {
-                val fill: (String) -> Unit = { username = it }
-                FieldEditRow(
-                    labelValue = usernameLabel,
-                    onLabelChange = { usernameLabel = it },
-                    labelPlaceholder = "用户名",
-                    value = username,
-                    onValueChange = fill,
-                    hidden = usernameHidden,
-                    mask = maskChar,
-                    onFocused = { fillTarget = fill },
-                    onHandleMenu = {
-                        menuTarget = FieldMenuTarget(
-                            label = usernameLabel.ifBlank { "用户名" },
-                            hidden = usernameHidden,
-                            fill = fill,
-                            onToggleHidden = { usernameHidden = !usernameHidden }
-                        )
-                    }
-                )
-            }
-            item {
-                val fill: (String) -> Unit = { password = it }
-                FieldEditRow(
-                    labelValue = passwordLabel,
-                    onLabelChange = { passwordLabel = it },
-                    labelPlaceholder = "密码",
-                    value = password,
-                    onValueChange = fill,
-                    hidden = passwordHidden,
-                    mask = maskChar,
-                    onFocused = { fillTarget = fill },
-                    onHandleMenu = {
-                        menuTarget = FieldMenuTarget(
-                            label = passwordLabel.ifBlank { "密码" },
-                            hidden = passwordHidden,
-                            fill = fill,
-                            onToggleHidden = { passwordHidden = !passwordHidden }
-                        )
-                    }
-                )
-            }
-            items(fields, key = { it.id }) { field ->
-                val fill: (String) -> Unit = { value -> fields = fields.map { if (it.id == field.id) it.copy(value = value) else it } }
-                FieldEditRow(
-                    labelValue = field.label,
-                    onLabelChange = { label -> fields = fields.map { if (it.id == field.id) it.copy(label = label) else it } },
-                    labelPlaceholder = "字段名",
-                    value = field.value,
-                    onValueChange = fill,
-                    hidden = field.hidden,
-                    mask = maskChar,
-                    onFocused = { fillTarget = fill },
-                    onHandleMenu = {
-                        menuTarget = FieldMenuTarget(
-                            label = field.label.ifBlank { "新字段" },
-                            hidden = field.hidden,
-                            fill = fill,
-                            onToggleHidden = { fields = fields.map { if (it.id == field.id) it.copy(hidden = !it.hidden) else it } },
-                            onDelete = { fields = fields.filterNot { it.id == field.id } }
-                        )
-                    },
-                    dragKey = field.id,
-                    onMove = { moveField(field.id, it) }
-                )
-            }
-            item {
-                Text(
-                    "短按 ☷ 操作该字段 · 长按行拖动排序（用户名/密码固定、不可拖）。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    TextActionButton(
-                        text = "随机密码",
-                        onClick = { showPasswordGenerator = true },
-                        modifier = Modifier.weight(1f)
-                    )
-                    TextActionButton(
-                        text = "＋ 新增字段",
+    AppListScreen(
+        if (account == null) "新建账号" else "编辑账号",
+        onBack,
+        actions = { TextActionButton(if (saving) "保存中" else "保存", ::saveAccount, enabled = !saving, textColor = LocalAccountThemePalette.current.topBarText) },
+        spacing = 12.dp
+    ) {
+        item {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("账号名称 *") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            Text("分组", style = MaterialTheme.typography.labelLarge)
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()).padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                customGroups.forEach { group ->
+                    FilterChip(
+                        selected = group.id in selectedCustomGroups,
                         onClick = {
-                            val id = "field-${System.currentTimeMillis()}"
-                            fields = fields + AccountField(id, "", "", false)
-                            fillTarget = { value -> fields = fields.map { if (it.id == id) it.copy(value = value) else it } }
+                            selectedCustomGroups = if (group.id in selectedCustomGroups) {
+                                selectedCustomGroups - group.id
+                            } else {
+                                selectedCustomGroups + group.id
+                            }
                         },
-                        modifier = Modifier.weight(1f)
+                        label = { Text(group.name) }
+                    )
+                }
+                FilterChip(selected = false, onClick = { addGroupDialog = true }, label = { Text("＋ 增加组") })
+            }
+            Text(
+                "当前进入：${groups.firstOrNull { it.id == initialGroupId }?.name ?: "默认"}；动态密码由 TOTP 自动决定。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        item {
+            val fill: (String) -> Unit = { username = it }
+            FieldEditRow(
+                labelValue = usernameLabel,
+                onLabelChange = { usernameLabel = it },
+                labelPlaceholder = "用户名",
+                value = username,
+                onValueChange = fill,
+                hidden = usernameHidden,
+                mask = maskChar,
+                onFocused = { fillTarget = fill },
+                onHandleMenu = {
+                    menuTarget = FieldMenuTarget(
+                        label = usernameLabel.ifBlank { "用户名" },
+                        hidden = usernameHidden,
+                        fill = fill,
+                        onToggleHidden = { usernameHidden = !usernameHidden }
+                    )
+                }
+            )
+        }
+        item {
+            val fill: (String) -> Unit = { password = it }
+            FieldEditRow(
+                labelValue = passwordLabel,
+                onLabelChange = { passwordLabel = it },
+                labelPlaceholder = "密码",
+                value = password,
+                onValueChange = fill,
+                hidden = passwordHidden,
+                mask = maskChar,
+                onFocused = { fillTarget = fill },
+                onHandleMenu = {
+                    menuTarget = FieldMenuTarget(
+                        label = passwordLabel.ifBlank { "密码" },
+                        hidden = passwordHidden,
+                        fill = fill,
+                        onToggleHidden = { passwordHidden = !passwordHidden }
+                    )
+                }
+            )
+        }
+        items(fields, key = { it.id }) { field ->
+            val fill: (String) -> Unit = { value -> fields = fields.map { if (it.id == field.id) it.copy(value = value) else it } }
+            FieldEditRow(
+                labelValue = field.label,
+                onLabelChange = { label -> fields = fields.map { if (it.id == field.id) it.copy(label = label) else it } },
+                labelPlaceholder = "字段名",
+                value = field.value,
+                onValueChange = fill,
+                hidden = field.hidden,
+                mask = maskChar,
+                onFocused = { fillTarget = fill },
+                onHandleMenu = {
+                    menuTarget = FieldMenuTarget(
+                        label = field.label.ifBlank { "新字段" },
+                        hidden = field.hidden,
+                        fill = fill,
+                        onToggleHidden = { fields = fields.map { if (it.id == field.id) it.copy(hidden = !it.hidden) else it } },
+                        onDelete = { fields = fields.filterNot { it.id == field.id } }
+                    )
+                },
+                dragKey = field.id,
+                onMove = { moveField(field.id, it) }
+            )
+        }
+        item {
+            Text(
+                "短按 ☷ 操作该字段 · 长按行拖动排序（用户名/密码固定、不可拖）。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                TextActionButton(
+                    text = "随机密码",
+                    onClick = { showPasswordGenerator = true },
+                    modifier = Modifier.weight(1f)
+                )
+                TextActionButton(
+                    text = "＋ 新增字段",
+                    onClick = {
+                        val id = "field-${System.currentTimeMillis()}"
+                        fields = fields + AccountField(id, "", "", false)
+                        fillTarget = { value -> fields = fields.map { if (it.id == id) it.copy(value = value) else it } }
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        item {
+            SwitchRow(
+                "两步验证",
+                hasTotp,
+                { hasTotp = it },
+                subtitle = if (hasTotp) "已配置 · 自动显示在动态密码分组" else "未配置"
+            )
+        }
+        if (hasTotp) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    DropdownBox(
+                        label = "服务提供",
+                        display = when (totpType) {
+                            "STEAM" -> "Steam Guard"
+                            "HOTP" -> "HOTP"
+                            else -> "TOTP"
+                        },
+                        options = listOf(
+                            "TOTP" to "Google TOTP",
+                            "STEAM" to "Steam Guard",
+                            "HOTP" to "HOTP"
+                        ),
+                        modifier = Modifier.weight(1f),
+                        onSelect = { totpType = it }
+                    )
+                    DropdownBox(
+                        label = "加密方式",
+                        display = totpAlgorithm,
+                        options = listOf("SHA1", "SHA256", "SHA512").map { it to it },
+                        enabled = totpType != "STEAM",
+                        modifier = Modifier.weight(1f),
+                        onSelect = { totpAlgorithm = it }
                     )
                 }
             }
             item {
-                SwitchRow(
-                    "两步验证",
-                    hasTotp,
-                    { hasTotp = it },
-                    subtitle = if (hasTotp) "已配置 · 自动显示在动态密码分组" else "未配置"
-                )
-            }
-            if (hasTotp) {
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        DropdownBox(
-                            label = "服务提供",
-                            display = when (totpType) {
-                                "STEAM" -> "Steam Guard"
-                                "HOTP" -> "HOTP"
-                                else -> "TOTP"
-                            },
-                            options = listOf(
-                                "TOTP" to "Google TOTP",
-                                "STEAM" to "Steam Guard",
-                                "HOTP" to "HOTP"
-                            ),
-                            modifier = Modifier.weight(1f),
-                            onSelect = { totpType = it }
-                        )
-                        DropdownBox(
-                            label = "加密方式",
-                            display = totpAlgorithm,
-                            options = listOf("SHA1", "SHA256", "SHA512").map { it to it },
-                            enabled = totpType != "STEAM",
-                            modifier = Modifier.weight(1f),
-                            onSelect = { totpAlgorithm = it }
-                        )
-                    }
-                }
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        DropdownBox(
-                            label = "位数",
-                            display = if (totpCustomMode) "自定义" else "$totpDigits 位",
-                            options = TotpDigitPresets.map { it.toString() to "$it 位" } + ("custom" to "自定义"),
-                            enabled = totpType != "STEAM",
-                            modifier = Modifier.weight(1f),
-                            onSelect = { value ->
-                                if (value == "custom") {
-                                    totpCustomMode = true
-                                    totpCustomDigits = totpDigits.toString()
-                                } else {
-                                    totpCustomMode = false
-                                    totpCustomDigits = ""
-                                    totpDigits = value.toInt()
-                                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    DropdownBox(
+                        label = "位数",
+                        display = if (totpCustomMode) "自定义" else "$totpDigits 位",
+                        options = TotpDigitPresets.map { it.toString() to "$it 位" } + ("custom" to "自定义"),
+                        enabled = totpType != "STEAM",
+                        modifier = Modifier.weight(1f),
+                        onSelect = { value ->
+                            if (value == "custom") {
+                                totpCustomMode = true
+                                totpCustomDigits = totpDigits.toString()
+                            } else {
+                                totpCustomMode = false
+                                totpCustomDigits = ""
+                                totpDigits = value.toInt()
                             }
-                        )
-                        if (totpType == "HOTP") {
-                            OutlinedTextField(
-                                value = totpCounterText,
-                                onValueChange = { totpCounterText = it.filter(Char::isDigit); totpError = "" },
-                                label = { Text("当前计数") },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
-                        } else {
-                            OutlinedTextField(
-                                value = totpPeriodText,
-                                onValueChange = { totpPeriodText = it.filter(Char::isDigit); totpError = "" },
-                                label = { Text("验证码周期（秒）") },
-                                enabled = totpType != "STEAM",
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
                         }
-                    }
-                }
-                if (totpCustomMode && totpType != "STEAM") {
-                    item {
+                    )
+                    if (totpType == "HOTP") {
                         OutlinedTextField(
-                            value = totpCustomDigits,
-                            onValueChange = { input ->
-                                val clean = input.filter(Char::isDigit).take(2)
-                                totpCustomDigits = clean
-                                totpDigits = clean.toIntOrNull() ?: 0
-                                totpError = ""
-                            },
-                            label = { Text("自定义位数（1-10）") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-                item {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = totpSecret,
-                            onValueChange = { totpSecret = it; totpError = "" },
-                            label = { Text(if (totpType == "STEAM") "Steam shared_secret（Base64）" else "${if (totpType == "HOTP") "HOTP" else "TOTP"} 密钥（Base32 或 otpauth）") },
+                            value = totpCounterText,
+                            onValueChange = { totpCounterText = it.filter(Char::isDigit); totpError = "" },
+                            label = { Text("当前计数") },
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
-                        if (totpType == "TOTP") {
-                            TextActionButton("扫码", onClick = { showScan = true })
-                        }
-                    }
-                }
-                item {
-                    // 秒钟与密钥解码都收在本预览行：仅此行重绘，不带动整页输入框，也不逐秒重解密钥。
-                    val nowMillis = rememberClock()
-                    val normalizedSecret = remember(totpSecret) { normalizedTotpSecret(totpSecret) }
-                    val decodedSecret = remember(normalizedSecret, totpType) { decodeSecret(normalizedSecret, totpType == "STEAM") }
-                    val previewAccount = remember(totpDigits, totpPeriodText, totpCounterText, totpAlgorithm, totpType, normalizedSecret) {
-                        Account(
-                            "preview",
-                            name,
-                            username,
-                            password,
-                            hasTotp = true,
-                            totpSecret = normalizedSecret,
-                            totpDigits = totpDigits,
-                            totpPeriod = totpPeriodValue() ?: DEFAULT_TOTP_PERIOD,
-                            totpCounter = totpCounterText.toLongOrNull() ?: 0,
-                            totpAlgorithm = totpAlgorithm,
-                            totpType = totpType
+                    } else {
+                        OutlinedTextField(
+                            value = totpPeriodText,
+                            onValueChange = { totpPeriodText = it.filter(Char::isDigit); totpError = "" },
+                            label = { Text("验证码周期（秒）") },
+                            enabled = totpType != "STEAM",
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
                         )
                     }
-                    Text(
-                        when {
-                            totpSecret.isBlank() -> "请输入密钥以生成验证码"
-                            decodedSecret.size < 10 -> if (totpType == "STEAM") "Steam shared_secret 格式不正确，请检查 Base64 内容" else "密钥格式不正确，请检查 Base32 内容"
-                            else -> "当前验证码：${totpCode(previewAccount, decodedSecret, nowMillis)}"
+                }
+            }
+            if (totpCustomMode && totpType != "STEAM") {
+                item {
+                    OutlinedTextField(
+                        value = totpCustomDigits,
+                        onValueChange = { input ->
+                            val clean = input.filter(Char::isDigit).take(2)
+                            totpCustomDigits = clean
+                            totpDigits = clean.toIntOrNull() ?: 0
+                            totpError = ""
                         },
-                        color = if (decodedSecret.size in 1..9) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                        label = { Text("自定义位数（1-10）") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-                if (totpError.isNotBlank()) item { Text(totpError, color = MaterialTheme.colorScheme.error) }
             }
-            if (saveError.isNotBlank()) item { Text(saveError, color = MaterialTheme.colorScheme.error) }
-            if (account != null && onDelete != null) item { DangerButton("删除账号", onClick = { deleteConfirm = true }) }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = totpSecret,
+                        onValueChange = { totpSecret = it; totpError = "" },
+                        label = { Text(if (totpType == "STEAM") "Steam shared_secret（Base64）" else "${if (totpType == "HOTP") "HOTP" else "TOTP"} 密钥（Base32 或 otpauth）") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (totpType == "TOTP") {
+                        TextActionButton("扫码", onClick = { showScan = true })
+                    }
+                }
+            }
+            item {
+                // 秒钟与密钥解码都收在本预览行：仅此行重绘，不带动整页输入框，也不逐秒重解密钥。
+                val nowMillis = rememberClock()
+                val normalizedSecret = remember(totpSecret) { normalizedTotpSecret(totpSecret) }
+                val decodedSecret = remember(normalizedSecret, totpType) { decodeSecret(normalizedSecret, totpType == "STEAM") }
+                val previewAccount = remember(totpDigits, totpPeriodText, totpCounterText, totpAlgorithm, totpType, normalizedSecret) {
+                    Account(
+                        "preview",
+                        name,
+                        username,
+                        password,
+                        hasTotp = true,
+                        totpSecret = normalizedSecret,
+                        totpDigits = totpDigits,
+                        totpPeriod = totpPeriodValue() ?: DEFAULT_TOTP_PERIOD,
+                        totpCounter = totpCounterText.toLongOrNull() ?: 0,
+                        totpAlgorithm = totpAlgorithm,
+                        totpType = totpType
+                    )
+                }
+                Text(
+                    when {
+                        totpSecret.isBlank() -> "请输入密钥以生成验证码"
+                        decodedSecret.size < 10 -> if (totpType == "STEAM") "Steam shared_secret 格式不正确，请检查 Base64 内容" else "密钥格式不正确，请检查 Base32 内容"
+                        else -> "当前验证码：${totpCode(previewAccount, decodedSecret, nowMillis)}"
+                    },
+                    color = if (decodedSecret.size in 1..9) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                )
+            }
+            if (totpError.isNotBlank()) item { Text(totpError, color = MaterialTheme.colorScheme.error) }
         }
+        if (saveError.isNotBlank()) item { Text(saveError, color = MaterialTheme.colorScheme.error) }
+        if (account != null && onDelete != null) item { DangerButton("删除账号", onClick = { deleteConfirm = true }) }
     }
 
     menuTarget?.let { target ->

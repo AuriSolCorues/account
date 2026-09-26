@@ -1,6 +1,6 @@
 /**
  * 职责：分组管理页——固定分组改名；自定义分组的增/删/改名/长按拖动排序。
- * 架构位置：AccountApp 的 AppPage.Groups 分支；骨架复用 AppScreen，排序卡片复用
+ * 架构位置：AccountApp 的 AppPage.Groups 分支；骨架复用 AppListScreen，排序卡片复用
  *           AnimatedReorderCard，弹层复用 AppBottomSheet；换位逻辑在 onMoveCustomGroup 回调（AccountApp）。
  * Python 类比：groups 前 2 个固定、其余自定义的隐式约定，≈ 列表切片分区渲染（take(2)/drop(2)）。
  */
@@ -10,11 +10,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
@@ -33,9 +31,9 @@ import androidx.compose.ui.unit.dp
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
 import com.copy.account.data.model.initialGroups
+import com.copy.account.ui.components.AppListScreen
 import com.copy.account.ui.components.AppBottomSheet
 import com.copy.account.ui.components.AnimatedReorderCard
-import com.copy.account.ui.components.AppScreen
 import com.copy.account.ui.components.DangerButton
 import com.copy.account.ui.components.DeleteConfirmDialog
 import com.copy.account.ui.components.DragHandleGlyph
@@ -61,29 +59,27 @@ internal fun GroupManageScreen(
     var deleteConfirmGroup by remember { mutableStateOf<Group?>(null) }
     var dialogText by remember { mutableStateOf("") }
     var showAddSheet by remember { mutableStateOf(false) }
-    AppScreen(title = "分组管理", onBack = onBack, actions = { TextActionButton("＋ 新增", onClick = { showAddSheet = true; dialogText = "" }, textColor = LocalAccountThemePalette.current.topBarText) }) { padding ->
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { Text("固定分组（可改名）", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp)) }
-            // 隐式约定：groups 前 2 个是固定分组（默认/动态密码），其余为自定义；分区渲染，仅自定义可拖动。
-            items(groups.take(2), key = { it.id }) { group ->
-                GroupManageItem(
-                    group = group,
-                    count = accountCount(group.id),
-                    onMove = null,
-                    onNameClick = { editGroup = group; dialogText = group.name }
-                )
-            }
-            item { Text("自定义分组（长按拖动排序）", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
-            items(groups.drop(2), key = { it.id }) { group ->
-                GroupManageItem(
-                    group = group,
-                    count = accountCount(group.id),
-                    onMove = { onMoveCustomGroup(group.id, it) },
-                    onNameClick = { editGroup = group; dialogText = group.name }
-                )
-            }
-            item { Text("固定分组不可删除或排序；删除自定义分组不会删除账号。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp)) }
+    AppListScreen("分组管理", onBack, actions = { TextActionButton("＋ 新增", onClick = { showAddSheet = true; dialogText = "" }, textColor = LocalAccountThemePalette.current.topBarText) }) {
+        item { Text("固定分组（可改名）", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        // 隐式约定：groups 前 2 个是固定分组（默认/动态密码），其余为自定义；分区渲染，仅自定义可拖动。
+        items(groups.take(2), key = { it.id }) { group ->
+            GroupManageItem(
+                group = group,
+                count = accountCount(group.id),
+                onMove = null,
+                onNameClick = { editGroup = group; dialogText = group.name }
+            )
         }
+        item { Text("自定义分组（长按拖动排序）", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
+        items(groups.drop(2), key = { it.id }) { group ->
+            GroupManageItem(
+                group = group,
+                count = accountCount(group.id),
+                onMove = { onMoveCustomGroup(group.id, it) },
+                onNameClick = { editGroup = group; dialogText = group.name }
+            )
+        }
+        item { Text("固定分组不可删除或排序；删除自定义分组不会删除账号。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp)) }
     }
     // 新增和编辑均使用底部面板；编辑分组直接保存，不经过额外操作菜单。
     if (showAddSheet) {

@@ -2,6 +2,7 @@ package com.copy.account.page
 
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -31,6 +32,16 @@ class HomeScreenBackTest {
         composeRule.activity.onBackPressedDispatcher.onBackPressed()
 
         composeRule.onNodeWithText("从「默认」转移 · 已选 0 个").assertDoesNotExist()
+    }
+
+    @Test
+    fun searchOpenAutoFocusesItsField() {
+        composeRule.setContent { HomeScreenUnderTest() }
+
+        composeRule.onNodeWithText("⌕").performClick()
+
+        composeRule.onNodeWithText("搜索账号").assertExists()
+        composeRule.onNode(hasSetTextAction()).assertIsFocused()
     }
 
     @Test

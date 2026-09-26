@@ -13,7 +13,6 @@ import android.util.Base64
 import com.copy.account.data.model.Account
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
-import kotlin.text.Charsets
 
 internal fun normalizedTotpSecret(raw: String): String {
     val uri = runCatching { Uri.parse(raw.trim()) }.getOrNull()

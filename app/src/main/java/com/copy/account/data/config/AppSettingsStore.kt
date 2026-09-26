@@ -1,14 +1,19 @@
 /**
  * 职责：appsettings.json 外挂配置——只读覆盖层。启动不读、App 不写，
- *       仅设置页手动「重新加载配置文件」时加载一次；文件缺失或解析失败 → null，静默回退真值。
- * 架构位置：SettingsScreen 触发 → loadAppSettingsOverride 读文件 → applyOverride 与
- *           DataStore 真值（data/config/Preferences.kt）逐字段合并出最终生效的 AppSettings。
+ *       仅主题与语言页手动「重新加载配置文件」时加载一次；文件缺失或解析失败 → null，静默回退真值。
+ *       文件放在**备份目录**里（与 .acc 同级），用户用文件管理器就能看到并编辑。
+ * 架构位置：AppearanceSettingsScreen 触发 → AccountApp 按 directBackup 分派到 loadAppSettingsOverride
+ *           （直写轨）或 loadSafAppSettingsOverride（SAF 轨）→ applyOverride 与 DataStore 真值
+ *           （data/config/Preferences.kt）逐字段合并出最终生效的 AppSettings。
  * Python 类比：三层合并 ≈ 默认值 dict 被配置文件覆盖——override 只写想覆盖的键；
  *           String? 类型即 Optional[str]，?: （elvis）≈ x if x is not None else default。
  */
 package com.copy.account.data.config
 
 import android.content.Context
+import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
+import com.copy.account.data.backup.findFileInFolder
 import com.copy.account.data.model.AppSettings
 import com.copy.account.ui.theme.SavedTheme
 import com.copy.account.ui.theme.stripJsonComments
@@ -33,15 +38,45 @@ data class AppSettingsOverride(
 
 private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; prettyPrint = true }
 
+/** 配置文件名；与 .acc 同级放在备份目录里，用户用文件管理器就能看到并编辑。 */
+internal const val APP_SETTINGS_FILE_NAME = "appsettings.json"
+
 /**
- * 读取外挂配置文件（与 vault.bin 同目录）。文件缺失或解析失败 → null，App 照常走 DataStore。
- * 只有设置页手动「重新加载配置文件」才调用，启动不主动读。App 不写这个文件，只读。
+ * 两条轨共用的解析：剥掉注释再解 JSON，任何失败一律 null。
+ * 「本次无外挂覆盖」的原因不向上区分（缺文件 / 读不到 / 写错了），上层只关心有没有覆盖。
  */
-fun loadAppSettingsOverride(context: Context): AppSettingsOverride? {
-    val file = File(context.filesDir, "appsettings.json")
+private fun parseOverride(text: String): AppSettingsOverride? =
+    runCatching { json.decodeFromString<AppSettingsOverride>(stripJsonComments(text)) }.getOrNull()
+
+/**
+ * 读取外挂配置文件：传备份目录（直写轨的 externalStorageDir 或其子目录）。
+ * 文件缺失或解析失败 → null，App 照常走 DataStore。只有主题与语言页手动「重新加载配置文件」
+ * 才调用，启动不主动读。App 不写这个文件，只读。
+ */
+fun loadAppSettingsOverride(directory: File): AppSettingsOverride? {
+    val file = File(directory, APP_SETTINGS_FILE_NAME)
     if (!file.exists()) return null
+    return parseOverride(file.readText())
+}
+
+/**
+ * SAF 轨（API<30）的同一件事：目录不存在或文件读不到都返回 null。
+ * 刻意用只读的 findFileInFolder —— 不能像写路径那样顺手建目录，否则点一次「重新加载」
+ * 就会凭空在授权树里造出空目录。两种失败原因在语义上等价：都是「本次无外挂覆盖」。
+ */
+fun loadSafAppSettingsOverride(
+    context: Context,
+    treeUri: Uri,
+    folder: String
+): AppSettingsOverride? {
+    val root = DocumentFile.fromTreeUri(context, treeUri) ?: return null
+    val file = findFileInFolder(root, folder, APP_SETTINGS_FILE_NAME) ?: return null
+    // 外层 runCatching 不能省：readBytes() 可能抛 IOException，那也属于「读不到」。
+    // 内层 parseOverride 只兜 JSON 解析，两层分工不同。
     return runCatching {
-        json.decodeFromString<AppSettingsOverride>(stripJsonComments(file.readText()))
+        context.contentResolver.openInputStream(file.uri)?.use { input ->
+            parseOverride(input.readBytes().decodeToString())
+        }
     }.getOrNull()
 }
 
