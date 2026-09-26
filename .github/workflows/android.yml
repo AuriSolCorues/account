@@ -24,7 +24,8 @@ permissions:
 
 jobs:
   ci:
-    name: 构建（PR 含单测）
+    # 名称需与 main 分支保护里的必需检查 context 一致，勿改。
+    name: 单测 + 构建
     # 手动发布（dispatch + publish）时跳过：该 commit 合入 main 前已经过本 job 单测，
     # 发布只需 publish job；避免重复跑一遍单测+构建。
     if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.publish) }}
