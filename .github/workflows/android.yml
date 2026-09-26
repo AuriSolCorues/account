@@ -24,6 +24,9 @@ permissions:
 jobs:
   ci:
     name: 单测 + 构建
+    # 手动发布（dispatch + publish）时跳过：该 commit 合入 main 前已经过本 job 单测，
+    # 发布只需 publish job；避免重复跑一遍单测+构建。
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.publish) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
