@@ -42,6 +42,9 @@ jobs:
           SDKMGR="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
           yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
           echo "sdkmanager=$SDKMGR"
+      # 腾讯镜像对海外 runner 不稳定，会 Connection reset；仓库里保留镜像给国内本地用。
+      - name: 切换 Gradle 发行源为官方
+        run: sed -i 's|mirrors\.cloud\.tencent\.com/gradle|services.gradle.org/distributions|' gradle/wrapper/gradle-wrapper.properties
       - uses: gradle/actions/setup-gradle@v4
       - name: 单元测试
         run: ./gradlew :app:testDebugUnitTest --console=plain
@@ -81,6 +84,9 @@ jobs:
           SDKMGR="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
           yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
           echo "sdkmanager=$SDKMGR"
+      # 腾讯镜像对海外 runner 不稳定，会 Connection reset；仓库里保留镜像给国内本地用。
+      - name: 切换 Gradle 发行源为官方
+        run: sed -i 's|mirrors\.cloud\.tencent\.com/gradle|services.gradle.org/distributions|' gradle/wrapper/gradle-wrapper.properties
       - uses: gradle/actions/setup-gradle@v4
       - name: 校验版本号非空
         run: test -n "${{ inputs.version }}" || { echo "::error::publish 需要填 version"; exit 1; }
