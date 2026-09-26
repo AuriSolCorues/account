@@ -31,8 +31,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      # 装 cmdline-tools 并接受 SDK license；缺的 platform（android-37.0）由 AGP 自动下载。
-      - uses: android-actions/setup-android@v3
+      # runner 已预装 Android SDK。刻意不用 android-actions/setup-android@v3：它会去装
+      # 已从 SDK 仓库移除的 legacy `tools` 包，直接以 exit 1 失败。这里只接受 license，
+      # 缺的 android-37.0 由 AGP 按 android.builder.sdkDownload 自动下载。
+      - name: 准备 Android SDK
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          SDKMGR="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          echo "sdkmanager=$SDKMGR"
       - uses: gradle/actions/setup-gradle@v4
       - name: 单元测试
         run: ./gradlew :app:testDebugUnitTest --console=plain
@@ -64,7 +73,14 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
+      - name: 准备 Android SDK
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          SDKMGR="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          echo "sdkmanager=$SDKMGR"
       - uses: gradle/actions/setup-gradle@v4
       - name: 校验版本号非空
         run: test -n "${{ inputs.version }}" || { echo "::error::publish 需要填 version"; exit 1; }
