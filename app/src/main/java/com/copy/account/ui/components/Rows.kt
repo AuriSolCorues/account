@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
@@ -30,13 +31,23 @@ internal fun SettingsHeader(text: String) {
     Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp))
 }
 
-/** 设置页的标题 + 当前值 + 可点击行。 */
+/**
+ * 设置行：左侧标题、右侧取值；onClick 非空时整卡可点。
+ * 布局要点：标题**不带 weight**，因为 Row 先测无 weight 的子节点——若标题带 weight(1f)，
+ * 右侧那个无 weight 的长值会先把整行宽度吃光，标题被压成竖排一列（37 字符的 URL 曾真的如此）。
+ * 值用 weight(1f) 拿剩余宽度并配 textAlign=End，短值照样靠右、长值在此换行，两头都不破。
+ */
 @Composable
 internal fun SettingsRow(title: String, value: String, onClick: (() -> Unit)? = null) {
     SurfaceCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, modifier = Modifier.weight(1f))
-            Text(value, color = MaterialTheme.colorScheme.primary)
+            Text(title)
+            Text(
+                value,
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 }

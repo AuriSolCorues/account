@@ -6,10 +6,9 @@
  */
 package com.copy.account.page
 
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -23,6 +22,7 @@ import com.copy.account.data.model.Account
 import com.copy.account.data.model.initialAccounts
 import com.copy.account.data.model.passwordRowLabel
 import com.copy.account.data.model.usernameRowLabel
+import com.copy.account.ui.components.AppListScreen
 import com.copy.account.ui.components.AccountTotpRow
 import com.copy.account.ui.components.AppScreen
 import com.copy.account.ui.components.EmptyState
@@ -47,25 +47,26 @@ import com.copy.account.ui.theme.LocalAccountThemePalette
 internal fun AccountDetailScreen(account: Account?, clipboardClearSeconds: Int, onBack: () -> Unit, onEdit: () -> Unit, maskChar: Char = '•', onHotpAdvance: (String) -> Unit = {}) {
     // 动态调整时钟刷新频率：HOTP 码不随时间变化，设为 60 秒长周期空转以节省性能；TOTP 需每秒刷新。
     val nowMillis = rememberClock(if (account?.isHotp == true) 60_000L else 1000L)
-    // 外层标准应用屏幕布局，包含顶部导航栏（标题、返回、编辑按钮）
-    AppScreen(title = account?.name ?: "账号详情", onBack = onBack, actions = { TextActionButton("编辑", onEdit, textColor = LocalAccountThemePalette.current.topBarText) }) { padding ->
-        if (account == null) {
-            // 账号数据为空时显示占位提示
+    val title = account?.name ?: "账号详情"
+    val topBarActions: @Composable RowScope.() -> Unit = { TextActionButton("编辑", onEdit, textColor = LocalAccountThemePalette.current.topBarText) }
+    // account 为空时这一页不是列表，退回裸 AppScreen 摆居中空态（此时没有列表，顶部间距无意义）。
+    if (account == null) {
+        AppScreen(title = title, onBack = onBack, actions = topBarActions) { padding ->
             EmptyState("账号不存在", Modifier.fillMaxSize().padding(padding))
-        } else {
-            // 账号数据存在时，使用列表滚动展示各项详细信息 在垂直列表的相邻子项之间，固定保留 4.dp 的间距。这是一个撑满可用空间、左右各留白20dp，且内部相邻元素间保持4dp间距的垂直滚动列表。
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                item { Text("分组：${account.groups.joinToString().ifBlank { "默认" }}", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 12.dp)) }
-                item { Text("登录信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
-                item { SensitiveValueRow(account.usernameRowLabel, account.username, masked = account.usernameHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
-                item { SensitiveValueRow(account.passwordRowLabel, account.password, masked = account.passwordHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
-                item { Text("两步验证", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
-                item {
-                    if (account.hasTotp) AccountTotpRow(account, nowMillis, clipboardClearSeconds) { onHotpAdvance(account.id) }
-                    else Text("未配置", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                items(account.customFields, key = { it.id }) { field -> SensitiveValueRow(field.label, field.value, masked = field.hidden, sensitive = field.hidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
+        }
+    } else {
+        AppListScreen(title, onBack, actions = topBarActions, spacing = 4.dp) {
+            // 只留 bottom：顶部间距由 AppListScreen 的 contentPadding 统一提供，这里再给 top 会叠成 26.dp。
+            item { Text("分组：${account.groups.joinToString().ifBlank { "默认" }}", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 12.dp)) }
+            item { Text("登录信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
+            item { SensitiveValueRow(account.usernameRowLabel, account.username, masked = account.usernameHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
+            item { SensitiveValueRow(account.passwordRowLabel, account.password, masked = account.passwordHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
+            item { Text("两步验证", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
+            item {
+                if (account.hasTotp) AccountTotpRow(account, nowMillis, clipboardClearSeconds) { onHotpAdvance(account.id) }
+                else Text("未配置", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            items(account.customFields, key = { it.id }) { field -> SensitiveValueRow(field.label, field.value, masked = field.hidden, sensitive = field.hidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
         }
     }
 }

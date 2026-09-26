@@ -37,8 +37,14 @@ internal val CUSTOM_THEMES_SETTING = stringPreferencesKey("custom_themes")
 internal val CLIPBOARD_CLEAR_SETTING = intPreferencesKey("clipboard_clear_seconds")
 // 是否允许应用内截图 默认不允许
 internal val ALLOW_SCREENSHOTS_SETTING = booleanPreferencesKey("allow_screenshots")
-/** 用户授权的文件树 URI；实际备份目录固定为其下的 backups/account。 */
+/** 用户授权的文件树 URI；实际备份目录为该树下的 BACKUP_FOLDER_SETTING 子路径。 */
 internal val BACKUP_TREE_URI_SETTING = stringPreferencesKey("backup_tree_uri")
+/**
+ * 备份子路径（相对内部存储根，如 backups/account）。刻意**不**进 AppSettings：
+ * 它是设备本地路径，会被 AccCodec 序列化进 .acc 备份，源设备的路径对导入设备无意义。
+ * 与 BACKUP_TREE_URI_SETTING 同样的取舍。
+ */
+internal val BACKUP_FOLDER_SETTING = stringPreferencesKey("backup_folder")
 
 /**
  * 将 JSON 字符串解析为自定义主题列表。

@@ -14,6 +14,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -41,6 +42,7 @@ import com.copy.account.data.config.ACCENT_THEME_SETTING
 import com.copy.account.data.config.ALLOW_SCREENSHOTS_SETTING
 import com.copy.account.data.config.AUTO_LOCK_SETTING
 import com.copy.account.data.config.AppSettingsOverride
+import com.copy.account.data.config.BACKUP_FOLDER_SETTING
 import com.copy.account.data.config.BACKUP_TREE_URI_SETTING
 import com.copy.account.data.config.BIOMETRIC_SETTING
 import com.copy.account.data.config.CLIPBOARD_CLEAR_SETTING
@@ -52,13 +54,20 @@ import com.copy.account.data.config.applyOverride
 import com.copy.account.data.config.decodeSavedThemes
 import com.copy.account.data.config.encodeSavedThemes
 import com.copy.account.data.config.loadAppSettingsOverride
+import com.copy.account.data.config.loadSafAppSettingsOverride
 import com.copy.account.data.config.settingsDataStore
+import com.copy.account.data.backup.BackupNameFactory
+import com.copy.account.data.backup.DEFAULT_BACKUP_FOLDER
 import com.copy.account.data.backup.deleteBackupFile
 import com.copy.account.data.backup.deleteFileBackup
 import com.copy.account.data.backup.hasStorageAccess
 import com.copy.account.data.backup.initializeBackupDirectory
+import com.copy.account.data.backup.normalizeBackupFolder
+import com.copy.account.data.backup.plainExportTimestamp
 import com.copy.account.data.backup.readFileBackup
 import com.copy.account.data.backup.readSelectedDocument
+import com.copy.account.data.backup.uniqueBackupName
+import com.copy.account.data.backup.uniquePlainExportName
 import com.copy.account.data.backup.writeBackupFile
 import com.copy.account.data.backup.writeFileBackup
 import com.copy.account.data.model.Account
@@ -69,11 +78,14 @@ import com.copy.account.data.model.PersistedVault
 import com.copy.account.data.model.initialAccounts
 import com.copy.account.data.model.initialGroups
 import com.copy.account.navigation.AppPage
+import com.copy.account.page.AboutScreen
 import com.copy.account.page.AccountDetailScreen
 import com.copy.account.page.AccountEditScreen
+import com.copy.account.page.AppearanceSettingsScreen
 import com.copy.account.page.BackupScreen
 import com.copy.account.page.GroupManageScreen
 import com.copy.account.page.HomeScreen
+import com.copy.account.page.SecuritySettingsScreen
 import com.copy.account.page.SettingsScreen
 import com.copy.account.page.UnlockScreen
 import com.copy.account.security.AccExportInput
@@ -81,6 +93,7 @@ import com.copy.account.security.ExportPasswordRequiredException
 import com.copy.account.security.SecureVaultStore
 import com.copy.account.security.VaultUnlock
 import com.copy.account.security.exportAcc
+import com.copy.account.security.exportPlainJson
 import com.copy.account.security.importAcc
 import com.copy.account.security.isHotp
 import com.copy.account.ui.theme.SavedTheme
@@ -92,6 +105,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -132,7 +146,9 @@ fun AccountApp(
     var biometricPromptActive by remember { mutableStateOf(false) }
     var backupTreeUri by remember { mutableStateOf<String?>(null) }
     var backupDirectoryMessage by remember { mutableStateOf("") }
-    /** API>=30 直写备份（所有文件访问 + 固定 内部存储/backups/account）；API<30 仍走 SAF 目录授权。 */
+    /** 备份子路径（相对内部存储根）；用户可在备份页手填，非法值由 normalizeBackupFolder 挡掉。 */
+    var backupFolder by remember { mutableStateOf(DEFAULT_BACKUP_FOLDER) }
+    /** API>=30 直写备份（所有文件访问 + 可自定义 内部存储子目录）；API<30 仍走 SAF 目录授权。 */
     val directBackup = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
     var storageAccessGranted by remember {
         mutableStateOf(directBackup && hasStorageAccess())
@@ -157,6 +173,8 @@ fun AccountApp(
         )
         baseSettings = loadedSettings
         backupTreeUri = values[BACKUP_TREE_URI_SETTING]
+        // 存的值可能来自旧版本或被手改，兜底再规范化一次：DataStore 是外部输入，视为不可信。
+        backupFolder = normalizeBackupFolder(values[BACKUP_FOLDER_SETTING].orEmpty()) ?: DEFAULT_BACKUP_FOLDER
         onThemeModeChange(loadedSettings.themeMode)
         onAccentThemeChange(loadedSettings.accentTheme)
         onCustomThemeJsonChange(loadedSettings.customThemeJson)
@@ -187,9 +205,32 @@ fun AccountApp(
         }
     }
 
-    /** 手动「重新加载配置文件」：重读 appsettings.json 并应用到生效值。文件缺失/解析失败 → 覆盖层置 null，恢复 DataStore 业务。 */
+    fun persistBackupFolder(folder: String) {
+        scope.launch {
+            context.settingsDataStore.edit { it[BACKUP_FOLDER_SETTING] = folder }
+        }
+    }
+
+    /** 改备份子路径：normalize 返回 null（绝对路径或含 ..）视为非法，返回 false 供弹窗提示。 */
+    fun changeBackupFolder(raw: String): Boolean {
+        val normalized = normalizeBackupFolder(raw) ?: return false
+        backupFolder = normalized
+        persistBackupFolder(normalized)
+        return true
+    }
+
+    /**
+     * 手动「重新加载配置文件」：重读备份目录里的 appsettings.json 并应用到生效值。
+     * 文件缺失/无权限/解析失败 → 覆盖层置 null，恢复 DataStore 业务（与旧行为一致，不区分原因）。
+     * 走哪轨取决于 directBackup，所以分派留在本文件，不下沉到 AppSettingsStore。
+     */
     fun reloadSettings() {
-        val override = loadAppSettingsOverride(context)
+        val override = if (directBackup) {
+            loadAppSettingsOverride(File(Environment.getExternalStorageDirectory(), backupFolder))
+        } else {
+            val tree = backupTreeUri?.let(Uri::parse)
+            if (tree == null) null else loadSafAppSettingsOverride(context, tree, backupFolder)
+        }
         appSettingsOverride = override
         val effective = applyOverride(baseSettings, override)
         onThemeModeChange(effective.themeMode)
@@ -204,11 +245,11 @@ fun AccountApp(
         if (uri == null) {
             backupDirectoryMessage = "未选择目录"
         } else {
-            val result = initializeBackupDirectory(context, uri)
+            val result = initializeBackupDirectory(context, uri, backupFolder)
             if (result.isSuccess) {
                 backupTreeUri = uri.toString()
                 persistBackupTreeUri(backupTreeUri)
-                backupDirectoryMessage = "已授权，备份保存于 backups/account"
+                backupDirectoryMessage = "已授权，备份保存于 $backupFolder"
             } else {
                 backupDirectoryMessage = result.exceptionOrNull()?.message ?: "目录不可写，请重新选择"
             }
@@ -353,7 +394,7 @@ fun AccountApp(
     BackHandler(enabled = page != AppPage.Unlock && page != AppPage.Home) {
         page = when (page) {
             AppPage.Settings, AppPage.Groups, is AppPage.Detail, is AppPage.Edit -> AppPage.Home
-            AppPage.BackupFiles -> AppPage.Settings
+            AppPage.SecuritySettings, AppPage.AppearanceSettings, AppPage.About, AppPage.BackupFiles -> AppPage.Settings
             else -> page
         }
     }
@@ -502,6 +543,14 @@ fun AccountApp(
         )
 
         AppPage.Settings -> SettingsScreen(
+            onOpenSecurity = { page = AppPage.SecuritySettings },
+            onOpenAppearance = { page = AppPage.AppearanceSettings },
+            onOpenBackup = { page = AppPage.BackupFiles },
+            onOpenAbout = { page = AppPage.About },
+            onBack = { page = AppPage.Home }
+        )
+
+        AppPage.SecuritySettings -> SecuritySettingsScreen(
             biometricEnabled = settings.biometricEnabled,
             biometricAvailable = store.biometricAvailable(),
             onToggleBiometric = ::configureBiometric,
@@ -523,6 +572,22 @@ fun AccountApp(
                 baseSettings = baseSettings.copy(autoLockMinutes = minutes.coerceAtLeast(1))
                 persistSettings(baseSettings)
             },
+            onBack = { page = AppPage.Settings },
+            clipboardClearSeconds = settings.clipboardClearSeconds,
+            onClipboardClearChange = { seconds ->
+                baseSettings = baseSettings.copy(clipboardClearSeconds = seconds.coerceIn(0, 86_400))
+                persistSettings(baseSettings)
+            },
+            allowScreenshots = !settings.allowScreenshots,
+            onAllowScreenshotsChange = { blocked ->
+                val allow = !blocked
+                baseSettings = baseSettings.copy(allowScreenshots = allow)
+                persistSettings(baseSettings)
+                onAllowScreenshotsChange(allow)
+            }
+        )
+
+        AppPage.AppearanceSettings -> AppearanceSettingsScreen(
             themeMode = settings.themeMode,
             onThemeModeChange = { mode ->
                 val normalized = mode.lowercase().let { if (it == "light" || it == "system") it else "dark" }
@@ -566,39 +631,44 @@ fun AccountApp(
                 baseSettings = baseSettings.copy(customThemes = settings.customThemes.filterNot { it.id == id })
                 persistSettings(baseSettings)
             },
-            onBack = { page = AppPage.Home },
             onReloadSettings = ::reloadSettings,
-            clipboardClearSeconds = settings.clipboardClearSeconds,
-            onClipboardClearChange = { seconds ->
-                baseSettings = baseSettings.copy(clipboardClearSeconds = seconds.coerceIn(0, 86_400))
-                persistSettings(baseSettings)
-            },
-            allowScreenshots = !settings.allowScreenshots,
-            onAllowScreenshotsChange = { blocked ->
-                val allow = !blocked
-                baseSettings = baseSettings.copy(allowScreenshots = allow)
-                persistSettings(baseSettings)
-                onAllowScreenshotsChange(allow)
-            },
-            onOpenBackup = { page = AppPage.BackupFiles }
+            externalConfigLoaded = appSettingsOverride != null,
+            onBack = { page = AppPage.Settings }
         )
 
-        AppPage.BackupFiles -> BackupScreen(
+        AppPage.About -> AboutScreen(onBack = { page = AppPage.Settings })
+
+        AppPage.BackupFiles -> {
+            /**
+             * 加密导出与明文导出共用的门禁。刻意只写一份：明文路径风险更高（全部密码无加密落盘），
+             * 若各维护一份，将来加第 4 条条件时漏改明文那份，就是一次静默的安全绕过。
+             */
+            fun exportGateError(): String? = when {
+                directBackup && !storageAccessGranted -> "请先授予「所有文件访问」权限"
+                !directBackup && backupTreeUri == null -> "请先授权备份目录"
+                dataKey == null -> "当前未解锁，请重新解锁后重试"
+                else -> null
+            }
+
+            /** 落盘分派：直写轨只有命名器，SAF 轨还要 MIME。两条轨的差异收在这里。 */
+            fun writeExportBytes(bytes: ByteArray, nameFactory: BackupNameFactory, mimeType: String): String {
+                val tree = backupTreeUri?.let(Uri::parse)
+                return if (directBackup) writeFileBackup(bytes, backupFolder, nameFactory)
+                else writeBackupFile(context, tree!!, bytes, backupFolder, nameFactory, mimeType)
+            }
+
+            BackupScreen(
             onBack = { page = AppPage.Settings },
             directBackup = directBackup,
             storageAccessGranted = storageAccessGranted,
             backupTreeUri = backupTreeUri,
+            backupFolder = backupFolder,
             directoryMessage = backupDirectoryMessage,
+            onChangeBackupFolder = ::changeBackupFolder,
             onChooseDirectory = ::requestBackupDirectory,
             onRequestStorageAccess = ::requestStorageAccess,
             onExportBackup = {
-                val tree = backupTreeUri?.let(Uri::parse)
-                val gateError = when {
-                    directBackup && !storageAccessGranted -> "请先授予「所有文件访问」权限"
-                    !directBackup && tree == null -> "请先授权备份目录"
-                    dataKey == null -> "当前未解锁，请重新解锁后重试"
-                    else -> null
-                }
+                val gateError = exportGateError()
                 if (gateError != null) {
                     Result.failure(IllegalStateException(gateError))
                 } else {
@@ -613,8 +683,7 @@ fun AccountApp(
                                 ), material.key, material.salt, material.iterations
                             )
                             try {
-                                if (directBackup) writeFileBackup(bytes)
-                                else writeBackupFile(context, tree!!, bytes)
+                                writeExportBytes(bytes, ::uniqueBackupName, "application/octet-stream")
                             } finally {
                                 bytes.fill(0)
                             }
@@ -643,6 +712,31 @@ fun AccountApp(
                     }
                 }
             },
+            onExportPlaintext = {
+                // 门禁与加密导出共用 exportGateError()。明文导出不需要 KEK：账号明文此刻就在
+                // accounts/groups 里，所以不碰 loadCachedBackupKey，也就不会触发
+                // ExportPasswordRequiredException 那个「首次导出输密码」的分支。
+                val gateError = exportGateError()
+                if (gateError != null) {
+                    Result.failure(IllegalStateException(gateError))
+                } else {
+                    runCatching {
+                        val bytes = exportPlainJson(
+                            PersistedVault(accounts = accounts, groups = groups, selectedGroupId = selectedGroupId),
+                            plainExportTimestamp()
+                        )
+                        // 命名与 mime 都与 .acc 分开：文件名带 plain 前缀，SAF 轨用 application/json
+                        // 让文件管理器把扩展名和类型对上。写完立刻清零字节，尽量缩短明文在堆上的时间。
+                        try {
+                            writeExportBytes(bytes, ::uniquePlainExportName, "application/json")
+                        } finally {
+                            bytes.fill(0)
+                        }
+                    }
+                }
+            },
+            accountCount = accounts.size,
+            groupCount = groups.size,
             onReadBackup = { uri -> readSelectedDocument(context, uri) },
             onDeleteBackup = { uri -> deleteBackupFile(context, uri) },
             onReadFileBackup = { file -> readFileBackup(file) },
@@ -665,7 +759,8 @@ fun AccountApp(
                 onAllowScreenshotsChange(importedSettings.allowScreenshots)
                 page = AppPage.Home
             }
-        )
+            )
+        }
 
         is AppPage.Detail -> AccountDetailScreen(
             account = accounts.firstOrNull { it.id == current.accountId },

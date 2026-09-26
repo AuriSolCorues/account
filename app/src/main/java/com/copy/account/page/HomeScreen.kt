@@ -342,7 +342,8 @@ internal fun GroupSidebar(
             }
         }
         HorizontalDivider()
-        TextActionButton("⚙ 分组管理", onManageGroups, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.labelSmall)
+        // 刻意只留 ⚙ 不带「分组管理」文字：按钮常驻首页底部，横排 4 个汉字在窄屏会挤。
+        TextActionButton("⚙", onManageGroups, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.labelSmall)
     }
 }
 
