@@ -17,7 +17,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /** 当前页面使用的完整颜色色板。字段保持扁平，方便在 JSON 中直接修改。 */
@@ -162,7 +161,6 @@ fun parseThemeJson(source: String): ThemeJsonDefinition? = runCatching {
 }.getOrNull()
 
 fun themePaletteFromJson(source: String): AccountThemePalette? = parseThemeJson(source)?.colors?.toPalette()
-fun formatThemeJson(definition: ThemeJsonDefinition): String = themeJson.encodeToString(definition)
 
 /** 三个放在“自定义主题”区域中的可复制示例。 */
 fun defaultThemePresets(): List<SavedTheme> = listOf(
@@ -250,64 +248,6 @@ fun defaultThemePresets(): List<SavedTheme> = listOf(
         "overlay": "#00000099"
       }
     }""")
-)
-
-private val DarkGreenColorScheme = darkColorScheme(
-    primary = AccountGreen,
-    onPrimary = Color(0xFF082016),
-    primaryContainer = AccountGreenContainer,
-    onPrimaryContainer = AccountMint,
-    secondary = AccountMint,
-    tertiary = AccountMint,
-    background = AccountBackground,
-    surface = AccountSurface,
-    surfaceVariant = AccountSurfaceVariant,
-    onBackground = Color(0xFFF0F4F1),
-    onSurface = Color(0xFFF0F4F1),
-    onSurfaceVariant = Color(0xFFA7B2AC)
-)
-
-private val LightGreenColorScheme = lightColorScheme(
-    primary = AccountLightGreen,
-    primaryContainer = AccountLightContainer,
-    onPrimaryContainer = Color(0xFF005D3A),
-    secondary = AccountLightGreen,
-    tertiary = AccountLightGreen,
-    background = Color(0xFFF4F5F4),
-    surface = Color.White,
-    surfaceVariant = Color(0xFFF8FAF8),
-    onBackground = Color(0xFF193327),
-    onSurface = Color(0xFF193327),
-    onSurfaceVariant = Color(0xFF52665C)
-)
-
-private val DarkBlueColorScheme = darkColorScheme(
-    primary = AccountBlue,
-    onPrimary = Color(0xFF10233D),
-    primaryContainer = AccountBlueContainer,
-    onPrimaryContainer = Color(0xFFD5E5FF),
-    secondary = AccountBlue,
-    tertiary = AccountBlue,
-    background = AccountBlueBackground,
-    surface = AccountBlueSurface,
-    surfaceVariant = AccountBlueSurfaceVariant,
-    onBackground = Color(0xFFF0F4FC),
-    onSurface = Color(0xFFF0F4FC),
-    onSurfaceVariant = Color(0xFFAAB8CC)
-)
-
-private val LightBlueColorScheme = lightColorScheme(
-    primary = AccountLightBlue,
-    primaryContainer = AccountLightBlueContainer,
-    onPrimaryContainer = Color(0xFF12366F),
-    secondary = AccountLightBlue,
-    tertiary = AccountLightBlue,
-    background = Color(0xFFF5F7FB),
-    surface = Color.White,
-    surfaceVariant = Color(0xFFEEF2F8),
-    onBackground = Color(0xFF1C2738),
-    onSurface = Color(0xFF1C2738),
-    onSurfaceVariant = Color(0xFF566579)
 )
 
 private fun AccountThemePalette.toScheme(darkTheme: Boolean) = if (darkTheme) {

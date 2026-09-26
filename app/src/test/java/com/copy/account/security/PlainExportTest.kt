@@ -41,8 +41,8 @@ class PlainExportTest {
         assertEquals(1, doc.formatVersion)
         assertEquals("2026-09-26 12:00:00", doc.exportedAt)
         assertEquals(1, doc.accountCount)
-        assertEquals(1, doc.groupCount)        // warning 随文件走：脱离本应用后也要能一眼看出这是未加密的。
-        assertEquals(PLAIN_EXPORT_WARNING, doc.warning)
+        assertEquals(1, doc.groupCount)
+        assertEquals(PLAIN_EXPORT_WARNING, doc.warning)        // warning 随文件走：脱离本应用后也要能一眼看出这是未加密的。
         assertTrue("警告语应点明明文与密钥", PLAIN_EXPORT_WARNING.contains("明文") && PLAIN_EXPORT_WARNING.contains("密钥"))
     }
 

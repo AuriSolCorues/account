@@ -14,7 +14,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -62,7 +61,6 @@ import com.copy.account.ui.components.AppListScreen
 import com.copy.account.ui.components.ActionSheetRow
 import com.copy.account.ui.components.AnimatedReorderCard
 import com.copy.account.ui.components.AppBottomSheet
-import com.copy.account.ui.components.AppScreen
 import com.copy.account.ui.components.DangerButton
 import com.copy.account.ui.components.DeleteConfirmDialog
 import com.copy.account.ui.components.DragHandleGlyph

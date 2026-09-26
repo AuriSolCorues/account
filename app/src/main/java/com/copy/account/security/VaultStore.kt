@@ -24,8 +24,6 @@ import javax.crypto.*
 import javax.crypto.spec.GCMParameterSpec
 import kotlinx.serialization.*
 import com.copy.account.data.model.PersistedVault
-import com.copy.account.data.model.Group
-import com.copy.account.data.model.Account
 
 // 以下常量是 SharedPreferences(account_security) 的 key 与库文件名：里面只存盐、验证值、
 // 包装后的 DEK 与 PBKDF2 迭代数，绝不存明文主密码、裸 DEK 或可解开 DEK 的 KEK。

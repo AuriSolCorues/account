@@ -10,7 +10,6 @@
  */
 package com.copy.account
 
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -657,109 +656,109 @@ fun AccountApp(
                 else writeBackupFile(context, tree!!, bytes, backupFolder, nameFactory, mimeType)
             }
 
-            BackupScreen(
-            onBack = { page = AppPage.Settings },
-            directBackup = directBackup,
-            storageAccessGranted = storageAccessGranted,
-            backupTreeUri = backupTreeUri,
-            backupFolder = backupFolder,
-            directoryMessage = backupDirectoryMessage,
-            onChangeBackupFolder = ::changeBackupFolder,
-            onChooseDirectory = ::requestBackupDirectory,
-            onRequestStorageAccess = ::requestStorageAccess,
-            onExportBackup = {
-                val gateError = exportGateError()
-                if (gateError != null) {
-                    Result.failure(IllegalStateException(gateError))
-                } else {
-                    val vaultKey = dataKey!!.copyOf()
-                    runCatching {
-                        val material = store.loadCachedBackupKey(vaultKey) ?: throw ExportPasswordRequiredException()
-                        try {
-                            val bytes = exportAcc(
-                                AccExportInput(
-                                    PersistedVault(accounts = accounts, groups = groups, selectedGroupId = selectedGroupId),
-                                    settings
-                                ), material.key, material.salt, material.iterations
-                            )
+                BackupScreen(
+                onBack = { page = AppPage.Settings },
+                directBackup = directBackup,
+                storageAccessGranted = storageAccessGranted,
+                backupTreeUri = backupTreeUri,
+                backupFolder = backupFolder,
+                directoryMessage = backupDirectoryMessage,
+                onChangeBackupFolder = ::changeBackupFolder,
+                onChooseDirectory = ::requestBackupDirectory,
+                onRequestStorageAccess = ::requestStorageAccess,
+                onExportBackup = {
+                    val gateError = exportGateError()
+                    if (gateError != null) {
+                        Result.failure(IllegalStateException(gateError))
+                    } else {
+                        val vaultKey = dataKey!!.copyOf()
+                        runCatching {
+                            val material = store.loadCachedBackupKey(vaultKey) ?: throw ExportPasswordRequiredException()
                             try {
-                                writeExportBytes(bytes, ::uniqueBackupName, "application/octet-stream")
+                                val bytes = exportAcc(
+                                    AccExportInput(
+                                        PersistedVault(accounts = accounts, groups = groups, selectedGroupId = selectedGroupId),
+                                        settings
+                                    ), material.key, material.salt, material.iterations
+                                )
+                                try {
+                                    writeExportBytes(bytes, ::uniqueBackupName, "application/octet-stream")
+                                } finally {
+                                    bytes.fill(0)
+                                }
+                            } finally {
+                                material.clear()
+                            }
+                        }.also {
+                            vaultKey.fill(0)
+                        }
+                    }
+                },
+                onPrepareExport = { password ->
+                    if (dataKey == null) {
+                        Result.failure(IllegalStateException("当前未解锁，请重新解锁后重试"))
+                    } else {
+                        val unlocked = store.unlockWithPassword(password)
+                        if (unlocked == null) {
+                            Result.failure(IllegalArgumentException("主密码错误"))
+                        } else {
+                            try {
+                                store.cacheBackupKey(unlocked.backupKey, unlocked.dataKey)
+                            } finally {
+                                unlocked.backupKey.clear()
+                                unlocked.dataKey.fill(0)
+                            }
+                        }
+                    }
+                },
+                onExportPlaintext = {
+                    // 门禁与加密导出共用 exportGateError()。明文导出不需要 KEK：账号明文此刻就在
+                    // accounts/groups 里，所以不碰 loadCachedBackupKey，也就不会触发
+                    // ExportPasswordRequiredException 那个「首次导出输密码」的分支。
+                    val gateError = exportGateError()
+                    if (gateError != null) {
+                        Result.failure(IllegalStateException(gateError))
+                    } else {
+                        runCatching {
+                            val bytes = exportPlainJson(
+                                PersistedVault(accounts = accounts, groups = groups, selectedGroupId = selectedGroupId),
+                                plainExportTimestamp()
+                            )
+                            // 命名与 mime 都与 .acc 分开：文件名带 plain 前缀，SAF 轨用 application/json
+                            // 让文件管理器把扩展名和类型对上。写完立刻清零字节，尽量缩短明文在堆上的时间。
+                            try {
+                                writeExportBytes(bytes, ::uniquePlainExportName, "application/json")
                             } finally {
                                 bytes.fill(0)
                             }
-                        } finally {
-                            material.clear()
-                        }
-                    }.also {
-                        vaultKey.fill(0)
-                    }
-                }
-            },
-            onPrepareExport = { password ->
-                if (dataKey == null) {
-                    Result.failure(IllegalStateException("当前未解锁，请重新解锁后重试"))
-                } else {
-                    val unlocked = store.unlockWithPassword(password)
-                    if (unlocked == null) {
-                        Result.failure(IllegalArgumentException("主密码错误"))
-                    } else {
-                        try {
-                            store.cacheBackupKey(unlocked.backupKey, unlocked.dataKey)
-                        } finally {
-                            unlocked.backupKey.clear()
-                            unlocked.dataKey.fill(0)
                         }
                     }
+                },
+                accountCount = accounts.size,
+                groupCount = groups.size,
+                onReadBackup = { uri -> readSelectedDocument(context, uri) },
+                onDeleteBackup = { uri -> deleteBackupFile(context, uri) },
+                onReadFileBackup = { file -> readFileBackup(file) },
+                onDeleteFileBackup = { file -> deleteFileBackup(file) },
+                onImportBackup = { bytes, password ->
+                    importAcc(bytes, password)
+                },
+                onApplyImport = { imported ->
+                    accounts = imported.vault.accounts
+                    groups = imported.vault.groups.ifEmpty { initialGroups }
+                    selectedGroupId = imported.vault.selectedGroupId.ifBlank { "default" }
+                    // 生物识别包装密钥属于当前设备，备份不携带它；保留本机开关，使已启用的指纹解锁在导入后仍可用。
+                    val importedSettings = imported.settings.copy(biometricEnabled = baseSettings.biometricEnabled)
+                    baseSettings = importedSettings
+                    persistVault()
+                    persistSettings(importedSettings)
+                    onThemeModeChange(importedSettings.themeMode)
+                    onAccentThemeChange(importedSettings.accentTheme)
+                    onCustomThemeJsonChange(importedSettings.customThemeJson)
+                    onAllowScreenshotsChange(importedSettings.allowScreenshots)
+                    page = AppPage.Home
                 }
-            },
-            onExportPlaintext = {
-                // 门禁与加密导出共用 exportGateError()。明文导出不需要 KEK：账号明文此刻就在
-                // accounts/groups 里，所以不碰 loadCachedBackupKey，也就不会触发
-                // ExportPasswordRequiredException 那个「首次导出输密码」的分支。
-                val gateError = exportGateError()
-                if (gateError != null) {
-                    Result.failure(IllegalStateException(gateError))
-                } else {
-                    runCatching {
-                        val bytes = exportPlainJson(
-                            PersistedVault(accounts = accounts, groups = groups, selectedGroupId = selectedGroupId),
-                            plainExportTimestamp()
-                        )
-                        // 命名与 mime 都与 .acc 分开：文件名带 plain 前缀，SAF 轨用 application/json
-                        // 让文件管理器把扩展名和类型对上。写完立刻清零字节，尽量缩短明文在堆上的时间。
-                        try {
-                            writeExportBytes(bytes, ::uniquePlainExportName, "application/json")
-                        } finally {
-                            bytes.fill(0)
-                        }
-                    }
-                }
-            },
-            accountCount = accounts.size,
-            groupCount = groups.size,
-            onReadBackup = { uri -> readSelectedDocument(context, uri) },
-            onDeleteBackup = { uri -> deleteBackupFile(context, uri) },
-            onReadFileBackup = { file -> readFileBackup(file) },
-            onDeleteFileBackup = { file -> deleteFileBackup(file) },
-            onImportBackup = { bytes, password ->
-                importAcc(bytes, password)
-            },
-            onApplyImport = { imported ->
-                accounts = imported.vault.accounts
-                groups = imported.vault.groups.ifEmpty { initialGroups }
-                selectedGroupId = imported.vault.selectedGroupId.ifBlank { "default" }
-                // 生物识别包装密钥属于当前设备，备份不携带它；保留本机开关，使已启用的指纹解锁在导入后仍可用。
-                val importedSettings = imported.settings.copy(biometricEnabled = baseSettings.biometricEnabled)
-                baseSettings = importedSettings
-                persistVault()
-                persistSettings(importedSettings)
-                onThemeModeChange(importedSettings.themeMode)
-                onAccentThemeChange(importedSettings.accentTheme)
-                onCustomThemeJsonChange(importedSettings.customThemeJson)
-                onAllowScreenshotsChange(importedSettings.allowScreenshots)
-                page = AppPage.Home
-            }
-            )
+                )
         }
 
         is AppPage.Detail -> AccountDetailScreen(

@@ -11,7 +11,6 @@ import androidx.compose.ui.graphics.Color
 val AccountGreen = Color(0xFF35D28C)
 val AccountGreenDark = Color(0xFF006B46)
 val AccountGreenContainer = Color(0xFF1C3329)
-val AccountMint = Color(0xFF9AE8BF)
 val AccountBackground = Color(0xFF151817)
 val AccountSurface = Color(0xFF202322)
 val AccountSurfaceVariant = Color(0xFF171A19)

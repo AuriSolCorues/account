@@ -9,9 +9,6 @@
  */
 package com.copy.account.security
 
-import android.util.Base64
-import java.security.MessageDigest
-import java.security.SecureRandom
 import java.text.Normalizer
 import javax.crypto.*
 import javax.crypto.spec.GCMParameterSpec
