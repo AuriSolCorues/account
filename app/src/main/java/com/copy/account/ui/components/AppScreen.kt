@@ -5,8 +5,10 @@
  */
 package com.copy.account.ui.components
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -38,5 +40,11 @@ internal fun AppScreen(
             },
             actions = actions
         )
-    }, content = content)
+    }, content = { padding ->
+        // 键盘避让：MainActivity 开了 enableEdgeToEdge，targetSdk 37 下窗口不再为输入法调整大小
+        // （manifest 的 adjustResize 随之失效），键盘高度只经 WindowInsets.ime 派发；Scaffold 默认
+        // contentWindowInsets 只含 systemBars 不含 ime。这里在内容区统一吃掉，各二级页的可滚内容
+        // 视口随之收缩，输入框自带 bring-into-view 也会按真实可见区滚动。顶栏不加——键盘压的是下方。
+        Box(Modifier.imePadding()) { content(padding) }
+    })
 }
