@@ -22,6 +22,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
 import com.copy.account.data.model.MAX_AUTO_LOCK_MINUTES
+import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.isMasterPasswordValid
 import com.copy.account.ui.components.AppListScreen
 import com.copy.account.ui.components.NumberSettingDialog
@@ -43,8 +44,9 @@ internal fun SecuritySettingsScreen(
     onAutoLockChange: (Int) -> Unit,
     clipboardClearSeconds: Int,
     onClipboardClearChange: (Int) -> Unit,
-    allowScreenshots: Boolean,
-    onAllowScreenshotsChange: (Boolean) -> Unit,
+    /** 是否禁止截图（true=禁止，即加 FLAG_SECURE）；与 AppSettings.allowScreenshots（是否允许）互为反相。 */
+    blockScreenshots: Boolean,
+    onBlockScreenshotsChange: (Boolean) -> Unit,
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -56,7 +58,7 @@ internal fun SecuritySettingsScreen(
     var changePasswordError by remember { mutableStateOf("") }
     var changePasswordMessage by remember { mutableStateOf("") }
     AppListScreen("安全设置", onBack) {
-        item { SettingsSwitchRow("禁止截图", allowScreenshots, onAllowScreenshotsChange) }
+        item { SettingsSwitchRow("禁止截图", blockScreenshots, onBlockScreenshotsChange) }
         item { SettingsRow("自动锁定", autoLockLabel(autoLockMinutes)) { showAutoLockDialog = true } }
         item {
             SettingsRow(
@@ -97,7 +99,7 @@ internal fun SecuritySettingsScreen(
         confirmButton = {
             TextActionButton("保存", onClick = {
                 when {
-                    !isMasterPasswordValid(newPassword) -> changePasswordError = "主密码长度需为 4-20 个字符"
+                    !isMasterPasswordValid(newPassword) -> changePasswordError = MASTER_PASSWORD_RULE_HINT
                     newPassword != confirmNewPassword -> changePasswordError = "两次输入的主密码不一致"
                     else -> {
                         scope.launch {
@@ -184,8 +186,8 @@ private fun SecuritySettingsScreenPreview() {
             onAutoLockChange = {},
             clipboardClearSeconds = 30,
             onClipboardClearChange = {},
-            allowScreenshots = false,
-            onAllowScreenshotsChange = {},
+            blockScreenshots = false,
+            onBlockScreenshotsChange = {},
             onBack = {}
         )
     }

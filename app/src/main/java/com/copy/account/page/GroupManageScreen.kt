@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.copy.account.data.model.FIXED_GROUP_COUNT
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
 import com.copy.account.data.model.initialGroups
@@ -62,7 +63,7 @@ internal fun GroupManageScreen(
     AppListScreen("分组管理", onBack, actions = { TextActionButton("＋ 新增", onClick = { showAddSheet = true; dialogText = "" }, textColor = LocalAccountThemePalette.current.topBarText) }) {
         item { Text("固定分组（可改名）", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         // 隐式约定：groups 前 2 个是固定分组（默认/动态密码），其余为自定义；分区渲染，仅自定义可拖动。
-        items(groups.take(2), key = { it.id }) { group ->
+        items(groups.take(FIXED_GROUP_COUNT), key = { it.id }) { group ->
             GroupManageItem(
                 group = group,
                 count = accountCount(group.id),
@@ -71,7 +72,7 @@ internal fun GroupManageScreen(
             )
         }
         item { Text("自定义分组（长按拖动排序）", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
-        items(groups.drop(2), key = { it.id }) { group ->
+        items(groups.drop(FIXED_GROUP_COUNT), key = { it.id }) { group ->
             GroupManageItem(
                 group = group,
                 count = accountCount(group.id),

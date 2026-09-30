@@ -1,7 +1,7 @@
 /**
  * 职责：跨页通用件——时钟 rememberClock、顶栏配色、敏感值行、动态密码行、空态文案、
  *       长按拖动排序手势与手柄字形。
- * 架构位置：Home/Detail/Preview/GroupManage 等页面复用；复制动作走 security/Clipboard.kt。
+ * 架构位置：Home/Detail/Preview/GroupManage 等页面复用；复制动作走 ui/platform/Clipboard.kt。
  * Python 类比：rememberClock ≈ 起一个 asyncio 循环任务、每秒给「被观察的变量」赋新值——
  *           LaunchedEffect 里的 while(true)+delay 在 key 变化或组件销毁时自动取消重启。
  */
@@ -33,9 +33,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
 import com.copy.account.data.model.Account
-import com.copy.account.security.copyToClipboard
 import com.copy.account.security.isHotp
 import com.copy.account.security.totpCode
+import com.copy.account.ui.platform.copyToClipboard
 import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
 import kotlinx.coroutines.delay

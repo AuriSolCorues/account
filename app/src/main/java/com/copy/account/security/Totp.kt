@@ -1,6 +1,7 @@
 /**
  * 职责：两步验证码计算——标准 TOTP（RFC 6238）、HOTP 事件码（RFC 4226）、Steam Guard 变体，
- *       外加 otpauth:// 链接解析与 Base32/Base64 密钥解码。纯函数，无状态无 IO。
+ *       外加 otpauth:// 链接解析与 Base32/Base64 密钥解码。纯函数，无状态无 IO、无 Android 依赖，
+ *       可用 RFC 标准向量做纯 JVM 单测。
  * 架构位置：HomeScreen/AccountDetailScreen/AccountPreviewSheet 周期调 totpCode 刷新验证码；
  *           编辑页扫码或粘贴密钥后调 parseOtpAuth 自动带出参数。
  * Python 类比：核心一步 ≈ hmac.new(secret, counter.to_bytes(8), hashlib.sha256).digest()——
@@ -8,16 +9,17 @@
  */
 package com.copy.account.security
 
-import android.net.Uri
-import android.util.Base64
 import com.copy.account.data.model.Account
+import java.net.URI
+import java.net.URLDecoder
+import java.util.Base64
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 internal fun normalizedTotpSecret(raw: String): String {
-    val uri = runCatching { Uri.parse(raw.trim()) }.getOrNull()
-    return if (uri?.scheme == "otpauth") {
-        uri.getQueryParameter("secret") ?: uri.getQueryParameter("shared_secret") ?: raw
+    val uri = runCatching { URI(raw.trim()) }.getOrNull()
+    return if (uri?.scheme?.lowercase() == "otpauth") {
+        uri.queryParameter("secret") ?: uri.queryParameter("shared_secret") ?: raw
     } else raw
 }
 
@@ -38,19 +40,19 @@ internal data class OtpAuthParams(
 )
 
 internal fun parseOtpAuth(raw: String): OtpAuthParams? {
-    val uri = runCatching { Uri.parse(raw.trim()) }.getOrNull() ?: return null
-    if (uri.scheme != "otpauth") return null
+    val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
+    if (uri.scheme?.lowercase() != "otpauth") return null
     // 提供方式：otpauth 的 host 即类型（totp/steam/hotp）；老款 Steam 常写在 issuer/path。
     val host = uri.host.orEmpty().lowercase()
     val looksSteam = host == "steam" || host == "totp" && (
         uri.path.orEmpty().contains("steam", ignoreCase = true) ||
-            uri.getQueryParameter("issuer").orEmpty().contains("steam", ignoreCase = true)
+            uri.queryParameter("issuer").orEmpty().contains("steam", ignoreCase = true)
         )
     return OtpAuthParams(
-        algorithm = uri.getQueryParameter("algorithm")?.uppercase()?.replace("-", "")?.takeIf { it in setOf("SHA1", "SHA256", "SHA512") },
-        digits = uri.getQueryParameter("digits")?.toIntOrNull()?.takeIf { it in 1..10 },
-        counter = uri.getQueryParameter("counter")?.toLongOrNull()?.takeIf { it >= 0 },
-        period = uri.getQueryParameter("period")?.toIntOrNull()?.takeIf { it in 1..300 },
+        algorithm = uri.queryParameter("algorithm")?.uppercase()?.replace("-", "")?.takeIf { it in setOf("SHA1", "SHA256", "SHA512") },
+        digits = uri.queryParameter("digits")?.toIntOrNull()?.takeIf { it in 1..10 },
+        counter = uri.queryParameter("counter")?.toLongOrNull()?.takeIf { it >= 0 },
+        period = uri.queryParameter("period")?.toIntOrNull()?.takeIf { it in 1..300 },
         type = when {
             host == "hotp" -> "HOTP"
             looksSteam -> "STEAM"
@@ -60,10 +62,22 @@ internal fun parseOtpAuth(raw: String): OtpAuthParams? {
     )
 }
 
+/**
+ * java.net.URI 没有 getQueryParameter；手写对齐 android.net.Uri 的行为——
+ * query 按 & 切分后找首个同名键，值做 URL 解码（+ 与 %20 都还原为空格）。
+ * URI 构造器对非法输入抛 URISyntaxException，调用方 runCatching 兜底（等价 Uri.parse 永不抛）。
+ */
+private fun URI.queryParameter(name: String): String? = rawQuery
+    ?.split('&')
+    ?.firstOrNull { it.substringBefore('=') == name }
+    ?.substringAfter('=', "")
+    ?.let { URLDecoder.decode(it, Charsets.UTF_8) }
+
 internal fun decodeSecret(raw: String, steam: Boolean): ByteArray {
     val clean = raw.trim().replace(" ", "")
     if (steam && clean.matches(Regex("[A-Za-z0-9+/]+=*"))) {
-        runCatching { Base64.decode(clean, Base64.DEFAULT) }.getOrNull()?.let { if (it.isNotEmpty()) return it }
+        // Mime 解码器宽容换行，行为对齐 android.util.Base64.DEFAULT（Steam 密钥通常单行，双保险）。
+        runCatching { Base64.getMimeDecoder().decode(clean) }.getOrNull()?.let { if (it.isNotEmpty()) return it }
     }
     return decodeBase32(clean)
 }

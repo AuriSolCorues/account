@@ -1,10 +1,10 @@
 /**
  * 职责：受控剪贴板——复制即提示；敏感内容到时自动清除，且只清「仍是自己那份数据」的剪贴板。
- * 架构位置：各页面的复制回调统一走这里；清除秒数来自 AppSettings.clipboardClearSeconds。
+ * 架构位置：ui/platform 的平台粘合层；各页面的复制回调统一走这里，清除秒数来自 AppSettings.clipboardClearSeconds。
  * Python 类比：Android 剪贴板是系统级单例服务（getSystemService 取得），无需声明任何权限，
  *           ≈ 一个全系统共享的 paste buffer；清除前比对内容，防止误删用户之后复制的新东西。
  */
-package com.copy.account.security
+package com.copy.account.ui.platform
 
 import android.content.ClipData
 import android.content.ClipboardManager

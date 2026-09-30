@@ -11,8 +11,8 @@ package com.copy.account.data.config
 import android.content.Context
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
-import com.copy.account.security.vaultJson
-import com.copy.account.ui.theme.SavedTheme
+import com.copy.account.data.model.SavedTheme
+import com.copy.account.data.model.vaultJson
 import kotlinx.serialization.encodeToString
 
 // 顶层委托 by：首次访问才惰性创建单例（≈ 模块级单例）；同一文件名声明两次会直接崩溃，

@@ -11,8 +11,8 @@
 package com.copy.account.data.model
 
 import com.copy.account.BuildConfig
-import com.copy.account.ui.theme.SavedTheme
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 /**
  * 账号分组类型枚举。
@@ -134,6 +134,24 @@ internal val Account.usernameRowLabel: String
 internal val Account.passwordRowLabel: String
     get() = passwordLabel?.ifBlank { "密码" } ?: "密码"
 
+// ==================== 分组业务规则（单一来源） ====================
+
+/**
+ * groups 列表前 [FIXED_GROUP_COUNT] 个是固定分组（默认/动态），之后全是自定义分组。
+ * GroupManageScreen 分区渲染与 AccountApp 自定义组排序共用此约定，改排序规则只动这里。
+ */
+internal const val FIXED_GROUP_COUNT = 2
+
+/** 判断账号是否属于某个分组（默认=未分组、动态=已配置 TOTP、自定义=显式关联）。 */
+internal fun accountInGroup(account: Account, groups: List<Group>, groupId: String): Boolean {
+    val group = groups.firstOrNull { it.id == groupId } ?: return false
+    return when (group.kind) {
+        GroupKind.DEFAULT -> account.groups.isEmpty()
+        GroupKind.DYNAMIC -> account.hasTotp
+        GroupKind.CUSTOM -> groupId in account.groups
+    }
+}
+
 // ==================== 应用设置模型 ====================
 
 // 注意：AppSettings 不进 vault.bin（那是账号数据），软件设置走两层——
@@ -142,6 +160,10 @@ internal val Account.passwordRowLabel: String
 
 /** 自动锁定时长上限（分钟），即 24 小时；超过的设置值一律夹到此处。 */
 internal const val MAX_AUTO_LOCK_MINUTES = 1440
+
+/** 用户保存的自定义主题（id + 显示名 + 原始 JSONC 文本），供主题列表管理与还原。 */
+@Serializable
+data class SavedTheme(val id: String, val name: String, val json: String)
 
 /**
  * 应用全局设置数据模型（内存态或配合特定序列化器使用）。
@@ -177,6 +199,9 @@ internal data class PersistedVault(
     val groups: List<Group>,
     val selectedGroupId: String = "default"
 )
+
+/** 全库共用的宽松 JSON 配置：vault.bin 与 .acc 内层数据的序列化都用它。 */
+internal val vaultJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
 // ==================== 初始默认数据 ====================
 

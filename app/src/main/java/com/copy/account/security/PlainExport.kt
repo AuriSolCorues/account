@@ -2,7 +2,7 @@
  * 职责：明文导出——把密码库原样序列化成自描述 JSON，一个字节都不加密，供迁移、打印、离线查阅。
  *       与 AccCodec 的唯一区别就是那层加密：AccCodec 用主密码派生的 KEK 包 AES-GCM，这里没有 KEK。
  * 架构位置：AccountApp 的 onExportPlaintext 回调调用；产出的字节交给 data/backup 双轨写盘。
- *           复用 Crypto.kt 的 vaultJson 与 data/model 的 PersistedVault，故本文件不碰 javax.crypto。
+ *           复用 data/model 的 vaultJson 与 PersistedVault，故本文件不碰 javax.crypto。
  * Python 类比：≈ json.dumps(vault, ensure_ascii=False)，外面再包一层带 format/warning 的信封。
  * 安全边界：产物含全部密码、TOTP 密钥与隐藏自定义字段，任何人拿到即可登录所有账号。
  *           文件名以 account-plain- 开头、JSON 内嵌 warning 字段，两处标记便于日后辨认并及时删除。
@@ -11,6 +11,7 @@
 package com.copy.account.security
 
 import com.copy.account.data.model.PersistedVault
+import com.copy.account.data.model.vaultJson
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 

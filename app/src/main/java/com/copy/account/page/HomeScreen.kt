@@ -56,19 +56,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.copy.account.security.copyToClipboard
-import com.copy.account.security.isHotp
-import com.copy.account.security.totpCode
 import com.copy.account.data.model.Account
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
+import com.copy.account.data.model.accountInGroup
 import com.copy.account.data.model.initialAccounts
 import com.copy.account.data.model.initialGroups
+import com.copy.account.security.isHotp
+import com.copy.account.security.totpCode
 import com.copy.account.ui.components.AccountActionSheet
 import com.copy.account.ui.components.AccountPreviewSheet
 import com.copy.account.ui.components.DeleteConfirmDialog
 import com.copy.account.ui.components.EmptyState
 import com.copy.account.ui.components.SurfaceCard
+import com.copy.account.ui.platform.copyToClipboard
 import com.copy.account.ui.components.TextActionButton
 import com.copy.account.ui.components.accountTopBarColors
 import com.copy.account.ui.components.rememberClock
@@ -84,6 +85,9 @@ internal fun HomeScreen(
     selectedGroupId: String,
     clipboardClearSeconds: Int,
     maskChar: Char = '•',
+    /** 速览面板展开的账号 id；提升到 AccountApp，锁屏重解锁后仍保持展开方便复制密码。 */
+    previewAccountId: String? = null,
+    onPreviewAccountIdChange: (String?) -> Unit = {},
     onGroupSelected: (String) -> Unit,
     onNewAccount: () -> Unit,
     onEditAccount: (String) -> Unit,
@@ -101,7 +105,6 @@ internal fun HomeScreen(
     var searchOpen by remember { mutableStateOf(false) }
     /** 展开搜索时主动要焦点的凭据：见下方 LaunchedEffect，展开即弹键盘。 */
     val searchFocus = remember { FocusRequester() }
-    var previewAccount by remember { mutableStateOf<Account?>(null) }
     var menuAccount by remember { mutableStateOf<Account?>(null) }
     var deleteConfirmAccount by remember { mutableStateOf<Account?>(null) }
     /** 批量转移模式：长按分组进入；列表锁定源组账号供勾选，点侧栏其他分组为目标。 */
@@ -248,7 +251,7 @@ internal fun HomeScreen(
                                     onClick = {
                                         if (batchSourceGroup != null) {
                                             batchSelectedIds = if (account.id in batchSelectedIds) batchSelectedIds - account.id else batchSelectedIds + account.id
-                                        } else previewAccount = account
+                                        } else onPreviewAccountIdChange(account.id)
                                     },
                                     onLongClick = { if (batchSourceGroup == null) menuAccount = account }
                                 )
@@ -259,7 +262,10 @@ internal fun HomeScreen(
             }
         }
     }
-    previewAccount?.let { account -> AccountPreviewSheet(account, clipboardClearSeconds, { previewAccount = null }, { previewAccount = null; onEditAccount(account.id) }, { previewAccount = null; onOpenDetail(account.id) }, maskChar = maskChar, onHotpAdvance = { onHotpAdvance(account.id) }) }
+    // 按 id 现解析：账号可能在编辑/导入后变化，null（已删）则面板自然收起。
+    previewAccountId?.let { id -> accounts.firstOrNull { it.id == id } }?.let { account ->
+        AccountPreviewSheet(account, clipboardClearSeconds, { onPreviewAccountIdChange(null) }, { onPreviewAccountIdChange(null); onEditAccount(account.id) }, { onPreviewAccountIdChange(null); onOpenDetail(account.id) }, maskChar = maskChar, onHotpAdvance = { onHotpAdvance(account.id) })
+    }
     menuAccount?.let { account ->
         AccountActionSheet(
             account = account,
@@ -276,7 +282,7 @@ internal fun HomeScreen(
             message = "确定删除「${account.name}」吗？此操作不可撤销。",
             onConfirm = {
                 onDeleteAccount(account.id)
-                if (previewAccount?.id == account.id) previewAccount = null
+                if (previewAccountId == account.id) onPreviewAccountIdChange(null)
                 deleteConfirmAccount = null
             },
             onDismiss = { deleteConfirmAccount = null }
@@ -399,15 +405,7 @@ internal fun AccountCard(
     }
 }
 
-/** 判断账号是否属于某个分组（默认=未分组、动态=已配置 TOTP、自定义=显式关联）。 */
-internal fun accountInGroup(account: Account, groups: List<Group>, groupId: String): Boolean {
-    val group = groups.firstOrNull { it.id == groupId } ?: return false
-    return when (group.kind) {
-        GroupKind.DEFAULT -> account.groups.isEmpty()
-        GroupKind.DYNAMIC -> account.hasTotp
-        GroupKind.CUSTOM -> groupId in account.groups
-    }
-}
+// accountInGroup/accountMatchesSearch/accountCopyableText 已上提至 data/model/Models.kt（业务规则单一来源）。
 
 /** 搜索跨账号名称、用户名、固定行自定义名（如「支付密码」）、自定义字段与所属分组名匹配。 */
 internal fun accountMatchesSearch(account: Account, groups: List<Group>, query: String): Boolean {
