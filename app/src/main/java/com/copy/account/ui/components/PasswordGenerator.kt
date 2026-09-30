@@ -29,7 +29,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
-import com.copy.account.security.copyToClipboard
+import com.copy.account.ui.platform.copyToClipboard
 import com.copy.account.ui.theme.AccountTheme
 import java.security.SecureRandom
 

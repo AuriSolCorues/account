@@ -1,11 +1,12 @@
 /**
  * 职责：全屏相机扫码层——CameraX 取流 + zxing 解 QR 码；扫到文本（通常是 otpauth:// 链接）
  *       即回调，由编辑页回填密钥框。权限申请、相机绑定、解码线程的生命周期全在本文件自管理。
- * 架构位置：编辑页「扫码」按钮盖层弹出（盖在当前页上方，非独立路由页，编辑状态不丢）。
+ * 架构位置：ui/components 自管理相机组件（非路由页面）——由编辑页「扫码」按钮盖层弹出，
+ *           盖在当前页上方，编辑状态不丢；按钮等基础件取自同目录 UiCommon.kt/Rows.kt。
  * Python 类比：AndroidView 互操作 ≈ 在声明式 UI 里嵌一块传统命令式控件（此处的 PreviewView）；
  *           帧解码跑在专用单线程 executor 上，≈ 一个串行消费队列的工作线程。
  */
-package com.copy.account.page
+package com.copy.account.ui.components
 
 import android.Manifest
 import android.app.Activity
@@ -47,7 +48,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import com.copy.account.ui.components.TextActionButton
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
 import com.google.zxing.PlanarYUVLuminanceSource

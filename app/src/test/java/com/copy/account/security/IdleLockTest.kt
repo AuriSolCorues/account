@@ -73,14 +73,19 @@ class IdleLockTest {
         assertEquals(1, lockCount)
     }
 
+    /**
+     * touch 必须从新锚点排一个完整超时，而不是「到旧截止点的剩余时间」。
+     * 排短了回调会提前到、被二次校验拒掉，而真实 Handler 回调只触发一次、被拒后无人重排，
+     * 计时器就地死亡（曾致导航去过设置/分组页后前台永不锁定）。
+     */
     @Test
-    fun touch_按剩余时间重排() {
+    fun touch_按完整超时重排() {
         lock.start(60_000L)
         clock.advance(30_000L)
 
         lock.touch()
 
-        assertEquals(30_000L, scheduler.lastDelay)
+        assertEquals(60_000L, scheduler.lastDelay)
     }
 
     /** 停用后 touch 必须是彻底的空操作：既不锁，也不给排程器添新任务。 */
@@ -131,15 +136,23 @@ class IdleLockTest {
         assertEquals(0, lockCount)
     }
 
-    /** 已过时长超过阈值时不能排出负延迟。 */
+    /**
+     * 回调一次性语义下的回归：touch 重排后旧回调（若已出队）被二次校验拒掉，
+     * 新回调在「新锚点 + 完整超时」那一刻触发即应锁定——被拒后不会再有第二次机会。
+     */
     @Test
-    fun 已超阈值时touch_排程值夹到零() {
+    fun touch后_新回调到达新截止点即锁() {
         lock.start(60_000L)
-        clock.advance(70_000L)
-
+        clock.advance(30_000L)
         lock.touch()
+        // 旧回调迟到出队：距上次交互才 30 秒，被拒且不会重排。
+        scheduler.fire()
+        assertEquals(0, lockCount)
 
-        assertEquals(0L, scheduler.lastDelay)
+        // 新回调排的是完整 60 秒：从 touch 那刻再走满 60 秒，触发即锁。
+        clock.advance(60_000L)
+        scheduler.fire()
+        assertEquals(1, lockCount)
     }
 
     /** 关闭态下 touch 同样不排程——未启动时不该有任何排程副作用。 */

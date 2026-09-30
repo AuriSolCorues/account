@@ -99,6 +99,12 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        unitTests {
+            // Robolectric 常规要求：本地单测可读取 Android 资源与 manifest。
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 // APK 命名：account-<版本>-<架构>[-debug].apk。
@@ -138,6 +144,10 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.zxing.core)
     testImplementation(libs.junit)
+    // Robolectric：纯 JVM 上跑 SharedPreferences/AtomicFile 单测；
+    // androidx-junit 仅为单测提供 ApplicationProvider（传递依赖 androidx.test:core）。
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

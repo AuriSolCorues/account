@@ -11,6 +11,7 @@
 - **截图保护**：默认开启 `FLAG_SECURE`，禁止截图/录屏/最近任务预览，可在设置中关闭。
 - **`.acc` 加密备份**：完整导出/恢复密码库与软件设置，支持手动选择备份目录（SAF）。
 - **分组与搜索**：默认/动态密码/自定义分组，长按多选交集筛选，跨名称、分组、字段内容搜索，支持以已有账号为模板新建；搜索框展开即自动聚焦。
+- **账号速览**：点账号卡弹底部面板快速复制用户名/密码/验证码，不进详情页；切后台锁定后重新解锁，面板自动恢复到刚才的账号，方便继续复制。
 - **自定义主题**：深色/浅色/跟随系统，绿色/蓝色配色，支持 JSONC 格式自定义主题。
 - **`appsettings.json` 外挂配置**：可选覆盖层，放在**备份文件夹**里、与 `.acc` 同级（默认 `内部存储/backups/account`），可用文件管理器直接编辑；可覆盖掩码符号、主题、剪贴板时长等。启动不自动读取，在「主题与语言」页手动「重新加载配置文件」，同页常驻一行显示当前生效来源。
 - **备份文件夹可自定义**：在「备份与数据」页点「备份文件夹」填内部存储下的相对子路径（如 `Download/账本备份`），留空用默认 `backups/account`；不接受以 `/` 开头的绝对路径和 `..`。
@@ -33,11 +34,16 @@
 ## 构建
 
 ```sh
+./test.sh unit      # 本地单元测试（63 个）
 ./build.sh          # debug APK 并安装到真机
 ./build.sh release  # 已签名 release APK
 ```
 
 签名凭据从 `keystore.properties` 读取（不提交仓库）；文件缺失时 release 自动回退为未签名构建。Android Studio 直接打开项目即可。
+
+## 架构
+
+无 ViewModel、中央组装：`AccountApp` 是装配壳（路由 + 接线），各功能域状态收敛在 `runtime/` 状态容器（`SettingsContainer` 设置、`UnlockSession` 解锁会话/DEK、`BackupLocationState` 备份目录授权、`IdleLockHost` 空闲锁定接线）；`page/` 页面为无状态 props + 回调（备份页经 `BackupContracts` 三接口与装配层解耦）；`security/` 密码学与规则（`Totp`/`IdleLock` 纯 JVM 可单测，`VaultStore` 走 Robolectric）、`data/` 模型与持久化、`ui/` 组件与主题。依赖方向单向：page/ui → runtime → security/data。
 
 ## 暂未实现
 

@@ -54,15 +54,16 @@ internal class IdleLock(
         scheduler.schedule(timeoutMs) { onTimeout() }
     }
 
-    /** 有交互发生就把截止时间推后；未启动时是空操作，碰都不碰 scheduler。 */
+    /**
+     * 有交互发生就把锚点推到现在，并从新锚点起排一个完整超时；未启动时是空操作，碰都不碰 scheduler。
+     * 必须排 timeoutMs 而不是「到旧截止点的剩余时间」：语义就是「每次交互后重新等满一段空闲」，
+     * 排短了回调会提前到、被 onTimeout 的二次校验拒掉，而 Handler 回调只触发一次、被拒后无人重排，
+     * 计时器就地死亡——本周期内再也不会锁（曾致导航去过设置/分组页后前台永不锁定）。
+     */
     fun touch() {
         if (!started) return
-        val at = now()
-        // 先算旧锚点下的已过时长，再更新锚点：两者必须用同一个 now 读数，否则中间跨过一刻就会差出一点。
-        val remaining = timeoutMs - (at - lastInteractionAt)
-        lastInteractionAt = at
-        // 负延迟对 Handler 无意义（postDelayed 视作 0），这里直接夹到 0，也保证排程值可断言。
-        scheduler.schedule(remaining.coerceAtLeast(0L)) { onTimeout() }
+        lastInteractionAt = now()
+        scheduler.schedule(timeoutMs) { onTimeout() }
     }
 
     /** 停止计时并撤回回调；可重复调用（锁定、退后台、页面销毁都会走到）。 */

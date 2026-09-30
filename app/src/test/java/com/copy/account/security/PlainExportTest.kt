@@ -9,6 +9,7 @@ import com.copy.account.data.model.AccountField
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
 import com.copy.account.data.model.PersistedVault
+import com.copy.account.data.model.vaultJson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
