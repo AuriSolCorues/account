@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.isMasterPasswordValid
 import com.copy.account.BuildConfig
 import com.copy.account.ui.components.PasswordField
@@ -75,7 +76,7 @@ internal fun UnlockScreen(
             enabled = isMasterPasswordValid(password) && !unlocking,
             onClick = {
                 when {
-                    !isMasterPasswordValid(password) -> error = "主密码长度需为 4-20 个字符"
+                    !isMasterPasswordValid(password) -> error = MASTER_PASSWORD_RULE_HINT
                     firstUse && password != confirmation -> error = "两次输入的主密码不一致"
                     else -> scope.launch {
                         // PBKDF2 在主密码校验里较慢，放到后台执行，避免阻塞输入框和按钮动画。

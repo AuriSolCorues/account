@@ -12,6 +12,8 @@ import java.util.Base64
 import com.copy.account.data.model.AppSettings
 import com.copy.account.data.model.MAX_AUTO_LOCK_MINUTES
 import com.copy.account.data.model.PersistedVault
+import com.copy.account.data.model.SavedTheme
+import com.copy.account.data.model.vaultJson
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -30,7 +32,7 @@ private data class AccSettings(
     val accentTheme: String = "green",
     val languageTag: String = "zh-CN",
     val customThemeJson: String = "",
-    val customThemes: List<com.copy.account.ui.theme.SavedTheme> = emptyList(),
+    val customThemes: List<SavedTheme> = emptyList(),
     /** 真正的秒（默认 300 = 5 分钟）。名字里的 "Seconds" 名副其实，别被 AppSettings 的分钟单位误导。 */
     val autoLockSeconds: Int = 300,
     val clipboardClearSeconds: Int = 30,

@@ -67,6 +67,7 @@ import com.copy.account.ui.components.DragHandleGlyph
 import com.copy.account.ui.components.FieldTextBox
 import com.copy.account.ui.components.RandomPasswordGeneratorSheet
 import com.copy.account.ui.components.SheetTitleRow
+import com.copy.account.ui.components.ScanQrOverlay
 import com.copy.account.ui.components.SwitchRow
 import com.copy.account.ui.components.TextActionButton
 import com.copy.account.ui.components.TextInputDialog

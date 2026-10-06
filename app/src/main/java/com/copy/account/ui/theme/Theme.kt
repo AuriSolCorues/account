@@ -16,6 +16,8 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import com.copy.account.data.config.stripJsonComments
+import com.copy.account.data.model.SavedTheme
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -82,9 +84,6 @@ data class ThemeJsonDefinition(
     val colors: ThemeJsonColors = ThemeJsonColors()
 )
 
-@Serializable
-data class SavedTheme(val id: String, val name: String, val json: String)
-
 // staticCompositionLocalOf：值一变整棵子树全部重建——主题切换本就要全屏换色，正合适；
 // （普通 compositionLocalOf 只重建「读到它」的组件，粒度细但记录开销更大。）
 val LocalAccountThemePalette = staticCompositionLocalOf {
@@ -100,38 +99,6 @@ val LocalAccountThemePalette = staticCompositionLocalOf {
 }
 
 private val themeJson = Json { ignoreUnknownKeys = true; encodeDefaults = true; prettyPrint = true }
-
-/** 移除 JSONC 的行注释和块注释，同时保留字符串里的斜杠。 */
-fun stripJsonComments(source: String): String {
-    val out = StringBuilder(source.length)
-    var inString = false
-    var escaped = false
-    var block = false
-    var line = false
-    var i = 0
-    // 单指针状态机，四个互斥状态：行注释内/块注释内/字符串内/普通文本。
-    // 只丢弃注释字符；字符串字面量里的双斜杠与转义引号原样保留（escaped 标志防误判字符串边界）。
-    while (i < source.length) {
-        val c = source[i]
-        val next = source.getOrNull(i + 1)
-        if (line) {
-            if (c == '\n') { line = false; out.append(c) }
-        } else if (block) {
-            if (c == '*' && next == '/') { block = false; i++ }
-        } else if (!inString && c == '/' && next == '/') {
-            line = true; i++
-        } else if (!inString && c == '/' && next == '*') {
-            block = true; i++
-        } else {
-            out.append(c)
-            if (c == '"' && !escaped) inString = !inString
-            escaped = c == '\\' && !escaped
-            if (c != '\\') escaped = false
-        }
-        i++
-    }
-    return out.toString()
-}
 
 private fun parseHex(value: String): Color? = runCatching {
     val hex = value.trim().removePrefix("#")

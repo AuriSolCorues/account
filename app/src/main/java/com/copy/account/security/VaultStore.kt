@@ -24,6 +24,7 @@ import javax.crypto.*
 import javax.crypto.spec.GCMParameterSpec
 import kotlinx.serialization.*
 import com.copy.account.data.model.PersistedVault
+import com.copy.account.data.model.vaultJson
 
 // 以下常量是 SharedPreferences(account_security) 的 key 与库文件名：里面只存盐、验证值、
 // 包装后的 DEK 与 PBKDF2 迭代数，绝不存明文主密码、裸 DEK 或可解开 DEK 的 KEK。
@@ -79,7 +80,7 @@ internal class SecureVaultStore(private val context: Context) {
 
     /** 已解锁时使用当前 DEK 重新包装，直接替换主密码的 KEK 元数据。 */
     fun changeMasterPassword(newPassword: String, dek: ByteArray): Result<BackupKeyMaterial> = runCatching {
-        require(isMasterPasswordValid(newPassword)) { "主密码长度需为 4-20 个字符" }
+        require(isMasterPasswordValid(newPassword)) { MASTER_PASSWORD_RULE_HINT }
         require(dek.size == 32) { "当前密码库密钥无效，请重新解锁" }
         val newSalt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val material = passwordKeyMaterial(newPassword, newSalt, prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS))

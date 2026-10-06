@@ -1,6 +1,6 @@
 /**
- * 职责：加密原语层——PBKDF2 主密码派生、AES-256-GCM 加解密、主密码合法性校验，
- *       外加全库共用的宽松 JSON 配置（vaultJson）。无 UI、无状态，纯 JVM 可单测。
+ * 职责：加密原语层——PBKDF2 主密码派生、AES-256-GCM 加解密、主密码合法性校验。
+ *       无 UI、无状态，纯 JVM 可单测。全库共用的宽松 JSON 配置（vaultJson）已移至 data/model。
  * 架构位置：security 包的最底层；VaultStore（库加密）与 AccCodec（.acc 导出导入）只调这里，
  *           其余代码不直接碰 javax.crypto。
  * Python 类比：passwordHash ≈ hashlib.pbkdf2_hmac("sha256", password, salt, iterations) 出 32 字节；
@@ -14,19 +14,18 @@ import javax.crypto.*
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
-import kotlinx.serialization.json.Json
 
 /** 新建密码库时的 PBKDF2 迭代次数；每个库会在 prefs 里单独记录，改这里只影响新建的库。 */
 internal const val DEFAULT_PASSWORD_ITERATIONS = 300_000
-
-// 宽松 JSON：写入默认值、读取容忍未知键——vault.bin 与 .acc 内层数据都用它，兼容旧版本数据。
-internal val vaultJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
 // codePointCount 而非 length：Java/Kotlin 的 String 按 UTF-16 存储，一个增补平面字符占 2 个 char；
 // 按码点数才等于用户直觉的「字符数」（≈ Python 里 len(str) 的语义）。
 /** 主密码允许中文、英文、数字和符号，长度按 Unicode 码点计算。 */
 internal fun isMasterPasswordValid(password: String): Boolean =
     password.codePointCount(0, password.length) in 4..20
+
+/** 校验失败的统一提示文案；UI 各页与 VaultStore/AccCodec 的 require 共用，防四处漂移。 */
+internal const val MASTER_PASSWORD_RULE_HINT = "主密码长度需为 4-20 个字符"
 
 private fun normalizePassword(password: String): String =
     Normalizer.normalize(password, Normalizer.Form.NFC)

@@ -15,8 +15,7 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.copy.account.data.backup.findFileInFolder
 import com.copy.account.data.model.AppSettings
-import com.copy.account.ui.theme.SavedTheme
-import com.copy.account.ui.theme.stripJsonComments
+import com.copy.account.data.model.SavedTheme
 import java.io.File
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -37,6 +36,38 @@ data class AppSettingsOverride(
 )
 
 private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; prettyPrint = true }
+
+/** 移除 JSONC 的行注释和块注释，同时保留字符串里的斜杠。 */
+internal fun stripJsonComments(source: String): String {
+    val out = StringBuilder(source.length)
+    var inString = false
+    var escaped = false
+    var block = false
+    var line = false
+    var i = 0
+    // 单指针状态机，四个互斥状态：行注释内/块注释内/字符串内/普通文本。
+    // 只丢弃注释字符；字符串字面量里的双斜杠与转义引号原样保留（escaped 标志防误判字符串边界）。
+    while (i < source.length) {
+        val c = source[i]
+        val next = source.getOrNull(i + 1)
+        if (line) {
+            if (c == '\n') { line = false; out.append(c) }
+        } else if (block) {
+            if (c == '*' && next == '/') { block = false; i++ }
+        } else if (!inString && c == '/' && next == '/') {
+            line = true; i++
+        } else if (!inString && c == '/' && next == '*') {
+            block = true; i++
+        } else {
+            out.append(c)
+            if (c == '"' && !escaped) inString = !inString
+            escaped = c == '\\' && !escaped
+            if (c != '\\') escaped = false
+        }
+        i++
+    }
+    return out.toString()
+}
 
 /** 配置文件名；与 .acc 同级放在备份目录里，用户用文件管理器就能看到并编辑。 */
 internal const val APP_SETTINGS_FILE_NAME = "appsettings.json"

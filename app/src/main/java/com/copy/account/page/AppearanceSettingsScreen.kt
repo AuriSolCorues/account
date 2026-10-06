@@ -7,9 +7,6 @@
  */
 package com.copy.account.page
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,14 +29,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
+import com.copy.account.data.model.SavedTheme
 import com.copy.account.ui.components.AppListScreen
 import com.copy.account.ui.components.ChoiceDialog
 import com.copy.account.ui.components.DangerButton
 import com.copy.account.ui.components.SettingsHeader
 import com.copy.account.ui.components.SettingsRow
 import com.copy.account.ui.components.TextActionButton
+import com.copy.account.ui.platform.copyToClipboard
 import com.copy.account.ui.theme.AccountTheme
-import com.copy.account.ui.theme.SavedTheme
 import com.copy.account.ui.theme.defaultThemePresets
 import com.copy.account.ui.theme.parseThemeJson
 
@@ -147,8 +145,8 @@ internal fun AppearanceSettingsScreen(
                 if (jsonError.isNotBlank()) Text(jsonError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextActionButton("复制 JSON", onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                        clipboard?.setPrimaryClip(ClipData.newPlainText("account-theme.jsonc", draftThemeJson))
+                        // 非敏感（主题配置），不清除；sensitive=false 时 clearAfterSeconds 不生效，传 0 占位。
+                        copyToClipboard(context, draftThemeJson, sensitive = false, clearAfterSeconds = 0)
                     })
                     TextActionButton("保存副本", onClick = {
                         val parsed = parseThemeJson(draftThemeJson)
