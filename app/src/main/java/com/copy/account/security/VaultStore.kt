@@ -12,19 +12,24 @@ package com.copy.account.security
 
 import android.content.Context
 import android.os.Build
-import android.security.keystore.*
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import android.util.Base64
 import androidx.biometric.BiometricManager
+import com.copy.account.data.model.PersistedVault
+import com.copy.account.data.model.vaultJson
 import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
-import java.security.*
-import javax.crypto.*
+import java.security.KeyStore
+import java.security.MessageDigest
+import java.security.SecureRandom
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import kotlinx.serialization.*
-import com.copy.account.data.model.PersistedVault
-import com.copy.account.data.model.vaultJson
+import kotlinx.serialization.Serializable
 
 // 以下常量是 SharedPreferences(account_security) 的 key 与库文件名：里面只存盐、验证值、
 // 包装后的 DEK 与 PBKDF2 迭代数，绝不存明文主密码、裸 DEK 或可解开 DEK 的 KEK。
@@ -274,7 +279,7 @@ internal class SecureVaultStore(private val context: Context) {
     // AndroidKeyStore：硬件背书的系统密钥库，密钥不可导出（连 App 自己都取不走字节），Python 无等价物。
     // setUserAuthenticationRequired(true) = 每次使用该密钥必须先通过生物识别，由系统强制把关。
     private fun biometricKey(): SecretKey {
-        val ks = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (ks.getKey(BIOMETRIC_ALIAS, null) as? SecretKey)?.let { return it }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
         val builder = KeyGenParameterSpec.Builder(BIOMETRIC_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
@@ -326,7 +331,7 @@ internal class SecureVaultStore(private val context: Context) {
     fun disableBiometric() {
         prefs.edit().remove(BIOMETRIC_WRAPPED_DEK).remove(BIOMETRIC_WRAP_IV).apply()
         runCatching {
-            java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(BIOMETRIC_ALIAS)
+            KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(BIOMETRIC_ALIAS)
         }
     }
 }

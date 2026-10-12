@@ -39,14 +39,12 @@ import android.service.autofill.Dataset
 import android.service.autofill.FillResponse
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillManager
-import android.widget.TextView
 import android.widget.Toast
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import androidx.fragment.app.FragmentActivity
-import com.copy.account.R
 import com.copy.account.runtime.AutofillAccount
 import com.copy.account.runtime.AutofillBridge
 import com.copy.account.security.SecureVaultStore

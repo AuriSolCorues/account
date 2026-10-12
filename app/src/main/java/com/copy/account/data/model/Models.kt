@@ -117,10 +117,7 @@ internal data class Account(
     val packageName: String? = null,
 
     /** TOTP 为标准验证码，STEAM 为 Steam Guard 专用 5 字符验证码。 */
-    val totpType: String = DEFAULT_TOTP_TYPE,
-
-    /** 预留给后续自定义图标的稳定键；当前为空时继续使用现有文字界面。 */
-    val iconKey: String? = null
+    val totpType: String = DEFAULT_TOTP_TYPE
 )
 
 // ==================== 扩展属性 (UI 辅助) ====================

@@ -54,7 +54,6 @@ import android.util.Log
 import android.view.View
 import android.view.autofill.AutofillId
 import android.widget.Toast
-import com.copy.account.R
 import com.copy.account.data.model.Account
 import com.copy.account.data.model.AccountField
 import com.copy.account.data.model.PersistedVault
@@ -67,8 +66,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-
 class AppAutofillService : AutofillService() {
 
     // 保存单飞锁：vault.bin 是「整体解密→改→整体加密回写」的文件格式，两个并发保存会
