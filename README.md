@@ -15,6 +15,7 @@
 - **自定义主题**：深色/浅色/跟随系统，绿色/蓝色配色，支持 JSONC 格式自定义主题。
 - **`appsettings.json` 外挂配置**：可选覆盖层，放在**备份文件夹**里、与 `.acc` 同级（默认 `内部存储/backups/account`），可用文件管理器直接编辑；可覆盖掩码符号、主题、剪贴板时长等。启动不自动读取，在「主题与语言」页手动「重新加载配置文件」，同页常驻一行显示当前生效来源。
 - **备份文件夹可自定义**：在「备份与数据」页点「备份文件夹」填内部存储下的相对子路径（如 `Download/账本备份`），留空用默认 `backups/account`；不接受以 `/` 开头的绝对路径和 `..`。
+- **系统自动填充**：浏览器/其他应用登录页气泡里逐条列出匹配账号（网址域名优先、应用包名兜底，只显示账号名），点选后指纹验证才回填；也支持把新登录的账号密码保存进密码库。需先解锁一次本应用；桥失活时出「解锁账号本子」占位，验证后自动恢复填充。
 
 ## 安全模型
 
@@ -22,6 +23,7 @@
 - 每次 AES-GCM 加密使用新随机 IV 并校验认证标签，防篡改。
 - 密码库单文件 `filesDir/vault.bin` 原子写入，中断不破坏数据。
 - 进入后台立即锁定，锁定时清除内存中的密钥与明文。
+- 自动填充通道：解锁后的明文快照仅存本进程内存（AutofillBridge），Intent 不传明文；每次填充都要指纹验证，Keystore 密钥保持每次必验。
 
 ## 数据与文件
 
@@ -34,7 +36,7 @@
 ## 构建
 
 ```sh
-./test.sh unit      # 本地单元测试（63 个）
+./test.sh unit      # 本地单元测试（73 个）
 ./build.sh          # debug APK 并安装到真机
 ./build.sh release  # 已签名 release APK
 ```
@@ -43,11 +45,14 @@
 
 ## 架构
 
-无 ViewModel、中央组装：`AccountApp` 是装配壳（路由 + 接线），各功能域状态收敛在 `runtime/` 状态容器（`SettingsContainer` 设置、`UnlockSession` 解锁会话/DEK、`BackupLocationState` 备份目录授权、`IdleLockHost` 空闲锁定接线）；`page/` 页面为无状态 props + 回调（备份页经 `BackupContracts` 三接口与装配层解耦）；`security/` 密码学与规则（`Totp`/`IdleLock` 纯 JVM 可单测，`VaultStore` 走 Robolectric）、`data/` 模型与持久化、`ui/` 组件与主题。依赖方向单向：page/ui → runtime → security/data。
+无 ViewModel、中央组装：`AccountApp` 是装配壳（路由 + 接线），各功能域状态收敛在 `runtime/` 状态容器（`SettingsContainer` 设置、`UnlockSession` 解锁会话/DEK、`BackupLocationState` 备份目录授权、`IdleLockHost` 空闲锁定接线、`AutofillBridge` 自动填充内存快照桥）；`page/` 页面为无状态 props + 回调（备份页经 `BackupContracts` 三接口与装配层解耦）；`security/` 密码学与规则（`Totp`/`IdleLock` 纯 JVM 可单测，`VaultStore` 走 Robolectric）、`service/` 系统自动填充（`AppAutofillService` 填充/保存管线、`AutofillAuthActivity` 认证回包、`AutofillMatcher` 共享匹配与数据集构建、`AutofillSelfHeal` 桥自愈）、`util/DomainCleaner` 域名规整（纯 JVM 可单测）、`data/` 模型与持久化、`ui/` 组件与主题。依赖方向单向：page/ui → runtime → security/data。
+
+## 明确不做
+
+- WebDAV / 网络同步（定位纯本地，永远不会加）
 
 ## 暂未实现
 
-- WebDAV / 网络同步
 - 安全日志
 - 中文、拼音与拼音首字母搜索
 
