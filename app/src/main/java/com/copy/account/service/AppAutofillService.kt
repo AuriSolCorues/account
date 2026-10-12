@@ -38,6 +38,7 @@ package com.copy.account.service
 
 import android.app.PendingIntent
 import android.app.assist.AssistStructure
+import android.service.autofill.FillContext
 import android.content.ComponentName
 import android.content.Intent
 import android.content.IntentSender
@@ -84,6 +85,15 @@ class AppAutofillService : AutofillService() {
     ) {
         try {
             Log.d(TAG, "onFillRequest: id=${request.id}")
+            // 自家排除（1Password/Bitwarden 同款标准做法）：在账号本子自己的界面里既不弹
+            // 填充气泡也不弹保存提示——编辑页的密码框会触发系统回调，若无此守卫，服务端
+            // 返回的 SaveInfo 会让系统在页面退出时弹「要保存密码吗」，甚至把自家表单存成
+            // packageName=com.copy.account 的卡片。无 FillResponse 即无 SaveInfo，从根源消除。
+            if (isOwnApp(request.fillContexts)) {
+                Log.d(TAG, "onFillRequest: own app, suppress")
+                callback.onSuccess(null)
+                return
+            }
             // 桥未活跃 = 开关关/未解锁/已锁定/进程死亡后重启。旧契约是任何情况下静默放弃；
             // 新契约追加自愈分支：只要「生物识别解封 DEK」的包装密文还在（即用户配置过
             // 生物识别解锁），就回一个占位的认证型数据集——用户点它 → AutofillAuthActivity
@@ -246,6 +256,13 @@ class AppAutofillService : AutofillService() {
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
         Log.d(TAG, "onSaveRequest: contexts=${request.fillContexts?.size ?: 0}")
         try {
+            // 自家排除的防御性双保险：填充路径已拦自家请求，这里再拦一次，杜绝任何路径
+            // （系统直发保存、未来新增入口）把自家表单存进库。
+            if (isOwnApp(request.fillContexts)) {
+                Log.d(TAG, "onSaveRequest: own app, silent skip")
+                callback.onSuccess()
+                return
+            }
             // 桥未活跃或无 DEK：无法解密库文件，也不可能拿到可信数据，静默取消。
             if (!AutofillBridge.active || AutofillBridge.dek == null) {
                 Log.d(TAG, "onSaveRequest: bridge inactive, silent skip")
@@ -567,6 +584,12 @@ class AppAutofillService : AutofillService() {
     }
 
     // ==================== 结构遍历辅助 ====================
+
+    /** 请求来源是否为本应用自身：取最新 context 的 activityComponent 包名比对。 */
+    private fun isOwnApp(contexts: List<FillContext>?): Boolean {
+        val source = contexts?.lastOrNull()?.structure?.activityComponent?.packageName
+        return source == packageName
+    }
 
     private fun parseTarget(structures: List<AssistStructure>): Pair<String?, String?> {
         val structure = structures.lastOrNull() ?: return null to null
