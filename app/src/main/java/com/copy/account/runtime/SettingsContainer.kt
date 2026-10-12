@@ -32,6 +32,7 @@ import com.copy.account.data.config.ALLOW_SCREENSHOTS_SETTING
 import com.copy.account.data.config.AUTO_LOCK_SETTING
 import com.copy.account.data.config.AppSettingsOverride
 import com.copy.account.data.config.BIOMETRIC_SETTING
+import com.copy.account.data.config.AUTOFILL_SETTING
 import com.copy.account.data.config.CLIPBOARD_CLEAR_SETTING
 import com.copy.account.data.config.CUSTOM_THEME_JSON_SETTING
 import com.copy.account.data.config.CUSTOM_THEMES_SETTING
@@ -87,6 +88,7 @@ internal class SettingsContainer(
         val values = context.settingsDataStore.data.first()
         val loadedSettings = AppSettings(
             biometricEnabled = values[BIOMETRIC_SETTING] ?: false,
+            autofillEnabled = values[AUTOFILL_SETTING] ?: false,
             autoLockMinutes = (values[AUTO_LOCK_SETTING] ?: 5).coerceIn(0, MAX_AUTO_LOCK_MINUTES),
             themeMode = values[THEME_MODE_SETTING] ?: initialThemeMode,
             accentTheme = values[ACCENT_THEME_SETTING] ?: initialAccentTheme,
@@ -116,6 +118,7 @@ internal class SettingsContainer(
         scope.launch {
             context.settingsDataStore.edit {
                 it[BIOMETRIC_SETTING] = value.biometricEnabled
+                it[AUTOFILL_SETTING] = value.autofillEnabled
                 it[AUTO_LOCK_SETTING] = value.autoLockMinutes
                 it[THEME_MODE_SETTING] = value.themeMode
                 it[ACCENT_THEME_SETTING] = value.accentTheme

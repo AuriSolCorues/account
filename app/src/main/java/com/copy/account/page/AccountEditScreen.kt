@@ -8,19 +8,33 @@
  */
 package com.copy.account.page
 
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -28,6 +42,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,9 +54,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.copy.account.BuildConfig
 import com.copy.account.data.model.DEFAULT_TOTP_ALGORITHM
 import com.copy.account.data.model.DEFAULT_TOTP_DIGITS
@@ -68,6 +90,7 @@ import com.copy.account.ui.components.FieldTextBox
 import com.copy.account.ui.components.RandomPasswordGeneratorSheet
 import com.copy.account.ui.components.SheetTitleRow
 import com.copy.account.ui.components.ScanQrOverlay
+import com.copy.account.ui.components.SurfaceCard
 import com.copy.account.ui.components.SwitchRow
 import com.copy.account.ui.components.TextActionButton
 import com.copy.account.ui.components.TextInputDialog
@@ -152,6 +175,11 @@ internal fun AccountEditScreen(
     var passwordHidden by remember(source?.id) { mutableStateOf(source?.passwordHidden ?: true) }
     var usernameLabel by remember(source?.id) { mutableStateOf(source?.usernameLabel.orEmpty()) }
     var passwordLabel by remember(source?.id) { mutableStateOf(source?.passwordLabel.orEmpty()) }
+    /** 网址：仅存原文不强制补 scheme；匹配时的清洗交给 DomainCleaner。 */
+    var url by remember(source?.id) { mutableStateOf(source?.url.orEmpty()) }
+    /** 关联应用包名：非空即自动填充时按该应用匹配；null = 未绑定。 */
+    var boundPackage by remember(source?.id) { mutableStateOf(source?.packageName) }
+    var showAppPicker by remember { mutableStateOf(false) }
     var hasTotp by remember(source?.id) { mutableStateOf(source?.hasTotp ?: false) }
     var totpSecret by remember(source?.id) { mutableStateOf(source?.totpSecret.orEmpty()) }
     var totpType by remember(source?.id) { mutableStateOf(source?.totpType ?: DEFAULT_TOTP_TYPE) }
@@ -236,6 +264,8 @@ internal fun AccountEditScreen(
                     totpCounter = if (isHotp) counter else 0,
                     totpAlgorithm = totpAlgorithm,
                     customFields = fields,
+                    url = url.trim(),
+                    packageName = boundPackage,
                     totpType = totpType
                 )
                 scope.launch {
@@ -330,6 +360,24 @@ internal fun AccountEditScreen(
                         onToggleHidden = { passwordHidden = !passwordHidden }
                     )
                 }
+            )
+        }
+        item {
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it },
+                label = { Text("网址") },
+                placeholder = { Text("https://example.com") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            BoundAppCard(
+                boundPackage = boundPackage,
+                onPick = { showAppPicker = true },
+                onUnbind = { boundPackage = null }
             )
         }
         items(fields, key = { it.id }) { field ->
@@ -563,6 +611,16 @@ internal fun AccountEditScreen(
             onDismiss = { addGroupDialog = false }
         )
     }
+    if (showAppPicker) {
+        AppPickerDialog(
+            currentPackage = boundPackage,
+            onSelect = { picked ->
+                boundPackage = picked.packageName
+                showAppPicker = false
+            },
+            onDismiss = { showAppPicker = false }
+        )
+    }
     if (showMissingName) {
         AlertDialog(
             onDismissRequest = { showMissingName = false },
@@ -597,6 +655,174 @@ internal fun AccountEditScreen(
                 showScan = false
             }
         )
+    }
+}
+
+/** 应用选择器的条目：仅保留匹配/展示所需三件，不持有 Drawable 图标本体以外的状态。 */
+private data class AppEntry(
+    val label: String,
+    val packageName: String,
+    val icon: Drawable
+)
+
+/** Drawable → ImageBitmap：Bitmap 直取；自适应/矢量图标画到临时位图（应用图标展示足够）。 */
+private fun drawableToImageBitmap(drawable: Drawable): ImageBitmap {
+    if (drawable is BitmapDrawable) return drawable.bitmap.asImageBitmap()
+    val size = 48
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    drawable.setBounds(0, 0, size, size)
+    drawable.draw(android.graphics.Canvas(bitmap))
+    return bitmap.asImageBitmap()
+}
+
+/**
+ * 关联应用卡：未绑定显「选择应用」入口，已绑定显图标/应用名/包名 + 解除绑定。
+ * 图标与应用名经 PackageManager 现取现显（remember(packageName) 缓存，包名一换重取）。
+ */
+@Composable
+private fun BoundAppCard(
+    boundPackage: String?,
+    onPick: () -> Unit,
+    onUnbind: () -> Unit
+) {
+    val context = LocalContext.current
+    SurfaceCard(onClick = onPick, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val iconBitmap = remember(boundPackage) {
+                boundPackage?.let { pkg ->
+                    runCatching { drawableToImageBitmap(context.packageManager.getApplicationIcon(pkg)) }.getOrNull()
+                }
+            }
+            if (iconBitmap != null) {
+                Image(bitmap = iconBitmap, contentDescription = null, modifier = Modifier.size(36.dp))
+                Spacer(Modifier.width(12.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text("关联应用", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val label = remember(boundPackage) {
+                    boundPackage?.let { pkg ->
+                        runCatching {
+                            val pm = context.packageManager
+                            pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+                        }.getOrNull()
+                    }
+                }
+                Text(
+                    text = label ?: "选择应用",
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (boundPackage != null) {
+                    Text(
+                        text = boundPackage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (boundPackage != null) {
+                TextActionButton("解除绑定", onClick = onUnbind)
+            }
+        }
+    }
+}
+
+/**
+ * 应用选择器：全屏对话框列已安装的可启动应用（Launcher intent 查询），顶部搜索按
+ * 应用名与包名过滤；过滤自身与系统安卓壳。列表打开时查一次，图标行内现取现显。
+ */
+@Composable
+private fun AppPickerDialog(
+    currentPackage: String?,
+    onSelect: (AppEntry) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val apps = remember {
+        runCatching {
+            val pm = context.packageManager
+            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            pm.queryIntentActivities(intent, 0)
+                .asSequence()
+                .map { AppEntry(label = it.loadLabel(pm).toString(), packageName = it.activityInfo.packageName, icon = it.loadIcon(pm)) }
+                .distinctBy { it.packageName }
+                .filterNot { it.packageName == context.packageName || it.packageName == "android" }
+                .sortedBy { it.label.lowercase() }
+                .toList()
+        }.getOrDefault(emptyList())
+    }
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(apps, query) {
+        if (query.isBlank()) apps
+        else apps.filter {
+            it.label.contains(query, ignoreCase = true) || it.packageName.contains(query, ignoreCase = true)
+        }
+    }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            shape = RoundedCornerShape(28.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                SheetTitleRow("选择应用") {}
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("搜索应用") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(12.dp))
+                if (filtered.isEmpty()) {
+                    Text(
+                        "未找到匹配的应用",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
+                        textAlign = TextAlign.Center
+                    )
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+                        items(filtered, key = { it.packageName }) { app ->
+                            val iconBitmap = remember(app.packageName) {
+                                runCatching { drawableToImageBitmap(context.packageManager.getApplicationIcon(app.packageName)) }.getOrNull()
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().clickable { onSelect(app) }.padding(vertical = 10.dp, horizontal = 4.dp)
+                            ) {
+                                if (iconBitmap != null) {
+                                    Image(bitmap = iconBitmap, contentDescription = null, modifier = Modifier.size(36.dp))
+                                    Spacer(Modifier.width(12.dp))
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(app.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        app.packageName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                if (app.packageName == currentPackage) {
+                                    Text("✓", color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                TextActionButton("取消", onClick = onDismiss, modifier = Modifier.align(Alignment.End))
+            }
+        }
     }
 }
 

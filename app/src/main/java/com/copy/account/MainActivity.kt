@@ -10,6 +10,7 @@
  */
 package com.copy.account
 
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.core.view.WindowInsetsControllerCompat
@@ -51,6 +52,13 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         // 内容延伸到系统栏后方，让顶栏覆盖刘海区域，避免全屏设备出现白色边条。
         enableEdgeToEdge()
+        // 高刷新率适配：系统默认可能把 App 锁在 60Hz 省电档；从支持的模式里挑「同分辨率下刷新率最高」的。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val mode = display?.supportedModes
+                ?.filter { it.physicalWidth == display.mode.physicalWidth && it.physicalHeight == display.mode.physicalHeight }
+                ?.maxByOrNull { it.refreshRate }
+            mode?.let { window.attributes.preferredDisplayModeId = it.modeId }
+        }
         // setContent：把 @Composable 函数树挂进本窗口——命令式 Activity 世界与声明式 Compose
         // 世界的交界；此后 UI 全部声明式描述，不再有 XML 布局与 findViewById。
         setContent {

@@ -15,6 +15,14 @@
         android:name="android.hardware.camera.any"
         android:required="false" />
 
+    <!-- 应用选择器：仅声明要查询的 Launcher 应用（可见性过滤），不申请 QUERY_ALL_PACKAGES。 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -37,6 +45,26 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- 自动填充：系统 绑定服务（BIND_AUTOFILL_SERVICE 由系统持有，外部应用不可拉起）。 -->
+        <service
+            android:name=".service.AppAutofillService"
+            android:exported="true"
+            android:label="@string/autofill_service_label"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.autofill"
+                android:resource="@xml/autofill_service_config" />
+        </service>
+        <!-- 自动填充解锁确认页：透明浮层，验证主密码/指纹后 finish 回填充流程。 -->
+        <activity
+            android:name=".service.AutofillAuthActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.Account.Transparent" />
     </application>
 
 </manifest>

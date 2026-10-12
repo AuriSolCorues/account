@@ -110,6 +110,12 @@ internal data class Account(
     /** 自定义字段列表。 */
     val customFields: List<AccountField> = emptyList(),
 
+    /** 网页网址（自动填充网页场景的匹配依据）；空串=未绑定网页。 */
+    val url: String = "",
+
+    /** 关联应用的包名（自动填充 App 场景的精准匹配依据）；null=未绑定应用。单绑定。 */
+    val packageName: String? = null,
+
     /** TOTP 为标准验证码，STEAM 为 Steam Guard 专用 5 字符验证码。 */
     val totpType: String = DEFAULT_TOTP_TYPE,
 
@@ -170,6 +176,8 @@ data class SavedTheme(val id: String, val name: String, val json: String)
  */
 internal data class AppSettings(
     val biometricEnabled: Boolean = false,
+    /** 自动填充开关：解锁时灌 AutofillBridge、锁定撤桥的总闸；锁定态下桥必不活跃。 */
+    val autofillEnabled: Boolean = false,
     /** 自动锁定时长：单位为分钟，0 表示关闭自动锁定，正常范围 1..[MAX_AUTO_LOCK_MINUTES]。 */
     val autoLockMinutes: Int = 5,
     val themeMode: String = BuildConfig.DEFAULT_THEME_MODE,
@@ -226,6 +234,7 @@ internal val initialAccounts = listOf(
         name = "示例 · 普通账号",
         username = "hello@example.com",
         password = "demo-password",
+        url = "https://github.com",
         customFields = listOf(
             AccountField("demo-url", "网址", "https://example.com"),
             AccountField("demo-recovery", "恢复码", "demo-recovery-code", hidden = true),

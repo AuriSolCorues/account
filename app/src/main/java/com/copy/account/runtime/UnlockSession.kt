@@ -47,6 +47,8 @@ internal class UnlockSession(
     private val hostActivity: () -> ComponentActivity?,
     /** 现读现用的生物识别开关（生效设置）；实现方须保证每次调用取最新值。 */
     private val biometricEnabled: () -> Boolean,
+    /** 现读现用的自动填充开关（生效设置）；桥的灌入/撤除以此为闸。 */
+    private val autofillEnabled: () -> Boolean,
     /** 启用/关闭生物识别后回写设置真值。 */
     private val onBiometricEnabledChange: (Boolean) -> Unit,
     /** 解锁完成（密码/生物识别）：AccountApp 跳 Home。 */
@@ -83,13 +85,18 @@ internal class UnlockSession(
     ): Result<Unit> {
         val key = dataKey?.copyOf() ?: return Result.failure(IllegalStateException("当前未解锁，请重新解锁后重试"))
         val snapshot = PersistedVault(accounts = nextAccounts, groups = nextGroups, selectedGroupId = nextSelectedGroupId)
-        return try {
+        val result = try {
             vaultWriteMutex.withLock {
                 withContext(Dispatchers.IO) { runCatching { store.save(snapshot, key) } }
             }
         } finally {
             key.fill(0)
         }
+        // 落盘成功即以本次持久化的账号列表为准刷新自动填充快照（桥内部判 active，非活跃是空操作）。
+        if (result.isSuccess && autofillEnabled()) {
+            AutofillBridge.refresh(AutofillBridge.toAutofillAccounts(nextAccounts))
+        }
+        return result
     }
 
     fun persistVault() {
@@ -124,12 +131,22 @@ internal class UnlockSession(
         return true
     }
 
+    /**
+     * 锁定：UI 会话清零（DEK/账号内存态/回解锁页）。锁定只清 UI 会话；自动填充窗口的
+     * 生命周期由「开关+手动关闭+进程死」管理，与锁定解耦——撤桥不在本方法发生
+     * （桥自身有逐次生物识别 AutofillAuthActivity 与开关闸 autofillEnabled，不扩大暴露面）。
+     */
     fun lockApp() {
         dataKey?.fill(0)
         dataKey = null
         accounts = emptyList()
         lockGeneration++
         onLocked()
+    }
+
+    /** 手动关闭填充窗口：唯一主动撤桥入口（设置页调用）。 */
+    fun closeAutofillWindow() {
+        AutofillBridge.clear()
     }
 
     /** HOTP 复制即 +1：把该账号计数器 +1 并持久化，下次重绘即下一组码。 */
@@ -149,6 +166,9 @@ internal class UnlockSession(
         groups = unlocked.state.groups.ifEmpty { initialGroups }
         selectedGroupId = unlocked.state.selectedGroupId.ifBlank { "default" }
         onUnlocked()
+        if (autofillEnabled()) {
+            AutofillBridge.enable(AutofillBridge.toAutofillAccounts(accounts), unlocked.dataKey)
+        }
     }
 
     private fun finishBiometricUnlock(key: ByteArray, state: PersistedVault) {
@@ -158,6 +178,9 @@ internal class UnlockSession(
         groups = state.groups.ifEmpty { initialGroups }
         selectedGroupId = state.selectedGroupId.ifBlank { "default" }
         onUnlocked()
+        if (autofillEnabled()) {
+            AutofillBridge.enable(AutofillBridge.toAutofillAccounts(accounts), key)
+        }
     }
 
     fun authenticateBiometric(onError: () -> Unit = {}) {
@@ -225,7 +248,10 @@ internal class UnlockSession(
         biometricPromptActive = false
     }
 
-    /** ON_STOP：进入后台立即锁定（仅已解锁时）。 */
+    /**
+     * ON_STOP：进入后台立即锁定 UI 会话。桥不随后台回收——填充发生在其他 App 前台期间，
+     * 窗口必须跨后台存活（与锁定解耦，见 lockApp）；关闭只能靠用户手动关闭或进程死。
+     */
     fun onAppStop() {
         if (isUnlocked) lockApp()
     }
@@ -233,17 +259,20 @@ internal class UnlockSession(
 
 /**
  * 组装工厂：容器只建一次；回调经 rememberUpdatedState 转发防闭包陈旧（同 IdleLock 教训）。
- * biometricEnabled 传「捕获容器而非快照」的 lambda，如 { settingsContainer.settings.biometricEnabled }。
+ * biometricEnabled/autofillEnabled 传「捕获容器而非快照」的 lambda，
+ * 如 { settingsContainer.settings.biometricEnabled }。
  */
 @Composable
 internal fun rememberUnlockSession(
     store: SecureVaultStore,
     biometricEnabled: () -> Boolean,
+    autofillEnabled: () -> Boolean,
     onBiometricEnabledChange: (Boolean) -> Unit,
     onUnlocked: () -> Unit,
     onLocked: () -> Unit,
 ): UnlockSession {
     val currentBiometricEnabled by rememberUpdatedState(biometricEnabled)
+    val currentAutofillEnabled by rememberUpdatedState(autofillEnabled)
     val currentOnBiometricEnabledChange by rememberUpdatedState(onBiometricEnabledChange)
     val currentOnUnlocked by rememberUpdatedState(onUnlocked)
     val currentOnLocked by rememberUpdatedState(onLocked)
@@ -256,6 +285,7 @@ internal fun rememberUnlockSession(
             store = store,
             hostActivity = { context as? ComponentActivity },
             biometricEnabled = { currentBiometricEnabled() },
+            autofillEnabled = { currentAutofillEnabled() },
             onBiometricEnabledChange = { currentOnBiometricEnabledChange(it) },
             onUnlocked = { currentOnUnlocked() },
             onLocked = { currentOnLocked() }
