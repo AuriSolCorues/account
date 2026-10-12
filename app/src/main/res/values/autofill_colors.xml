@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自动填充气泡展示卡的配色：亮色为默认，深色由 values-night 覆盖。
+     RemoteViews 读不到 Compose 主题，只能走资源限定符按系统深色模式切换——
+     与主流密码管理器（KeePass/Dashlane）同款机制。 -->
+<resources>
+    <!-- 气泡卡背景：亮色白底 -->
+    <color name="autofill_card_background">#FFFFFFFF</color>
+    <!-- 主标题文字：亮色深黑 -->
+    <color name="autofill_title_text">#FF1C1C1E</color>
+</resources>

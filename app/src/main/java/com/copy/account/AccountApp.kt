@@ -57,6 +57,7 @@ import com.copy.account.page.BackupExporter
 import com.copy.account.page.BackupFileStore
 import com.copy.account.page.BackupRowUi
 import com.copy.account.runtime.IdleLockHost
+import com.copy.account.runtime.AutofillBridge
 import com.copy.account.runtime.rememberBackupLocationState
 import com.copy.account.runtime.rememberSettingsContainer
 import com.copy.account.runtime.rememberUnlockSession
@@ -128,6 +129,8 @@ fun AccountApp(
     val session = rememberUnlockSession(
         store = store,
         biometricEnabled = { settingsContainer.settings.biometricEnabled },
+        // autofillEnabled：开关由设置域（autofillEnabled）落地后接入；先以 false 桥闸常闭，功能不激活。
+        autofillEnabled = { settingsContainer.settings.autofillEnabled },
         onBiometricEnabledChange = { enabled -> settingsContainer.update { it.copy(biometricEnabled = enabled) } },
         onUnlocked = { page = AppPage.Home },
         onLocked = { editTemplate = null; page = AppPage.Unlock }
@@ -209,6 +212,7 @@ fun AccountApp(
         activity = activity,
         isUnlocked = dataKey != null,
         autoLockMinutes = settings.autoLockMinutes,
+        // 空闲锁定只锁 UI 会话，不再撤桥（窗口由用户手动管理）。
         onLock = session::lockApp
     )
 
@@ -318,6 +322,13 @@ fun AccountApp(
             biometricAvailable = store.biometricAvailable(),
             onToggleBiometric = session::configureBiometric,
             onChangeMasterPassword = ::changeMasterPassword,
+            autofillEnabled = settings.autofillEnabled,
+            onAutofillEnabledChange = { enabled ->
+                settingsContainer.update { it.copy(autofillEnabled = enabled) }
+                // 关开关=关闭填充窗口：不再等下次解锁，明文快照与 DEK 副本必须随开关即时失效。
+                if (!enabled) AutofillBridge.clear()
+            },
+            onCloseAutofillWindow = { session.closeAutofillWindow() },
             autoLockMinutes = settings.autoLockMinutes,
             onAutoLockChange = { minutes ->
                 settingsContainer.update { it.copy(autoLockMinutes = minutes.coerceIn(0, MAX_AUTO_LOCK_MINUTES)) }

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自动填充数据集的 RemoteViews 展示卡：系统键盘气泡里的一行账号名称。
+     id 命名沿用 PasswordManager 参考实现（tv_autofill_title），
+     服务端 setTextViewText 与 AutofillAuthActivity 认证后的重建展示共用此布局。
+     配色走 @color 引用（values/autofill_colors.xml + values-night 覆盖），
+     随系统深色模式自动切换——RemoteViews 读不到 Compose 主题，资源限定符是唯一正道。
+     多账号=每账号一个数据集，系统填充列表原生逐条渲染成紧凑小行；超长靠
+     maxLines=1 + ellipsize=end 截断。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/autofill_card_background"
+    android:paddingStart="16dp"
+    android:paddingTop="12dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="12dp">
+
+    <!-- 主标题：加粗，16sp -->
+    <TextView
+        android:id="@+id/tv_autofill_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/autofill_title_text"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:ellipsize="end"
+        android:maxLines="1" />
+</LinearLayout>

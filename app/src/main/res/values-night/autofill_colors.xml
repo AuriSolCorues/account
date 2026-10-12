@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 系统深色模式下的填充气泡配色：对齐 app 深色主题的 surface 色板
+     （account_background #101217 / account_surface #1A1E26 的近邻取值）。 -->
+<resources>
+    <!-- 气泡卡背景：深色用 surface 近黑，而非纯黑（保留层次） -->
+    <color name="autofill_card_background">#FF1C1F26</color>
+    <!-- 主标题文字：深色下用浅白 -->
+    <color name="autofill_title_text">#FFF2F2F7</color>
+</resources>

@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">account</string>
+    <string name="autofill_service_label">账号本子自动填充</string>
 </resources>

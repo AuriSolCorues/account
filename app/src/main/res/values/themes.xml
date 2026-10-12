@@ -9,4 +9,14 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
     </style>
+
+    <!-- 自动填充解锁确认页：透明浮层，透出调用方（浏览器等）的填充界面。 -->
+    <style name="Theme.Account.Transparent" parent="Theme.Account">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:backgroundDimEnabled">true</item>
+    </style>
 </resources>
