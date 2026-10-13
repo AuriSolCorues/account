@@ -10,7 +10,7 @@ package com.copy.account.security
 
 import java.util.Base64
 import com.copy.account.data.model.AppSettings
-import com.copy.account.data.model.MAX_AUTO_LOCK_MINUTES
+import com.copy.account.data.model.MAX_AUTO_LOCK_SECONDS
 import com.copy.account.data.model.PersistedVault
 import com.copy.account.data.model.SavedTheme
 import com.copy.account.data.model.vaultJson
@@ -94,8 +94,8 @@ internal fun exportAcc(input: AccExportInput, key: ByteArray, salt: ByteArray, i
                     languageTag = settings.languageTag,
                     customThemeJson = settings.customThemeJson,
                     customThemes = settings.customThemes,
-                    // 存档单位是秒而内存里是分钟，这里是唯一的换算点；0（关闭）原样保留为 0。
-                    autoLockSeconds = settings.autoLockMinutes.coerceIn(0, MAX_AUTO_LOCK_MINUTES) * 60,
+                    // 内存单位已统一为秒，直传；0（关闭）原样保留为 0。
+                    autoLockSeconds = settings.autoLockSeconds.coerceIn(0, MAX_AUTO_LOCK_SECONDS),
                     clipboardClearSeconds = settings.clipboardClearSeconds,
                     allowScreenshots = settings.allowScreenshots
                 )
@@ -140,9 +140,9 @@ internal fun importAcc(bytes: ByteArray, password: String): Result<AccImportResu
                 languageTag = "zh-CN",
                 customThemeJson = settings.customThemeJson,
                 customThemes = settings.customThemes,
-                // 导入按秒解回分钟（1.3 版备份的 autoLockSeconds 就是秒，漏掉这个 /60 会让 5 分钟变成 5 小时）；
-                // 放宽下界到 0 才能导入「关闭自动锁定」，上界对齐 24 小时。
-                autoLockMinutes = (settings.autoLockSeconds / 60).coerceIn(0, MAX_AUTO_LOCK_MINUTES),
+                // 内部单位已统一为秒，直传；旧版备份的 autoLockSeconds 本来就是秒，天然兼容
+                //（1.3 版「漏 /60 变 5 小时」的换算陷阱随单位统一而消失）。上界对齐 24 小时。
+                autoLockSeconds = settings.autoLockSeconds.coerceIn(0, MAX_AUTO_LOCK_SECONDS),
                 clipboardClearSeconds = settings.clipboardClearSeconds.coerceIn(0, 86_400),
                 allowScreenshots = settings.allowScreenshots
             )

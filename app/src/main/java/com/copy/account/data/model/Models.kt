@@ -161,8 +161,8 @@ internal fun accountInGroup(account: Account, groups: List<Group>, groupId: Stri
 // DataStore 存真值（见 data/config/Preferences.kt），可选 appsettings.json 只读覆盖。
 // 字段默认值须与 AccountApp 首次从 DataStore 读取失败时的回退值保持一致。
 
-/** 自动锁定时长上限（分钟），即 24 小时；超过的设置值一律夹到此处。 */
-internal const val MAX_AUTO_LOCK_MINUTES = 1440
+/** 自动锁定时长上限（秒），即 24 小时；超过的设置值一律夹到此处。 */
+internal const val MAX_AUTO_LOCK_SECONDS = 86_400
 
 /** 用户保存的自定义主题（id + 显示名 + 原始 JSONC 文本），供主题列表管理与还原。 */
 @Serializable
@@ -175,8 +175,8 @@ internal data class AppSettings(
     val biometricEnabled: Boolean = false,
     /** 自动填充开关：解锁时灌 AutofillBridge、锁定撤桥的总闸；锁定态下桥必不活跃。 */
     val autofillEnabled: Boolean = false,
-    /** 自动锁定时长：单位为分钟，0 表示关闭自动锁定，正常范围 1..[MAX_AUTO_LOCK_MINUTES]。 */
-    val autoLockMinutes: Int = 5,
+    /** 自动锁定时长：内部单位为秒（0 = 关闭，1..[MAX_AUTO_LOCK_SECONDS]）；UI 显示与编辑仍以分钟呈现，边界处换算。 */
+    val autoLockSeconds: Int = 300,
     val themeMode: String = BuildConfig.DEFAULT_THEME_MODE,
     val accentTheme: String = "green",
     val languageTag: String = "zh-CN",

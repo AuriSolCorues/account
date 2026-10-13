@@ -30,6 +30,7 @@ import com.copy.account.BuildConfig
 import com.copy.account.data.config.ACCENT_THEME_SETTING
 import com.copy.account.data.config.ALLOW_SCREENSHOTS_SETTING
 import com.copy.account.data.config.AUTO_LOCK_SETTING
+import com.copy.account.data.config.LEGACY_AUTO_LOCK_MINUTES_SETTING
 import com.copy.account.data.config.AppSettingsOverride
 import com.copy.account.data.config.BIOMETRIC_SETTING
 import com.copy.account.data.config.AUTOFILL_SETTING
@@ -45,7 +46,7 @@ import com.copy.account.data.config.loadAppSettingsOverride
 import com.copy.account.data.config.loadSafAppSettingsOverride
 import com.copy.account.data.config.settingsDataStore
 import com.copy.account.data.model.AppSettings
-import com.copy.account.data.model.MAX_AUTO_LOCK_MINUTES
+import com.copy.account.data.model.MAX_AUTO_LOCK_SECONDS
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -89,7 +90,9 @@ internal class SettingsContainer(
         val loadedSettings = AppSettings(
             biometricEnabled = values[BIOMETRIC_SETTING] ?: false,
             autofillEnabled = values[AUTOFILL_SETTING] ?: false,
-            autoLockMinutes = (values[AUTO_LOCK_SETTING] ?: 5).coerceIn(0, MAX_AUTO_LOCK_MINUTES),
+            autoLockSeconds = values[AUTO_LOCK_SETTING]
+                // 迁移：旧键存分钟（×60 转秒）；两键都缺省 300（= 原 5 分钟）。
+                ?: ((values[LEGACY_AUTO_LOCK_MINUTES_SETTING] ?: 5) * 60).coerceIn(0, MAX_AUTO_LOCK_SECONDS),
             themeMode = values[THEME_MODE_SETTING] ?: initialThemeMode,
             accentTheme = values[ACCENT_THEME_SETTING] ?: initialAccentTheme,
             languageTag = values[LANGUAGE_TAG_SETTING] ?: "zh-CN",
@@ -119,7 +122,7 @@ internal class SettingsContainer(
             context.settingsDataStore.edit {
                 it[BIOMETRIC_SETTING] = value.biometricEnabled
                 it[AUTOFILL_SETTING] = value.autofillEnabled
-                it[AUTO_LOCK_SETTING] = value.autoLockMinutes
+                it[AUTO_LOCK_SETTING] = value.autoLockSeconds
                 it[THEME_MODE_SETTING] = value.themeMode
                 it[ACCENT_THEME_SETTING] = value.accentTheme
                 it[LANGUAGE_TAG_SETTING] = value.languageTag

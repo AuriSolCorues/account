@@ -23,8 +23,10 @@ internal val Context.settingsDataStore by preferencesDataStore(name = "app_setti
 internal val BIOMETRIC_SETTING = booleanPreferencesKey("biometric_enabled")
 // 自动填充总开关（解锁时灌 AutofillBridge、锁定撤桥）
 internal val AUTOFILL_SETTING = booleanPreferencesKey("autofill_enabled")
-// 自动锁定时间（单位：分钟，0 = 关闭自动锁定，正常范围 1..1440）
-internal val AUTO_LOCK_SETTING = intPreferencesKey("auto_lock_minutes")
+// 自动锁定时间（单位：秒，0 = 关闭自动锁定，正常范围 1..86400）
+internal val AUTO_LOCK_SETTING = intPreferencesKey("auto_lock_seconds")
+// 旧键（单位：分钟）。仅迁移期读取一次；写路径不再使用，残值无害。
+internal val LEGACY_AUTO_LOCK_MINUTES_SETTING = intPreferencesKey("auto_lock_minutes")
 // 主题模式（如浅色、深色、跟随系统）
 internal val THEME_MODE_SETTING = stringPreferencesKey("theme_mode")
 // 强调色/主题色配置
