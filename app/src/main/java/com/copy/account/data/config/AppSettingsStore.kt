@@ -32,6 +32,9 @@ data class AppSettingsOverride(
     val clipboardClearSeconds: Int? = null,
     val allowScreenshots: Boolean? = null,
     val biometricEnabled: Boolean? = null,
+    /** 新键：自动锁定秒数。与旧键 [autoLockMinutes] 同时声明是为了兼容旧外挂文件一版。 */
+    val autoLockSeconds: Int? = null,
+    /** 旧键（分钟）：仅兼容旧 appsettings.json 保留，优先级低于新键；下次大版本删除。 */
     val autoLockMinutes: Int? = null
 )
 
@@ -125,6 +128,7 @@ internal fun applyOverride(base: AppSettings, override: AppSettingsOverride?): A
         clipboardClearSeconds = override.clipboardClearSeconds ?: base.clipboardClearSeconds,
         allowScreenshots = override.allowScreenshots ?: base.allowScreenshots,
         biometricEnabled = override.biometricEnabled ?: base.biometricEnabled,
-        autoLockMinutes = override.autoLockMinutes ?: base.autoLockMinutes
+        // 新键优先；旧键（分钟）仅兜底旧外挂文件，×60 归一化为秒。两者都缺省保持 base。
+        autoLockSeconds = override.autoLockSeconds ?: (override.autoLockMinutes?.let { it * 60 }) ?: base.autoLockSeconds
     )
 }

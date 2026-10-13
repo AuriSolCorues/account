@@ -46,7 +46,7 @@ import com.copy.account.data.model.Account
 import com.copy.account.data.model.FIXED_GROUP_COUNT
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
-import com.copy.account.data.model.MAX_AUTO_LOCK_MINUTES
+import com.copy.account.data.model.MAX_AUTO_LOCK_SECONDS
 import com.copy.account.data.model.PersistedVault
 import com.copy.account.data.model.SavedTheme
 import com.copy.account.data.model.accountInGroup
@@ -211,7 +211,7 @@ fun AccountApp(
     IdleLockHost(
         activity = activity,
         isUnlocked = dataKey != null,
-        autoLockMinutes = settings.autoLockMinutes,
+        autoLockSeconds = settings.autoLockSeconds,
         // 空闲锁定只锁 UI 会话，不再撤桥（窗口由用户手动管理）。
         onLock = session::lockApp
     )
@@ -329,9 +329,9 @@ fun AccountApp(
                 if (!enabled) AutofillBridge.clear()
             },
             onCloseAutofillWindow = { session.closeAutofillWindow() },
-            autoLockMinutes = settings.autoLockMinutes,
-            onAutoLockChange = { minutes ->
-                settingsContainer.update { it.copy(autoLockMinutes = minutes.coerceIn(0, MAX_AUTO_LOCK_MINUTES)) }
+            autoLockSeconds = settings.autoLockSeconds,
+            onAutoLockChange = { seconds ->
+                settingsContainer.update { it.copy(autoLockSeconds = seconds.coerceIn(0, MAX_AUTO_LOCK_SECONDS)) }
             },
             onBack = { page = AppPage.Settings },
             clipboardClearSeconds = settings.clipboardClearSeconds,

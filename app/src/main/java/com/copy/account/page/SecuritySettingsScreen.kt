@@ -28,7 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
-import com.copy.account.data.model.MAX_AUTO_LOCK_MINUTES
+import com.copy.account.data.model.MAX_AUTO_LOCK_SECONDS
 import com.copy.account.runtime.AutofillBridge
 import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.isMasterPasswordValid
@@ -53,7 +53,7 @@ internal fun SecuritySettingsScreen(
     onAutofillEnabledChange: (Boolean) -> Unit,
     /** 手动关闭填充窗口（撤桥）：窗口不随锁定/后台回收，本行是唯一主动关闭入口。 */
     onCloseAutofillWindow: () -> Unit,
-    autoLockMinutes: Int,
+    autoLockSeconds: Int,
     onAutoLockChange: (Int) -> Unit,
     clipboardClearSeconds: Int,
     onClipboardClearChange: (Int) -> Unit,
@@ -72,7 +72,7 @@ internal fun SecuritySettingsScreen(
     var changePasswordMessage by remember { mutableStateOf("") }
     AppListScreen("安全设置", onBack) {
         item { SettingsSwitchRow("禁止截图", blockScreenshots, onBlockScreenshotsChange) }
-        item { SettingsRow("自动锁定", autoLockLabel(autoLockMinutes)) { showAutoLockDialog = true } }
+        item { SettingsRow("自动锁定", autoLockLabel(autoLockSeconds)) { showAutoLockDialog = true } }
         item {
             SettingsRow(
                 "生物识别解锁",
@@ -144,20 +144,20 @@ internal fun SecuritySettingsScreen(
         },
         dismissButton = { TextActionButton("取消", onClick = { showChangePasswordDialog = false }) }
     )
-    // 两处时长设置的单位不同（分钟 / 秒），刻意不互相换算；只有弹窗形态与越界校验一致。
+    // 内部单位是秒（autoLockSeconds），弹窗仍以分钟编辑——只在回调边界 ×60 换算，用户感知不变。
     if (showAutoLockDialog) NumberSettingDialog(
         title = "自动锁定",
         unit = "分钟",
         minValue = 1,
-        maxValue = MAX_AUTO_LOCK_MINUTES,
+        maxValue = MAX_AUTO_LOCK_SECONDS / 60,
         presets = listOf(
             "关闭" to { onAutoLockChange(0) },
-            "1 分钟" to { onAutoLockChange(1) },
-            "5 分钟" to { onAutoLockChange(5) },
-            "10 分钟" to { onAutoLockChange(10) },
-            "30 分钟" to { onAutoLockChange(30) }
+            "1 分钟" to { onAutoLockChange(60) },
+            "5 分钟" to { onAutoLockChange(300) },
+            "10 分钟" to { onAutoLockChange(600) },
+            "30 分钟" to { onAutoLockChange(1800) }
         ),
-        onConfirm = { minutes -> onAutoLockChange(minutes.coerceIn(0, MAX_AUTO_LOCK_MINUTES)) },
+        onConfirm = { minutes -> onAutoLockChange(minutes.coerceIn(0, MAX_AUTO_LOCK_SECONDS / 60) * 60) },
         onDismiss = { showAutoLockDialog = false }
     )
     if (showClipboardDialog) NumberSettingDialog(
@@ -176,13 +176,20 @@ internal fun SecuritySettingsScreen(
     )
 }
 
-/** 自动锁定副标题：0 表示关闭；整小时比“120 分钟”好读。 */internal fun autoLockLabel(minutes: Int): String =
-    when {
-        minutes <= 0 -> "关闭"
-        minutes < 60 -> "$minutes 分钟"
-        minutes % 60 == 0 -> "${minutes / 60} 小时"
-        else -> "$minutes 分钟"
-    }
+/**
+ * 自动锁定副标题：入参为内部的秒值，显示仍以分钟呈现（0 表示关闭；整小时比“120 分钟”好读）。
+ */
+internal fun autoLockLabel(seconds: Int): String = when {
+    seconds <= 0 -> "关闭"
+    else -> autoLockMinutesLabel(seconds / 60)
+}
+
+private fun autoLockMinutesLabel(minutes: Int): String = when {
+    minutes < 1 -> "<1 分钟"
+    minutes < 60 -> "$minutes 分钟"
+    minutes % 60 == 0 -> "${minutes / 60} 小时"
+    else -> "$minutes 分钟"
+}
 
 /**
  * 剪贴板清除副标题：0 表示关闭。
@@ -236,7 +243,7 @@ private fun SecuritySettingsScreenPreview() {
             autofillEnabled = false,
             onAutofillEnabledChange = {},
             onCloseAutofillWindow = {},
-            autoLockMinutes = 5,
+            autoLockSeconds = 300,
             onAutoLockChange = {},
             clipboardClearSeconds = 30,
             onClipboardClearChange = {},
