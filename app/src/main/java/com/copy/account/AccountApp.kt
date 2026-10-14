@@ -323,10 +323,12 @@ fun AccountApp(
             onToggleBiometric = session::configureBiometric,
             onChangeMasterPassword = ::changeMasterPassword,
             autofillEnabled = settings.autofillEnabled,
+            // 窗口状态由 AccountApp 读桥后经 props 下发（页面保持无 runtime 依赖，数据流单向）。
+            autofillWindowOpen = settings.autofillEnabled && AutofillBridge.active,
             onAutofillEnabledChange = { enabled ->
                 settingsContainer.update { it.copy(autofillEnabled = enabled) }
-                // 关开关=关闭填充窗口：不再等下次解锁，明文快照与 DEK 副本必须随开关即时失效。
-                if (!enabled) AutofillBridge.clear()
+                // 关开关=关闭填充窗口：不再等下次解锁，明文快照、DEK 副本与公开索引必须随开关即时失效。
+                if (!enabled) AutofillBridge.clear(context)
             },
             onCloseAutofillWindow = { session.closeAutofillWindow() },
             autoLockSeconds = settings.autoLockSeconds,

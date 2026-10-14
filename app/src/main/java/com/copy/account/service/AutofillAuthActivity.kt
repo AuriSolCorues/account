@@ -1,32 +1,30 @@
 /**
  * 职责：自动填充的认证回填页——用户在系统填充气泡里点了「需认证的数据集」后由系统拉起，
- *       弹 BiometricPrompt（指纹/锁屏凭据）验证后回包。两种模式：
- *   Mode A（普通逐账号认证）：extras 带 account_id → 验证后经 AutofillBridge.findAccount
- *       从解锁快照取回该账号明文，本地重建已回填的 Dataset 回给系统；
- *   Mode B（自愈填充，见 AutofillSelfHeal）：extras 带 EXTRA_SELF_HEAL=true（无 account_id）
- *       → 验证改用 CryptoObject（Keystore 每次使用必认证的密钥授权解密），通过后执行
- *       AutofillSelfHeal.heal 解出 DEK 灌活桥，再按目标包名/域名对桥快照跑服务端同款
- *       匹配（AutofillMatcher），把全部命中账号构建成「已回填、不再挂认证」的数据集
- *       一次性回一个完整 FillResponse。设计取舍：本次回包不再逐账号认证——用户刚通过
- *       CryptoObject 验证打开了窗口，这就是他点占位卡片要的那一次填充；此后的填充请求
- *       走服务端正常路径的逐账号认证门，逐次验证的产品要求不受削弱。
- *       验证取消/失败/自愈失败一律 RESULT_CANCELED，系统放弃该数据集。
+ *       验证后回包。三种模式：
+ *   Mode A（解锁态逐账号认证）：extras 带 account_id、无 SELF_HEAL → 弹 BiometricPrompt，
+ *       通过后经 AutofillBridge.findAccount 从活跃快照取明文，本地重建已回填 Dataset 回系统；
+ *   Mode B（锁定态·指纹）：extras 带 SELF_HEAL=true → 验证挂 CryptoObject（Keystore 每次
+ *       使用必认证的密钥），通过后 AutofillSelfHeal.unlockAccount 解整库挑出该账号（带
+ *       account_id 时）或 unlockAndMatch 按目标匹配（占位卡，无 account_id），**瞬时**构建
+ *       已回填数据集回包——不灌桥、DEK 用完即清，零明文驻留；
+ *   Mode C（锁定态·主密码）：SELF_HEAL=true 且设备未配置生物识别 → 显示密码输入小卡，
+ *       校验通过后走与 Mode B 相同的瞬时回包路径（unlockAccountWithPassword/unlockAndMatch）。
+ *       刻意不给「已配置生物识别」的设备密码降级入口，避免验证强度倒退。
+ *       验证取消/失败/解封失败一律 RESULT_CANCELED，系统放弃该数据集。
  * 架构位置：service/ 系统入口组件（manifest 注册为透明浮层：noHistory + excludeFromRecents）。
  *           请求端契约见 AppAutofillService 的 KDoc 与 AutofillMatcher/AutofillSelfHeal
- *           的常量（Mode A：account_id / username_ids / phone_ids / email_ids /
- *           password_ids；Mode B 追加 SELF_HEAL=true / TARGET_PACKAGE /
- *           TARGET_WEB_DOMAIN，节点 id 列表复用 Mode A 键名；两端按同名常量读取，
- *           改动须两端同步）；数据集/匹配构建统一走共享的 AutofillMatcher。
+ *           的常量（account_id / username_ids / phone_ids / email_ids / password_ids /
+ *           SELF_HEAL / TARGET_PACKAGE / TARGET_WEB_DOMAIN；两端按同名常量读取，改动须
+ *           两端同步）；数据集/匹配构建统一走共享的 AutofillMatcher。
  * 与 PasswordManager 参考实现的差异：
- *   1. 取数：PM 按 Long id 挂起查 Room → 本实现同进程直读 AutofillBridge 快照，无 IO 线程；
- *      桥可能已被清（锁定/关开关），查不到时 Toast 提示并取消；Mode B 则先自愈灌桥再取。
- *   2. phone_ids/email_ids 的取值简化：PM 从账号自定义字段里挑电话/邮箱（phoneValueOf/
- *      emailValueOf）；本应用的 AutofillAccount 没有自定义字段，用户名即唯一规范值，
- *      故用户名/手机/邮箱三类框一律填 acc.username（为空则跳过该框），密码框填 acc.password。
- *   3. 生物识别组合回退内联（原 util/BiometricAuthHelper.authenticate 的逻辑搬入）：
- *      BIOMETRIC_STRONG|DEVICE_CREDENTIAL 组合在部分 API<30 机型会让 BiometricPrompt 直接抛
- *      IllegalArgumentException → 退回仅 BIOMETRIC_STRONG，再失败则取消。Mode B 的回退
- *      分支同样携带 CryptoObject（否则每次使用必认证的密钥不会放行解密）。
+ *   1. 取数：PM 按 Long id 挂起查 Room → 本实现同进程直读桥快照（Mode A）或瞬时解库
+ *      （Mode B/C），无 IO 线程池；Mode B/C 的明文只存在于回包构建作用域。
+ *   2. phone_ids/email_ids 的取值简化：PM 从账号自定义字段里挑电话/邮箱；本应用的
+ *      AutofillAccount 没有自定义字段，用户名即唯一规范值，故用户名/手机/邮箱三类框
+ *      一律填 acc.username（为空则跳过该框），密码框填 acc.password。
+ *   3. 生物识别组合回退内联：BIOMETRIC_STRONG|DEVICE_CREDENTIAL 组合在部分 API<30 机型
+ *      会让 BiometricPrompt 直接抛 IllegalArgumentException → 退回仅 BIOMETRIC_STRONG。
+ *      Mode B 的回退分支同样携带 CryptoObject（否则每次使用必认证的密钥不会放行解密）。
  * Python 类比：≈ 一个被外部进程回调的 webhook 处理页——onCreate 读参数、验证后 setResult
  *           回包、finish 即返回；刻意不留实例状态（恢复实例直接取消，避免重复弹验证框）。
  */
@@ -37,8 +35,13 @@ import android.content.Intent
 import android.os.Bundle
 import android.service.autofill.Dataset
 import android.service.autofill.FillResponse
+import android.view.Gravity
+import android.view.View
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillManager
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -52,10 +55,10 @@ import javax.crypto.Cipher
 
 class AutofillAuthActivity : FragmentActivity() {
 
-    /** 只在自愈模式里用的 vault 存储实例：取包装密文与初始化解密 cipher。 */
+    /** 锁定态解封用的 vault 存储实例：取包装密文、初始化解密 cipher、密码校验。 */
     private val vaultStore by lazy { SecureVaultStore(this) }
 
-    // extras 快照：onCreate 一次读齐，认证回调里只读这些本地字段，不再碰 intent。
+    // extras 快照：onCreate 一次读齐，验证回调里只读这些本地字段，不再碰 intent。
     private var selfHeal = false
     private var targetPackage: String = ""
     private var targetWebDomain: String = ""
@@ -79,8 +82,8 @@ class AutofillAuthActivity : FragmentActivity() {
         passwordIds = readIds(EXTRA_PASSWORD_IDS)
         val hasTargets = usernameIds.isNotEmpty() || passwordIds.isNotEmpty() ||
                 phoneIds.isNotEmpty() || emailIds.isNotEmpty()
-        // Mode A 缺账号 id、Mode B 缺自愈标记（或两端连一个可填目标都没有）：
-        // 系统侧传参异常，回取消让气泡静默消失。
+        // 缺自愈标记（非锁定态必须带账号 id）或连一个可填目标都没有：系统侧传参异常，
+        // 回取消让气泡静默消失。
         val hasAccountRef = accountId.isNotBlank()
         val valid = if (selfHeal) hasTargets else hasAccountRef && hasTargets
         if (!valid) {
@@ -92,7 +95,7 @@ class AutofillAuthActivity : FragmentActivity() {
             finishCancel()
             return
         }
-        // 等 decorView 挂好再弹 BiometricPrompt（透明主题下过早弹出会被吞掉）。
+        // 等 decorView 挂好再弹验证（透明主题下过早弹出会被吞掉）。
         window.decorView.post {
             if (!authenticating && !isFinishing) startAuthentication()
         }
@@ -101,25 +104,102 @@ class AutofillAuthActivity : FragmentActivity() {
     private fun readIds(key: String): List<AutofillId> =
         IntentCompat.getParcelableArrayListExtra(intent, key, AutofillId::class.java).orEmpty()
 
-    /** 取自愈解密 cipher：无包装密文或 Keystore 初始化失败都返回 null。 */
+    /** 取锁定态解密 cipher：无包装密文（未配置生物识别）或 Keystore 初始化失败都返回 null。 */
     private fun beginSelfHealCipher(): Cipher? = try {
         vaultStore.beginBiometricDecrypt()
     } catch (_: Exception) {
         null
     }
 
-    /** 弹验证框；组合认证器不被机型支持时逐级回退，最终失败走取消。Mode B 必须带
-     *  CryptoObject：解 DEK 的 Keystore 密钥是「每次使用必认证」，不挂加密对象的
-     *  普通验证不会放行后续 doFinal。 */
+    /** 锁定态走指纹还是密码：配置过生物识别（包装密文存在）→ 指纹；否则 → 主密码。 */
+    private fun lockedModeUsesBiometric(): Boolean =
+        runCatching { vaultStore.biometricCiphertext() }.getOrNull() != null
+
+    /**
+     * 分发验证方式：
+     *   解锁态（Mode A）→ BiometricPrompt（无 CryptoObject）；
+     *   锁定态 + 已配置生物识别（Mode B）→ BiometricPrompt + CryptoObject；
+     *   锁定态 + 未配置生物识别（Mode C）→ 密码输入小卡。
+     */
     private fun startAuthentication() {
         authenticating = true
-        val cipher = if (selfHeal) beginSelfHealCipher() else null
-        if (selfHeal && cipher == null) {
-            // 包装 DEK 已不在（从未配置/已被禁用生物识别）：自愈无从发起。
-            Toast.makeText(this, "无法解封数据，请先打开账号本子解锁一次", Toast.LENGTH_SHORT).show()
-            finishCancel()
-            return
+        when {
+            !selfHeal -> promptBiometric(selfHeal = false, cipher = null)
+            lockedModeUsesBiometric() -> {
+                val cipher = beginSelfHealCipher()
+                if (cipher == null) {
+                    Toast.makeText(this, "无法解封数据，请先打开账号本子解锁一次", Toast.LENGTH_SHORT).show()
+                    finishCancel()
+                    return
+                }
+                promptBiometric(selfHeal = true, cipher = cipher)
+            }
+            else -> showPasswordEntry()
         }
+    }
+
+    /** Mode C：锁定态无生物识别时的主密码输入小卡（程序化构建，透明浮层内嵌一块卡）。 */
+    private fun showPasswordEntry() {
+        val density = resources.displayMetrics.density
+        val pad = (16 * density).toInt()
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xFF202124.toInt())
+            setPadding(pad, pad, pad, pad)
+        }
+        val input = EditText(this).apply {
+            hint = "主密码"
+            transformationMethod = android.text.method.PasswordTransformationMethod.getInstance()
+            setSingleLine(true)
+        }
+        val confirm = Button(this).apply { text = "验证并填充" }
+        val cancel = Button(this).apply { text = "取消" }
+        container.addView(input)
+        container.addView(confirm)
+        container.addView(cancel)
+        setContentView(container, LinearLayout.LayoutParams(
+            (280 * density).toInt(), LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { gravity = Gravity.CENTER })
+        confirm.setOnClickListener {
+            val pwd = input.text.toString()
+            if (pwd.isBlank()) return@setOnClickListener
+            confirm.isEnabled = false
+            Thread {
+                val acc = if (accountId.isNotBlank()) {
+                    AutofillSelfHeal.unlockAccountWithPassword(vaultStore, pwd, accountId)
+                } else {
+                    AutofillSelfHeal.unlockAndMatch(
+                        context = this,
+                        cipher = null,
+                        store = vaultStore,
+                        password = pwd,
+                        targetPackage = targetPackage,
+                        targetWebDomain = targetWebDomain,
+                        maxResults = AutofillMatcher.MAX_DATASETS
+                    )
+                }
+                runOnUiThread {
+                    when {
+                        acc is AutofillAccount -> replyFilled(listOf(acc))
+                        acc is List<*> && acc.isNotEmpty() -> @Suppress("UNCHECKED_CAST") replyFilled(acc as List<AutofillAccount>)
+                        else -> {
+                            Toast.makeText(this, "主密码错误或无匹配账号", Toast.LENGTH_SHORT).show()
+                            confirm.isEnabled = true
+                            input.setText("")
+                        }
+                    }
+                }
+            }.start()
+        }
+        cancel.setOnClickListener { finishCancel() }
+    }
+
+    /**
+     * 弹 BiometricPrompt；组合认证器不被机型支持时逐级回退，最终失败走取消。
+     * 锁定态（selfHeal=true）必须带 CryptoObject：解 DEK 的 Keystore 密钥是「每次使用
+     * 必认证」，不挂加密对象的普通验证不会放行后续 doFinal。
+     */
+    private fun promptBiometric(selfHeal: Boolean, cipher: Cipher?) {
         val prompt = BiometricPrompt(
             this,
             ContextCompat.getMainExecutor(this),
@@ -127,7 +207,13 @@ class AutofillAuthActivity : FragmentActivity() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     authenticating = false
                     when {
-                        selfHeal -> selfHealAndReply(result.cryptoObject?.cipher)
+                        this@AutofillAuthActivity.selfHeal && result.cryptoObject != null ->
+                            selfHealAndReply(result.cryptoObject?.cipher)
+                        this@AutofillAuthActivity.selfHeal -> {
+                            // 锁定态丢了 CryptoObject：无法授权解密，按失败处理。
+                            Toast.makeText(this@AutofillAuthActivity, "无法解封数据，请重试", Toast.LENGTH_SHORT).show()
+                            finishCancel()
+                        }
                         else -> loadAccountAndReply()
                     }
                 }
@@ -141,7 +227,7 @@ class AutofillAuthActivity : FragmentActivity() {
         // 首选「强生物识别或锁屏凭据」；部分 API<30 机型不接受该组合（构造即抛），退回仅强生物识别。
         val combined = BiometricPrompt.PromptInfo.Builder()
             .setTitle(if (selfHeal) "解锁账号本子" else "解锁自动填充")
-            .setSubtitle(if (selfHeal) "验证后填充匹配的账号" else "验证指纹或锁屏密码以填充账号")
+            .setSubtitle(if (selfHeal) "验证后填充所选账号" else "验证指纹或锁屏密码以填充账号")
             .setAllowedAuthenticators(
                 BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
             )
@@ -149,7 +235,7 @@ class AutofillAuthActivity : FragmentActivity() {
         // 仅强生物识别的回退分支没有锁屏凭据可用，需要显式给一个否定按钮。
         val strongOnly = BiometricPrompt.PromptInfo.Builder()
             .setTitle(if (selfHeal) "解锁账号本子" else "解锁自动填充")
-            .setSubtitle(if (selfHeal) "验证后填充匹配的账号" else "验证指纹以填充账号")
+            .setSubtitle(if (selfHeal) "验证后填充所选账号" else "验证指纹以填充账号")
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
             .setNegativeButtonText("取消")
             .build()
@@ -177,7 +263,7 @@ class AutofillAuthActivity : FragmentActivity() {
     }
 
     /**
-     * Mode A（单卡）：认证通过——从桥快照取账号明文并本地重建 Dataset 回给系统。
+     * Mode A（单卡，解锁态）：认证通过——从桥快照取账号明文并本地重建 Dataset 回给系统。
      * 快照被清（锁定/关开关）或回填值非法 → 取消；不落地任何明文副本，用完即弃。
      */
     private fun loadAccountAndReply() {
@@ -187,37 +273,46 @@ class AutofillAuthActivity : FragmentActivity() {
             finishCancel()
             return
         }
-        val dataset = runCatching { buildFilledDatasetFor(acc) }.getOrElse {
-            finishCancel()
-            return
-        }
-        replySingleDataset(dataset)
+        replyFilled(listOf(acc))
     }
 
     /**
-     * Mode B：认证通过——先自愈灌桥（heal 失败 → Toast + 取消），再按目标包名/域名
-     * 对桥快照跑与服务端同款的匹配（web 域名优先、包名兜底，上限 AutofillMatcher
-     * 的 MAX_DATASETS=10），把全部命中账号构建成已回填数据集平铺一次性回一个完整
-     * FillResponse（CryptoObject 刚验证通过，不再二次验证）。
-     * cipher 为空（cryptoObject 丢失）等异常一律按自愈失败处理。
+     * Mode B（锁定态·指纹）：认证通过——瞬时解封取数并回包，**不灌桥**：
+     *   账号卡（带 account_id）→ unlockAccount 只取选中账号；
+     *   占位卡（无 account_id）→ unlockAndMatch 按目标包名/域名匹配平铺。
+     * cipher 为空（cryptoObject 丢失）等异常一律按解封失败处理。
      */
     private fun selfHealAndReply(cipher: Cipher?) {
-        if (cipher == null || !AutofillSelfHeal.heal(cipher, vaultStore)) {
-            Toast.makeText(this, "无法解封数据，请先打开账号本子解锁一次", Toast.LENGTH_SHORT).show()
+        if (cipher == null) {
+            Toast.makeText(this, "无法解封数据，请重试", Toast.LENGTH_SHORT).show()
             finishCancel()
             return
         }
-        // 灌桥成功：此刻 snapshot 必然非活跃转活跃，取一次本地副本做匹配。
-        val snapshot = AutofillBridge.snapshot
-        var matched = emptyList<AutofillAccount>()
-        if (targetWebDomain.isNotBlank()) {
-            matched = AutofillMatcher.queryWebAccounts(snapshot, targetWebDomain)
+        val filled = if (accountId.isNotBlank()) {
+            AutofillSelfHeal.unlockAccount(cipher, vaultStore, accountId)?.let { listOf(it) } ?: emptyList()
+        } else {
+            AutofillSelfHeal.unlockAndMatch(
+                context = this,
+                cipher = cipher,
+                store = vaultStore,
+                password = null,
+                targetPackage = targetPackage,
+                targetWebDomain = targetWebDomain,
+                maxResults = AutofillMatcher.MAX_DATASETS
+            )
         }
-        if (matched.isEmpty() && targetPackage.isNotBlank()) {
-            matched = AutofillMatcher.queryPackageAccounts(this, snapshot, targetPackage)
+        if (filled.isEmpty()) {
+            Toast.makeText(this, "账号不存在或已更新，请解锁本应用后重试", Toast.LENGTH_SHORT).show()
+            finishCancel()
+            return
         }
+        replyFilled(filled)
+    }
+
+    /** 已回填数据集应答：全部命中账号平铺成一个 FillResponse 回给系统并结束本页。 */
+    private fun replyFilled(accounts: List<AutofillAccount>) {
         val response = runCatching {
-            val datasets = AutofillMatcher.buildDatasets(matched) { acc -> buildFilledDatasetFor(acc) }
+            val datasets = AutofillMatcher.buildDatasets(accounts) { acc -> buildFilledDatasetFor(acc) }
             if (datasets.isEmpty()) return@runCatching null
             val builder = FillResponse.Builder()
             for (dataset in datasets) {
@@ -233,18 +328,10 @@ class AutofillAuthActivity : FragmentActivity() {
         finish()
     }
 
-    /** 单数据集应答：填充结果经 EXTRA_AUTHENTICATION_RESULT 回给系统并结束本页。 */
-    private fun replySingleDataset(dataset: Dataset) {
-        setResult(Activity.RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, dataset))
-        finish()
-    }
-
     /**
-     * 已回填数据集（两模式共用）：展示卡与服务端 buildDataset 同一张 RemoteViews 布局
+     * 已回填数据集（各模式共用）：展示卡与服务端 buildDataset 同一张 RemoteViews 布局
      * （item_autofill_card：单行标题=名称），构建走共享的 AutofillMatcher
      * （取值差异见类头差异清单第 2 条）。
-     * 关于 client_state：契约里预留了透传位，但 Dataset.Builder.setClientState 是 API 33+
-     * 且本服务端当前不携带，故不读取不回传；两端引入时须同步升级此处理。
      */
     private fun buildFilledDatasetFor(acc: AutofillAccount): Dataset {
         val presentation = AutofillMatcher.buildPresentation(
@@ -268,8 +355,8 @@ class AutofillAuthActivity : FragmentActivity() {
 
     companion object {
         // extras 键名：与 AppAutofillService 端同名常量一一对应，两端契约。
-        // 自愈模式的三个键见 AutofillSelfHeal 常量（SELF_HEAL / TARGET_PACKAGE /
-        // TARGET_WEB_DOMAIN），节点 id 列表与本处的 Mode A 键名复用。
+        // 锁定态模式的两键见 AutofillSelfHeal 常量（SELF_HEAL / TARGET_PACKAGE /
+        // TARGET_WEB_DOMAIN），节点 id 列表与 account_id 复用同名键。
         private const val EXTRA_ACCOUNT_ID = "account_id"
         private const val EXTRA_USERNAME_IDS = "username_ids"
         private const val EXTRA_PHONE_IDS = "phone_ids"

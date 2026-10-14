@@ -7,16 +7,18 @@
  * 架构位置：service/ 系统入口组件（manifest 注册，须 public）。是 AutofillBridge 的唯一
  *           消费方之一；写库复用 security/SecureVaultStore，域匹配复用 util/DomainCleaner。
  * 数据通道（AutofillBridge 契约）：
- *   - AutofillBridge.active == false（开关关 / 未解锁 / 已锁定）→ 填充走自愈分支：若
- *     生物识别包装 DEK 存在（配置过生物识别解锁）则回一个占位认证型数据集（文案
- *     「解锁账号本子/验证后填充匹配的账号」，认证 Intent 带 EXTRA_SELF_HEAL=true +
- *     EXTRA_TARGET_PACKAGE/EXTRA_TARGET_WEB_DOMAIN + 节点 id 列表），由
- *     AutofillAuthActivity 的自愈模式验证后灌桥并一次性回完整 FillResponse；包装 DEK
- *     不存在则维持旧的静默 onSuccess(null)。保存路径遇桥不活跃仍静默跳过（已知限制：
- *     自愈填充成功后桥已激活，保存随之恢复可用）；
- *   - snapshot 是解锁时灌入的明文最小快照，只读、内存态，服务绝不持久化它；
+ *   - AutofillBridge.active == true（开关开且已解锁）→ 正常填充：从 snapshot 匹配，
+ *     每个命中账号一张认证型数据集，认证 Intent 带 account_id（Mode A 逐账号验证回填）；
+ *   - AutofillBridge.active == false（开关关 / 未解锁 / 已锁定 / 进程重启）→ 锁定态分支
+ *     （buildLockedResponse）：先过登录信号门（无密码框且无账号特征框 → 静默 onSuccess(null)，
+ *     防任意输入框误弹），再对公开索引（publicIndex，仅名称/网址/包名）按目标包名/域名
+ *     匹配：命中 → 每账号一张认证卡（显示真实名称，Intent 带 account_id + SELF_HEAL，
+ *     用户「先选账号 → 验证 → 直接填入」）；索引空 → 单张占位卡。AutofillAuthActivity
+ *     验证（指纹 CryptoObject / 主密码）后瞬时解封回包，**不灌桥**、零明文驻留。
+ *     保存路径遇桥不活跃静默跳过（锁定期间不保存，解锁后恢复）；
+ *   - snapshot 是解锁时灌入的明文最小快照，锁定即清零，服务绝不持久化它；
  *   - dek 是会话 DEK 副本，仅 onSaveRequest 期间 copyOf 一份使用，finally 里 fill(0) 清零；
- *   - 保存成功后 AutofillBridge.refresh(newSnapshot) 让填充端立即看到新数据。
+ *   - 保存成功后 AutofillBridge.refresh(newSnapshot) 让填充端立即看到新数据（同时刷新公开索引）。
  * 与 PasswordManager 参考实现的差异清单：
  *   1. 数据源：Room DAO 挂起查询 → AutofillBridge.snapshot 纯内存列表；填充路径无线程池。
  *   2. 认证门：isPrivacyEnabled && canUseBiometric() → 只看 AutofillBridge.active（桥仅在
@@ -59,6 +61,7 @@ import com.copy.account.data.model.Account
 import com.copy.account.data.model.AccountField
 import com.copy.account.data.model.PersistedVault
 import com.copy.account.runtime.AutofillAccount
+import com.copy.account.runtime.AutofillAccountLight
 import com.copy.account.runtime.AutofillBridge
 import com.copy.account.security.SecureVaultStore
 import com.copy.account.util.cleanDomain
@@ -94,17 +97,18 @@ class AppAutofillService : AutofillService() {
                 callback.onSuccess(null)
                 return
             }
-            // 桥未活跃 = 开关关/未解锁/已锁定/进程死亡后重启。旧契约是任何情况下静默放弃；
-            // 新契约追加自愈分支：只要「生物识别解封 DEK」的包装密文还在（即用户配置过
-            // 生物识别解锁），就回一个占位的认证型数据集——用户点它 → AutofillAuthActivity
-            // 自愈模式（CryptoObject 验证 + 灌桥 + 一次性完整回包），见 AutofillSelfHeal。
-            // 从未配置生物识别时包装密文不存在，自愈无从发起，维持旧的静默 onSuccess(null)
-            // （设置页对此有文档说明）。
+            // 桥未活跃 = 开关关/未解锁/已锁定/进程死亡后重启。锁定态（有公开索引）回
+            // 「账号卡」：按目标包名/域名对索引匹配，每账号一张需认证的卡（显示真实名称）；
+            // 索引空（从未解锁/冷启动未恢复/手动关窗）退单张占位卡。用户点卡 →
+            // AutofillAuthActivity 验证（指纹 CryptoObject 或主密码）→ 瞬时构建回包，
+            // 不重开窗口、零明文驻留，见 AutofillSelfHeal。从未配置生物识别与主密码时
+            // （首装未建库）无从验证，维持静默 onSuccess(null)。
             if (!AutofillBridge.active) {
-                val selfHealResponse = buildSelfHealResponse(request)
-                if (selfHealResponse != null) {
-                    Log.d(TAG, "onFillRequest: bridge inactive, offer self-heal dataset")
-                    callback.onSuccess(selfHealResponse)
+                AutofillBridge.loadPublicIndexIfEmpty(this)
+                val lockedResponse = buildLockedResponse(request)
+                if (lockedResponse != null) {
+                    Log.d(TAG, "onFillRequest: bridge inactive, locked response offered")
+                    callback.onSuccess(lockedResponse)
                 } else {
                     Log.d(TAG, "onFillRequest: bridge inactive, silent skip")
                     callback.onSuccess(null)
@@ -203,10 +207,14 @@ class AppAutofillService : AutofillService() {
             val rawWebDomain = rawWebDomainOf(structures)
             var matched = emptyList<AutofillAccount>()
             if (!rawWebDomain.isNullOrBlank()) {
-                matched = queryWebAccounts(snapshot, rawWebDomain)
+                matched = AutofillMatcher.queryWebAccounts(snapshot, rawWebDomain) { it.url }
             }
             if (matched.isEmpty() && targetPackage != null) {
-                matched = queryPackageAccounts(snapshot, targetPackage)
+                matched = AutofillMatcher.queryPackageAccounts(
+                    this, snapshot, targetPackage,
+                    packageNameOf = { it.packageName },
+                    nameOf = { it.name }
+                )
                 if (matched.isNotEmpty()) {
                     Log.d(
                         TAG,
@@ -240,12 +248,16 @@ class AppAutofillService : AutofillService() {
     private fun queryWebAccounts(
         snapshot: List<AutofillAccount>,
         rawWebDomain: String
-    ): List<AutofillAccount> = AutofillMatcher.queryWebAccounts(snapshot, rawWebDomain)
+    ): List<AutofillAccount> = AutofillMatcher.queryWebAccounts(snapshot, rawWebDomain) { it.url }
 
     private fun queryPackageAccounts(
         snapshot: List<AutofillAccount>,
         targetPackage: String
-    ): List<AutofillAccount> = AutofillMatcher.queryPackageAccounts(this, snapshot, targetPackage)
+    ): List<AutofillAccount> = AutofillMatcher.queryPackageAccounts(
+        this, snapshot, targetPackage,
+        packageNameOf = { it.packageName },
+        nameOf = { it.name }
+    )
 
     /** 保存路径的同轨去重仍在用：委托共享实现。 */
     private fun matchesPackageName(storedPackage: String, targetPackage: String): Boolean =
@@ -491,7 +503,7 @@ class AppAutofillService : AutofillService() {
                     }
 
                     // 落盘成功才刷新桥快照；失败/跳过保持旧快照，下次解锁自会纠正。
-                    newSnapshot?.let { AutofillBridge.refresh(it) }
+                    newSnapshot?.let { AutofillBridge.refresh(applicationContext, it) }
                     callback.onSuccess()
                 } catch (e: Exception) {
                     Log.e(TAG, "onSaveRequest inner error", e)
@@ -846,8 +858,7 @@ class AppAutofillService : AutofillService() {
 
     private fun isUsefulHintText(hint: String?): Boolean =
         !hint.isNullOrBlank() && (
-                isAccountHintText(hint) || isPasswordHintText(hint) ||
-                        isAccountHintTextCompat(hint) || isPasswordHintTextCompat(hint)
+                isAccountHintText(hint) || isPasswordHintText(hint)
                 )
 
     private fun isSearchNode(node: FillableNode): Boolean {
@@ -866,7 +877,7 @@ class AppAutofillService : AutofillService() {
                 !isOneTimeCodeNode(node) && (
                 node.hints.any { isAccountHint(it) } ||
                         isAccountViewId(node.viewId) ||
-                        isAccountHintText(node.hint) || isAccountHintTextCompat(node.hint)
+                        isAccountHintText(node.hint)
                 )
 
     private fun isOneTimeCodeNode(node: FillableNode): Boolean {
@@ -898,27 +909,13 @@ class AppAutofillService : AutofillService() {
     private fun isPasswordNode(node: FillableNode): Boolean =
         node.hints.any { isPasswordHint(it) } ||
                 isPasswordViewId(node.viewId) ||
-                isPasswordHintText(node.hint) || isPasswordHintTextCompat(node.hint) ||
+                isPasswordHintText(node.hint) ||
                 isPasswordInputType(node.inputType)
-
-    private fun isAccountHintTextCompat(hint: String?): Boolean {
-        val h = hint?.lowercase() ?: return false
-        return h.contains("账号") || h.contains("用户名") ||
-                h.contains("用户") || h.contains("邮箱") ||
-                h.contains("手机") || h.contains("email") ||
-                h.contains("username") || h.contains("user") ||
-                h.contains("login") || h.contains("account")
-    }
-
-    private fun isPasswordHintTextCompat(hint: String?): Boolean {
-        val h = hint?.lowercase() ?: return false
-        return h.contains("密码") || h.contains("password") ||
-                h.contains("pwd") || h.contains("pass")
-    }
 
     private fun isAccountHintText(hint: String?): Boolean {
         val h = hint?.lowercase() ?: return false
-        return h.contains("账号") || h.contains("用户名") || h.contains("用户") ||
+        // 刻意不含裸「用户」：会误触「用户协议」「用户反馈」等非登录文本；「用户名」才可靠。
+        return h.contains("账号") || h.contains("用户名") ||
                 h.contains("邮箱") || h.contains("手机") ||
                 h.contains("email") || h.contains("username") || h.contains("user") ||
                 h.contains("login") || h.contains("account")
@@ -983,9 +980,9 @@ class AppAutofillService : AutofillService() {
         return h == "emailaddress" || h.contains("email") || h.contains("mail")
     }
 
-    private fun isEmailHintTextCompat(hint: String?): Boolean {
-        val h = hint?.lowercase() ?: return false
-        return h.contains("邮箱") || h.contains("email") || h.contains("mail")
+    private fun isEmailViewId(viewId: String?): Boolean {
+        val v = viewId?.lowercase() ?: return false
+        return v.contains("email") || v.contains("mail") || v.contains("邮箱")
     }
 
     private fun isEmailHintText(hint: String?): Boolean {
@@ -993,21 +990,10 @@ class AppAutofillService : AutofillService() {
         return h.contains("邮箱") || h.contains("email") || h.contains("mail")
     }
 
-    private fun isEmailViewId(viewId: String?): Boolean {
-        val v = viewId?.lowercase() ?: return false
-        return v.contains("email") || v.contains("mail") || v.contains("邮箱")
-    }
-
     private fun isEmailNode(node: FillableNode): Boolean =
         node.hints.any { isEmailHint(it) } ||
                 isEmailViewId(node.viewId) ||
-                isEmailHintText(node.hint) || isEmailHintTextCompat(node.hint)
-
-    private fun isPhoneHintTextCompat(hint: String?): Boolean {
-        val h = hint?.lowercase() ?: return false
-        return h.contains("手机") || h.contains("电话") ||
-                h.contains("phone") || h.contains("mobile") || h.contains("tel")
-    }
+                isEmailHintText(node.hint)
 
     private fun isPhoneHintText(hint: String?): Boolean {
         val h = hint?.lowercase() ?: return false
@@ -1025,7 +1011,7 @@ class AppAutofillService : AutofillService() {
         isFallbackEditableTextNode(node) && (
                 node.hints.any { isPhoneHint(it) } ||
                         isPhoneViewId(node.viewId) ||
-                        isPhoneHintText(node.hint) || isPhoneHintTextCompat(node.hint)
+                        isPhoneHintText(node.hint)
                 )
 
     private fun isAreaCodeNode(node: FillableNode): Boolean {
@@ -1083,22 +1069,19 @@ class AppAutofillService : AutofillService() {
     }
 
     /**
-     * 桥未活跃时的自愈占位数据集：结构与正常数据集完全一致（同一批节点 id、同样
-     * 无值 + 认证型），仅认证 Intent 换成自愈契约（EXTRA_SELF_HEAL=true + 目标
-     * 包名/域名，不带 account_id）。展示卡文案固定为「解锁账号本子/验证后填充匹配的
-     * 账号」，让用户明白点下去会发生什么。用户认证通过后由 AutofillAuthActivity 的
-     * 自愈模式灌桥并一次性回完整 FillResponse。
-     * 仅当包装 DEK 存在（配置过生物识别解锁）才返回占位响应；否则返回 null 维持
-     * 旧的静默放弃。此占位不携带 SaveInfo：桥尚未活跃，本路径不承诺保存能力。
+     * 桥未活跃（锁定/冷启动）时的锁定态响应：
+     *   1. 登录信号门：与解锁路径同款判定（密码框或带账号特征的候选框至少其一），
+     *      fallback 解析不得凭空制造账号框——修复「任意输入框都弹填充气泡」；
+     *   2. 公开索引非空：按目标包名/域名对索引匹配，每个命中账号一张认证卡
+     *      （显示真实账号名），intent 带账号 id——用户「先选账号，再验证，直接填入」；
+     *   3. 索引空：单张占位卡（「解锁账号本子」），验证后按目标平铺匹配。
+     * 占位/账号卡均不携带 SaveInfo：桥未活跃，本路径不承诺保存能力。
      */
-    private fun buildSelfHealResponse(request: FillRequest): FillResponse? {
+    private fun buildLockedResponse(request: FillRequest): FillResponse? {
         return try {
-            if (SecureVaultStore(this).biometricCiphertext() == null) return null
             val contexts = request.fillContexts.orEmpty()
             val structures = contexts.mapNotNull { it.structure }
             val structure = structures.lastOrNull() ?: return null
-            // 自愈只解决「登录页等填充」一件事，不复制完整登录信号判定；带不上
-            // 表单节点（无解析）也无所谓——占位数据集的值全靠认证页回包时重建。
             val (targetPackage, webDomain) = parseTarget(structures)
             if (targetPackage.isNullOrBlank() && webDomain.isNullOrBlank()) return null
             val fillable = collectFillableNodes(listOf(structure), contexts.lastOrNull()?.focusedId?.let { setOf(it) }.orEmpty())
@@ -1111,6 +1094,8 @@ class AppAutofillService : AutofillService() {
                 .filter { !isPasswordNode(it) && isFallbackEditableTextNode(it) && isAccountNode(it) }
                 .map { it.id }
                 .distinct()
+            // 登录信号门：真实账号特征（密码框/账号特征框）全无 → 不是登录页，静默放弃。
+            if (passwordNodes.isEmpty() && hinted.isEmpty()) return null
             val fallback = resolveAccountNode(accountCandidates, contexts.lastOrNull()?.focusedId?.let { listOf(it) }.orEmpty())
             var accountNodes = if (fallback != null && (passwordNodes.isNotEmpty() || hinted.isEmpty())) {
                 listOf(fallback.id)
@@ -1128,23 +1113,68 @@ class AppAutofillService : AutofillService() {
             val emailNodes = accountNodes.filter { id ->
                 fillable.firstOrNull { it.id == id }?.let { isEmailNode(it) } == true
             }
-            val presentation = AutofillMatcher.buildPresentation(this, "解锁账号本子")
-            val dataset = AutofillMatcher.buildAuthDataset(
-                presentation,
-                selfHealIntentSender(
-                    targetPackage ?: "",
-                    webDomain.orEmpty(),
-                    accountNodes,
-                    phoneNodes,
-                    emailNodes,
-                    passwordNodes
-                ),
-                accountNodes,
-                passwordNodes
-            )
-            FillResponse.Builder().addDataset(dataset).build()
+            // 索引匹配：web 域名优先、包名兜底（与解锁路径同一套匹配逻辑）。
+            AutofillBridge.loadPublicIndexIfEmpty(this)
+            val index = AutofillBridge.publicIndex
+            var matched = emptyList<AutofillAccountLight>()
+            if (!webDomain.isNullOrBlank()) {
+                matched = AutofillMatcher.queryWebAccounts(index, webDomain) { it.url }
+            }
+            if (matched.isEmpty() && !targetPackage.isNullOrBlank()) {
+                matched = AutofillMatcher.queryPackageAccounts(
+                    this, index, targetPackage,
+                    packageNameOf = { it.packageName },
+                    nameOf = { it.name }
+                )
+            }
+            val response = FillResponse.Builder()
+            if (matched.isNotEmpty()) {
+                // 账号卡：展示真实名称，认证 Intent 带账号 id——验证后只回填选中账号。
+                for (account in matched.take(AutofillMatcher.MAX_DATASETS)) {
+                    val presentation = AutofillMatcher.buildPresentation(
+                        this,
+                        account.name.ifBlank { account.url }
+                    )
+                    response.addDataset(
+                        AutofillMatcher.buildAuthDataset(
+                            presentation,
+                            selfHealIntentSender(
+                                targetPackage ?: "",
+                                webDomain.orEmpty(),
+                                account.id,
+                                accountNodes,
+                                phoneNodes,
+                                emailNodes,
+                                passwordNodes
+                            ),
+                            accountNodes,
+                            passwordNodes
+                        )
+                    )
+                }
+            } else {
+                // 占位卡：索引空（冷启动未解锁过/手动关窗）时的降级入口。
+                val presentation = AutofillMatcher.buildPresentation(this, "解锁账号本子")
+                response.addDataset(
+                    AutofillMatcher.buildAuthDataset(
+                        presentation,
+                        selfHealIntentSender(
+                            targetPackage ?: "",
+                            webDomain.orEmpty(),
+                            accountId = null,
+                            accountNodes = accountNodes,
+                            phoneNodes = phoneNodes,
+                            emailNodes = emailNodes,
+                            passwordNodes = passwordNodes
+                        ),
+                        accountNodes,
+                        passwordNodes
+                    )
+                )
+            }
+            response.build()
         } catch (e: Exception) {
-            Log.e(TAG, "buildSelfHealResponse failed", e)
+            Log.e(TAG, "buildLockedResponse failed", e)
             null
         }
     }
@@ -1157,6 +1187,7 @@ class AppAutofillService : AutofillService() {
     private fun selfHealIntentSender(
         targetPackage: String,
         webDomain: String,
+        accountId: String?,
         accountNodes: List<AutofillId>,
         phoneNodes: List<AutofillId>,
         emailNodes: List<AutofillId>,
@@ -1165,6 +1196,8 @@ class AppAutofillService : AutofillService() {
         val intent = Intent().apply {
             component = ComponentName(packageName, AUTH_ACTIVITY_CLASS)
             putExtra(AutofillSelfHeal.EXTRA_SELF_HEAL, true)
+            // 账号卡带 id：验证后只回填选中账号；占位卡不带：验证后按目标平铺。
+            if (!accountId.isNullOrBlank()) putExtra(EXTRA_ACCOUNT_ID, accountId)
             putExtra(AutofillSelfHeal.EXTRA_TARGET_PACKAGE, targetPackage)
             putExtra(AutofillSelfHeal.EXTRA_TARGET_WEB_DOMAIN, webDomain)
             putParcelableArrayListExtra(EXTRA_USERNAME_IDS, ArrayList(accountNodes))

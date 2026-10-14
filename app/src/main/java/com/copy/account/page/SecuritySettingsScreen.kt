@@ -29,7 +29,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
 import com.copy.account.data.model.MAX_AUTO_LOCK_SECONDS
-import com.copy.account.runtime.AutofillBridge
 import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.isMasterPasswordValid
 import com.copy.account.ui.components.AppListScreen
@@ -51,8 +50,10 @@ internal fun SecuritySettingsScreen(
     /** 自动填充总开关：解锁时灌 AutofillBridge、关开关撤桥；填充动作本身仍需逐次生物识别。 */
     autofillEnabled: Boolean,
     onAutofillEnabledChange: (Boolean) -> Unit,
-    /** 手动关闭填充窗口（撤桥）：窗口不随锁定/后台回收，本行是唯一主动关闭入口。 */
+    /** 手动关闭填充窗口（撤桥）：窗口随锁定/后台自动关闭，本行是唯一主动关闭入口。 */
     onCloseAutofillWindow: () -> Unit,
+    /** 填充窗口当前是否开启（AccountApp 读桥后下发；页面不直接依赖 runtime 层）。 */
+    autofillWindowOpen: Boolean,
     autoLockSeconds: Int,
     onAutoLockChange: (Int) -> Unit,
     clipboardClearSeconds: Int,
@@ -84,16 +85,25 @@ internal fun SecuritySettingsScreen(
                 if (biometricAvailable) { { onToggleBiometric(!biometricEnabled) } } else null
             )
         }
-        // ===== 自动填充区：总开关（开窗闸）+ 窗口状态行 + 系统填充服务跳转 =====
+        // ===== 自动填充区：总开关（开窗闸）+ 窗口状态行（含说明）+ 系统填充服务跳转 =====
         item { SettingsHeader("自动填充") }
         item { SettingsSwitchRow("自动填充", autofillEnabled, onAutofillEnabledChange) }
         item {
-            val windowOpen = AutofillBridge.active
-            SettingsRow(
-                "填充窗口",
-                if (windowOpen) "开启中" else "已关闭",
-                if (windowOpen) { { onCloseAutofillWindow() } } else null
-            )
+            Column {
+                SettingsRow(
+                    "填充窗口",
+                    if (autofillWindowOpen) "开启中" else "已关闭",
+                    if (autofillWindowOpen) { { onCloseAutofillWindow() } } else null
+                )
+                Text(
+                    "解锁后自动开启，锁定或退出本应用即关闭。" +
+                        "锁定状态下在其他应用点选账号卡并验证指纹/主密码，即可单次填充。" +
+                        "点按「开启中」可立即断开并清除数据，下次解锁自动重开。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
         }
         item { AutofillJumpRow() }
         item {
@@ -222,8 +232,8 @@ private fun AutofillJumpRow() {
             }
         }
         Text(
-            "开启后即可在其他应用中填充；窗口开启期间无需先打开本应用，每次填充仍需指纹/锁屏验证。" +
-                "窗口关闭方式：本行手动关闭，或关闭自动填充开关。",
+            "开启后即可在其他应用中填充；每次填充仍需指纹/锁屏验证（锁定状态下验证主密码或指纹）。" +
+                "窗口关闭方式：本行手动关闭、锁定/退出应用自动关闭，或关闭自动填充开关。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp)
@@ -241,6 +251,7 @@ private fun SecuritySettingsScreenPreview() {
             onToggleBiometric = {},
             onChangeMasterPassword = { Result.success(Unit) },
             autofillEnabled = false,
+            autofillWindowOpen = false,
             onAutofillEnabledChange = {},
             onCloseAutofillWindow = {},
             autoLockSeconds = 300,
