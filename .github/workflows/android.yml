@@ -1,11 +1,9 @@
 name: Android CI
 
-# 日常：PR 与手动触发跑单测 + 构建（含 R8 release 校验）；push 到 main 只构建，
-# 单测已在 PR 通过，避免合并后再重复一遍。
+# 日常：PR 与手动触发跑单测 + 构建（含 R8 release 校验）；合入 main 不再触发——
+# main 只能经 PR 合入，PR CI 已验证同一棵树，合并后重建纯属重复。
 # 发布：只由「手动触发 + 勾选 publish」走 publish job，用 environment 的签名 secret 出正式包。
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -56,8 +54,6 @@ jobs:
         run: sed -i 's|mirrors\.cloud\.tencent\.com/gradle|services.gradle.org/distributions|' gradle/wrapper/gradle-wrapper.properties
       - uses: gradle/actions/setup-gradle@v4
       - name: 单元测试
-        # 合并到 main 的 push 跳过单测：PR 上已跑过，树内容一致，避免重复。
-        if: ${{ github.event_name != 'push' }}
         run: ./gradlew :app:testDebugUnitTest --console=plain
       # release 在此无签名文件，AGP 自动回退未签名，仅用于验证 R8/资源收缩能过。
       - name: 构建 debug + release
