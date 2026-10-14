@@ -17,6 +17,8 @@ import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import android.util.Base64
 import androidx.biometric.BiometricManager
+import com.copy.account.data.model.Account
+import com.copy.account.data.model.Group
 import com.copy.account.data.model.PersistedVault
 import com.copy.account.data.model.vaultJson
 import java.io.File
@@ -54,6 +56,27 @@ private data class EncryptedFile(
     val version: Int = 1,
     val iv: String,
     val ciphertext: String
+)
+
+/**
+ * v2 分段信封：header（groups + selectedGroupId）一段，accounts 每账号独立一段
+ * （独立 AES-GCM 记录，各自随机 IV）。同一 DEK 加密所有段；锁定态自动填充只需
+ * 解密被点选的那一条，其余账号凭据全程密文、零解密。账号 id 留在索引层（明文）——
+ * id 是随机串非敏感，且公开索引本就含名称/域名（无凭据），已获确认。
+ */
+@Serializable
+private data class EncryptedAccountSegment(
+    val id: String,
+    val iv: String,
+    val ciphertext: String
+)
+
+@Serializable
+private data class EncryptedFileV2(
+    val version: Int = 2,
+    val headerIv: String,
+    val headerCiphertext: String,
+    val accounts: List<EncryptedAccountSegment>
 )
 
 /** 仅在已解锁会话中保留，锁定时由调用方清零。 */
@@ -246,12 +269,37 @@ internal class SecureVaultStore(private val context: Context) {
     }
 
     fun save(state: PersistedVault, dek: ByteArray) {
-        val plain = vaultJson.encodeToString(PersistedVault.serializer(), state).toByteArray(Charsets.UTF_8)
-        val payload = encryptBytes(dek, plain)
-        val encoded = vaultJson.encodeToString(
-            EncryptedFile.serializer(),
-            EncryptedFile(iv = Base64.encodeToString(payload.iv, Base64.NO_WRAP), ciphertext = Base64.encodeToString(payload.ciphertext, Base64.NO_WRAP))
+        // v2 分段信封：header（分组+选中）一段，每账号独立一段（各自随机 IV）。
+        // 锁定态自动填充据此可只解被点选的单条记录。
+        val headerPlain = vaultJson.encodeToString(
+            VaultHeader.serializer(),
+            VaultHeader(groups = state.groups, selectedGroupId = state.selectedGroupId)
         ).toByteArray(Charsets.UTF_8)
+        val headerEnc = encryptBytes(dek, headerPlain)
+        headerPlain.fill(0)
+        val segments = state.accounts.map { account ->
+            val plain = vaultJson.encodeToString(Account.serializer(), account).toByteArray(Charsets.UTF_8)
+            try {
+                val enc = encryptBytes(dek, plain)
+                EncryptedAccountSegment(
+                    id = account.id,
+                    iv = Base64.encodeToString(enc.iv, Base64.NO_WRAP),
+                    ciphertext = Base64.encodeToString(enc.ciphertext, Base64.NO_WRAP)
+                )
+            } finally {
+                plain.fill(0)
+            }
+        }
+        val encoded = vaultJson.encodeToString(
+            EncryptedFileV2.serializer(),
+            EncryptedFileV2(
+                headerIv = Base64.encodeToString(headerEnc.iv, Base64.NO_WRAP),
+                headerCiphertext = Base64.encodeToString(headerEnc.ciphertext, Base64.NO_WRAP),
+                accounts = segments
+            )
+        ).toByteArray(Charsets.UTF_8)
+        headerEnc.iv.fill(0)
+        headerEnc.ciphertext.fill(0)
         // AtomicFile 原子写：先写同目录临时文件、成功才改名顶替（≈ tmp 文件 + os.replace），
         // 写到一半崩溃或断电都不会损坏旧的 vault.bin。
         val atomic = AtomicFile(vaultFile)
@@ -266,12 +314,79 @@ internal class SecureVaultStore(private val context: Context) {
         }
     }
 
+    /** v2 头部明文结构：分组与选中分组 id（不含账号）。 */
+    @Serializable
+    private data class VaultHeader(
+        val groups: List<Group>,
+        val selectedGroupId: String
+    )
+
     fun load(dek: ByteArray): PersistedVault? = runCatching {
         if (!vaultFile.exists()) return null
         val bytes = FileInputStream(vaultFile).use { it.readBytes() }
-        val envelope = vaultJson.decodeFromString(EncryptedFile.serializer(), bytes.toString(Charsets.UTF_8))
-        val plain = decryptBytes(dek, Base64.decode(envelope.iv, Base64.DEFAULT), Base64.decode(envelope.ciphertext, Base64.DEFAULT))
-        vaultJson.decodeFromString(PersistedVault.serializer(), plain.toString(Charsets.UTF_8))
+        val text = bytes.toString(Charsets.UTF_8)
+        // 双版本分支：v1 旧信封整库一段；v2 分段信封按段解密重组。
+        // 以 headerIv 字段存在性判别版本（v1 无此字段）。
+        if (text.contains("headerIv")) {
+            val envelope = vaultJson.decodeFromString(EncryptedFileV2.serializer(), text)
+            val headerPlain = decryptBytes(
+                dek,
+                Base64.decode(envelope.headerIv, Base64.DEFAULT),
+                Base64.decode(envelope.headerCiphertext, Base64.DEFAULT)
+            )
+            val header = try {
+                vaultJson.decodeFromString(VaultHeader.serializer(), headerPlain.toString(Charsets.UTF_8))
+            } finally {
+                headerPlain.fill(0)
+            }
+            val accounts = envelope.accounts.map { segment ->
+                val plain = decryptBytes(
+                    dek,
+                    Base64.decode(segment.iv, Base64.DEFAULT),
+                    Base64.decode(segment.ciphertext, Base64.DEFAULT)
+                )
+                try {
+                    vaultJson.decodeFromString(Account.serializer(), plain.toString(Charsets.UTF_8))
+                } finally {
+                    plain.fill(0)
+                }
+            }
+            PersistedVault(accounts = accounts, groups = header.groups, selectedGroupId = header.selectedGroupId)
+        } else {
+            val envelope = vaultJson.decodeFromString(EncryptedFile.serializer(), text)
+            val plain = decryptBytes(dek, Base64.decode(envelope.iv, Base64.DEFAULT), Base64.decode(envelope.ciphertext, Base64.DEFAULT))
+            val state: PersistedVault = try {
+                vaultJson.decodeFromString(PersistedVault.serializer(), plain.toString(Charsets.UTF_8))
+            } finally {
+                plain.fill(0)
+            }
+            // v1 → v2 自动迁移：解锁路径整库读入后立即以分段格式原子重写。
+            // AtomicFile 写坏可回退旧文件，迁移失败只影响单段解密能力（下次 save 重试），不抛错。
+            runCatching { save(state, dek) }
+            state
+        }
+    }.getOrNull()
+
+    /**
+     * 单段解密：只解指定 id 的账号记录，其余账号密文不动。
+     * 锁定态自动填充（账号卡点选后）专用——解密范围 = 用户选中的那一条。
+     * 找不到该 id（已删除/索引过期）或解密失败返回 null。
+     */
+    fun loadAccount(dek: ByteArray, accountId: String): Account? = runCatching {
+        if (!vaultFile.exists()) return null
+        val bytes = FileInputStream(vaultFile).use { it.readBytes() }
+        val envelope = vaultJson.decodeFromString(EncryptedFileV2.serializer(), bytes.toString(Charsets.UTF_8))
+        val segment = envelope.accounts.firstOrNull { it.id == accountId } ?: return null
+        val plain = decryptBytes(
+            dek,
+            Base64.decode(segment.iv, Base64.DEFAULT),
+            Base64.decode(segment.ciphertext, Base64.DEFAULT)
+        )
+        try {
+            vaultJson.decodeFromString(Account.serializer(), plain.toString(Charsets.UTF_8))
+        } finally {
+            plain.fill(0)
+        }
     }.getOrNull()
 
     fun biometricAvailable(): Boolean = BiometricManager.from(context).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS

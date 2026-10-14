@@ -174,4 +174,105 @@ class VaultStoreTest {
         prefs.edit().putString("backup_key_cache", "!!!不是base64!!!").commit()
         assertNull(store.loadCachedBackupKey(first.dataKey))
     }
+
+    // ==================== E. v2 分段加密 ====================
+
+    @Test
+    fun save_writesV2SegmentedEnvelope() {
+        val first = store.createInitial("测试密码123", initialState)
+        store.save(initialState, first.dataKey)
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val raw = java.io.File(context.filesDir, "vault.bin").readText()
+        // v2 特征字段：headerIv + accounts 分段列表；version=2。
+        assertTrue("应含 headerIv", raw.contains("headerIv"))
+        assertTrue("应为 version 2", raw.contains("\"version\":2"))
+        // 每个账号一个独立密文段（id 明文保留在索引层）。
+        val accountIds = initialState.accounts.map { it.id }
+        for (id in accountIds) {
+            assertTrue("应含账号段 id=$id", raw.contains("\"id\":\"$id\""))
+        }
+    }
+
+    @Test
+    fun load_v2RoundTrip_preservesFullState() {
+        val first = store.createInitial("测试密码123", initialState)
+        val modified = initialState.copy(
+            accounts = initialState.accounts + Account(id = "seg-acc", name = "分段测试", username = "u2", password = "p2"),
+            selectedGroupId = "bank"
+        )
+        store.save(modified, first.dataKey)
+        val loaded = store.load(first.dataKey)
+        assertNotNull(loaded)
+        assertEquals(modified, loaded)
+    }
+
+    @Test
+    fun loadAccount_returnsOnlySelectedAccount() {
+        val first = store.createInitial("测试密码123", initialState)
+        store.save(initialState, first.dataKey)
+        // 逐条校验：每个 id 单独解密都能取回一致的账号（互相独立、无串段）。
+        for (acc in initialState.accounts) {
+            assertEquals(acc, store.loadAccount(first.dataKey, acc.id))
+        }
+        // 批量 load 与逐段解密结果一致。
+        assertEquals(initialState.accounts, store.load(first.dataKey)!!.accounts)
+    }
+
+    @Test
+    fun loadAccount_wrongDek_returnsNull() {
+        val first = store.createInitial("测试密码123", initialState)
+        store.save(initialState, first.dataKey)
+        val wrongDek = ByteArray(32) { (it + 3).toByte() }
+        assertNull(store.loadAccount(wrongDek, initialState.accounts.first().id))
+    }
+
+    @Test
+    fun loadAccount_missingId_returnsNull() {
+        val first = store.createInitial("测试密码123", initialState)
+        store.save(initialState, first.dataKey)
+        assertNull(store.loadAccount(first.dataKey, "不存在的id"))
+    }
+
+    @Test
+    fun load_v1Envelope_migratesToV2InPlace() {
+        // 手工构造 v1 信封写入 vault.bin，模拟旧版 app 的库。
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val vaultFile = java.io.File(context.filesDir, "vault.bin")
+        val first = store.createInitial("测试密码123", initialState)
+        // createInitial 已经写了 v2；覆盖为 v1 格式（整库一段）。
+        val plainV1 = com.copy.account.data.model.vaultJson.encodeToString(PersistedVault.serializer(), initialState)
+        val enc = encryptBytesForTest(first.dataKey, plainV1.toByteArray(Charsets.UTF_8))
+        val v1Json = com.copy.account.data.model.vaultJson.encodeToString(
+            V1EnvelopeForTest.serializer(),
+            V1EnvelopeForTest(
+                iv = android.util.Base64.encodeToString(enc.second, android.util.Base64.NO_WRAP),
+                ciphertext = android.util.Base64.encodeToString(enc.first, android.util.Base64.NO_WRAP)
+            )
+        )
+        vaultFile.writeText(v1Json)
+
+        // 首次 load：识别 v1 → 解密 → 自动以 v2 重写 → 返回状态。
+        val loaded = store.load(first.dataKey)
+        assertNotNull(loaded)
+        assertEquals(initialState, loaded)
+        // 库文件已被就地迁移为 v2。
+        val raw = vaultFile.readText()
+        assertTrue("迁移后应为 v2", raw.contains("headerIv"))
+        // 迁移后单段解密立即可用。
+        for (acc in initialState.accounts) {
+            assertEquals(acc, store.loadAccount(first.dataKey, acc.id))
+        }
+    }
+
+    /** 测试专用 v1 信封模型（与 VaultStore 私有 EncryptedFile 同构）。 */
+    @kotlinx.serialization.Serializable
+    private data class V1EnvelopeForTest(val version: Int = 1, val iv: String, val ciphertext: String)
+
+    /** 测试专用 AES-GCM 加密（与 Crypto.encryptBytes 同参；私有不可见故就地复刻）。 */
+    private fun encryptBytesForTest(key: ByteArray, plain: ByteArray): Pair<ByteArray, ByteArray> {
+        val secretKey = javax.crypto.spec.SecretKeySpec(key, "AES")
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, secretKey)
+        return Pair(cipher.doFinal(plain), cipher.iv)
+    }
 }

@@ -1072,10 +1072,12 @@ class AppAutofillService : AutofillService() {
      * 桥未活跃（锁定/冷启动）时的锁定态响应：
      *   1. 登录信号门：与解锁路径同款判定（密码框或带账号特征的候选框至少其一），
      *      fallback 解析不得凭空制造账号框——修复「任意输入框都弹填充气泡」；
-     *   2. 公开索引非空：按目标包名/域名对索引匹配，每个命中账号一张认证卡
-     *      （显示真实账号名），intent 带账号 id——用户「先选账号，再验证，直接填入」；
-     *   3. 索引空：单张占位卡（「解锁账号本子」），验证后按目标平铺匹配。
-     * 占位/账号卡均不携带 SaveInfo：桥未活跃，本路径不承诺保存能力。
+     *   2. 公开索引匹配：按目标包名/域名对索引（仅名称/网址/包名，无凭据）匹配，
+     *      每个命中账号一张认证卡（显示真实账号名），intent 带账号 id——用户
+     *      「先选账号 → 验证 → 直接填入」；
+     *   3. 索引空或无匹配 → 返回 null 静默：锁定态填充一律「先有索引、再选账号、
+     *      验证后单段解密」，无整库解密的占位降级路径。
+     * 账号卡不携带 SaveInfo：桥未活跃，本路径不承诺保存能力。
      */
     private fun buildLockedResponse(request: FillRequest): FillResponse? {
         return try {
@@ -1114,8 +1116,15 @@ class AppAutofillService : AutofillService() {
                 fillable.firstOrNull { it.id == id }?.let { isEmailNode(it) } == true
             }
             // 索引匹配：web 域名优先、包名兜底（与解锁路径同一套匹配逻辑）。
+            // 索引空（全新安装从未解锁/手动关窗）或无匹配 → 返回 null 静默：公开索引就是
+            // 库的全量账号清单，没匹配即库里真没有该目标的账号；锁定态填充一律要求
+            // 「先有索引、再选账号、单段解密」，绝无整库解密的占位降级路径。
             AutofillBridge.loadPublicIndexIfEmpty(this)
             val index = AutofillBridge.publicIndex
+            if (index.isEmpty()) {
+                Log.d(TAG, "buildLockedResponse: public index empty, silent skip")
+                return null
+            }
             var matched = emptyList<AutofillAccountLight>()
             if (!webDomain.isNullOrBlank()) {
                 matched = AutofillMatcher.queryWebAccounts(index, webDomain) { it.url }
@@ -1127,45 +1136,28 @@ class AppAutofillService : AutofillService() {
                     nameOf = { it.name }
                 )
             }
+            if (matched.isEmpty()) {
+                Log.d(TAG, "buildLockedResponse: no index match, silent skip")
+                return null
+            }
+            // 账号卡：展示真实名称，认证 Intent 带账号 id——验证后只解密被点选账号的密文段。
             val response = FillResponse.Builder()
-            if (matched.isNotEmpty()) {
-                // 账号卡：展示真实名称，认证 Intent 带账号 id——验证后只回填选中账号。
-                for (account in matched.take(AutofillMatcher.MAX_DATASETS)) {
-                    val presentation = AutofillMatcher.buildPresentation(
-                        this,
-                        account.name.ifBlank { account.url }
-                    )
-                    response.addDataset(
-                        AutofillMatcher.buildAuthDataset(
-                            presentation,
-                            selfHealIntentSender(
-                                targetPackage ?: "",
-                                webDomain.orEmpty(),
-                                account.id,
-                                accountNodes,
-                                phoneNodes,
-                                emailNodes,
-                                passwordNodes
-                            ),
-                            accountNodes,
-                            passwordNodes
-                        )
-                    )
-                }
-            } else {
-                // 占位卡：索引空（冷启动未解锁过/手动关窗）时的降级入口。
-                val presentation = AutofillMatcher.buildPresentation(this, "解锁账号本子")
+            for (account in matched.take(AutofillMatcher.MAX_DATASETS)) {
+                val presentation = AutofillMatcher.buildPresentation(
+                    this,
+                    account.name.ifBlank { account.url }
+                )
                 response.addDataset(
                     AutofillMatcher.buildAuthDataset(
                         presentation,
                         selfHealIntentSender(
                             targetPackage ?: "",
                             webDomain.orEmpty(),
-                            accountId = null,
-                            accountNodes = accountNodes,
-                            phoneNodes = phoneNodes,
-                            emailNodes = emailNodes,
-                            passwordNodes = passwordNodes
+                            account.id,
+                            accountNodes,
+                            phoneNodes,
+                            emailNodes,
+                            passwordNodes
                         ),
                         accountNodes,
                         passwordNodes
