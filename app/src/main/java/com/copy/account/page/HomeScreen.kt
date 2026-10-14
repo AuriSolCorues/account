@@ -45,7 +45,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -93,6 +92,8 @@ internal fun HomeScreen(
     onEditAccount: (String) -> Unit,
     onTemplateNew: (Account) -> Unit,
     onDeleteAccount: (String) -> Unit,
+    /** 批量删除：删除勾选账号；确认弹窗由 HomeScreen 内部状态承接。 */
+    onDeleteAccounts: (Set<String>) -> Unit = {},
     /** 批量转移：把 ids 账号从 fromGroupId 移到 toGroupId（toGroupId 为默认组时清空全部自定义归属）。 */
     onMoveAccounts: (ids: Set<String>, fromGroupId: String, toGroupId: String) -> Unit,
     onManageGroups: () -> Unit,
@@ -111,6 +112,8 @@ internal fun HomeScreen(
     var batchGroupId by remember { mutableStateOf<String?>(null) }
     var batchSelectedIds by remember { mutableStateOf(emptySet<String>()) }
     var moveTargetGroup by remember { mutableStateOf<Group?>(null) }
+    /** 批量删除确认弹窗：非 null 即有待删 id 集；「取消」只关弹窗，留在勾选模式。 */
+    var deleteConfirmIds by remember { mutableStateOf<Set<String>?>(null) }
     val cancelBatchMove = {
         moveTargetGroup = null
         batchGroupId = null
@@ -212,12 +215,19 @@ internal fun HomeScreen(
                 )
                 Column(modifier = Modifier.weight(1f).fillMaxHeight().padding(horizontal = 12.dp)) {
                     if (batchSourceGroup != null) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("从「${batchSourceGroup.name}」转移 · 已选 ${batchSelectedIds.size} 个", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
-                                Text("点左侧其他分组作为目标", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                            Text("从「${batchSourceGroup.name}」转移 · 已选 ${batchSelectedIds.size} 个", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                            Text("点左侧其他分组作为目标", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                            // 删除/取消两端镜像：删除贴左（未勾选置灰），取消保持原右对齐位置。
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                TextActionButton(
+                                    "删除",
+                                    onClick = { deleteConfirmIds = batchSelectedIds },
+                                    enabled = batchSelectedIds.isNotEmpty(),
+                                    textColor = MaterialTheme.colorScheme.error
+                                )
+                                TextActionButton("取消", onClick = cancelBatchMove)
                             }
-                            TextActionButton("取消", onClick = cancelBatchMove)
                         }
                     } else {
                         Text(
@@ -307,6 +317,19 @@ internal fun HomeScreen(
                 }, textColor = MaterialTheme.colorScheme.primary)
             },
             dismissButton = { TextActionButton("取消", onClick = { moveTargetGroup = null }) }
+        )
+    }
+    // 批量删除确认：确认后执行并退出勾选模式（同转移）；取消只关弹窗，留在勾选模式。
+    deleteConfirmIds?.let { ids ->
+        DeleteConfirmDialog(
+            title = "删除账号",
+            message = "确定删除已选 ${ids.size} 个账号吗？此操作不可撤销。",
+            onConfirm = {
+                onDeleteAccounts(ids)
+                deleteConfirmIds = null
+                cancelBatchMove()
+            },
+            onDismiss = { deleteConfirmIds = null }
         )
     }
 }
