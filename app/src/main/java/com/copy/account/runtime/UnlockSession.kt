@@ -42,8 +42,7 @@ import kotlinx.coroutines.withContext
 
 internal class UnlockSession(
     private val context: Context,
-    private val scope: CoroutineScope,
-    private val store: SecureVaultStore,
+    private val scope: CoroutineScope,    private val store: SecureVaultStore,
     private val hostActivity: () -> ComponentActivity?,
     /** 现读现用的生物识别开关（生效设置）；实现方须保证每次调用取最新值。 */
     private val biometricEnabled: () -> Boolean,
@@ -92,9 +91,10 @@ internal class UnlockSession(
         } finally {
             key.fill(0)
         }
-        // 落盘成功即以本次持久化的账号列表为准刷新自动填充快照（桥内部判 active，非活跃是空操作）。
+        // 落盘成功即以本次持久化的账号列表为准刷新自动填充快照与公开索引
+        // （桥内部判 active，非活跃是空操作）。
         if (result.isSuccess && autofillEnabled()) {
-            AutofillBridge.refresh(AutofillBridge.toAutofillAccounts(nextAccounts))
+            AutofillBridge.refresh(context, AutofillBridge.toAutofillAccounts(nextAccounts))
         }
         return result
     }
@@ -132,21 +132,21 @@ internal class UnlockSession(
     }
 
     /**
-     * 锁定：UI 会话清零（DEK/账号内存态/回解锁页）。锁定只清 UI 会话；自动填充窗口的
-     * 生命周期由「开关+手动关闭+进程死」管理，与锁定解耦——撤桥不在本方法发生
-     * （桥自身有逐次生物识别 AutofillAuthActivity 与开关闸 autofillEnabled，不扩大暴露面）。
+     * 锁定：UI 会话清零（DEK/账号内存态/回解锁页），同时撤填充桥（快照+DEK 清零）。
+     * 桥只留公开索引（无凭据字段），锁定态账号卡/占位卡经验证瞬时填充，零明文驻留。
      */
     fun lockApp() {
         dataKey?.fill(0)
         dataKey = null
         accounts = emptyList()
         lockGeneration++
+        AutofillBridge.onSessionLocked()
         onLocked()
     }
 
-    /** 手动关闭填充窗口：唯一主动撤桥入口（设置页调用）。 */
+    /** 手动关闭填充窗口：唯一主动撤桥入口（设置页调用），连公开索引一起清。 */
     fun closeAutofillWindow() {
-        AutofillBridge.clear()
+        AutofillBridge.clear(context)
     }
 
     /** HOTP 复制即 +1：把该账号计数器 +1 并持久化，下次重绘即下一组码。 */
@@ -167,7 +167,7 @@ internal class UnlockSession(
         selectedGroupId = unlocked.state.selectedGroupId.ifBlank { "default" }
         onUnlocked()
         if (autofillEnabled()) {
-            AutofillBridge.enable(AutofillBridge.toAutofillAccounts(accounts), unlocked.dataKey)
+            AutofillBridge.enable(context, AutofillBridge.toAutofillAccounts(accounts), unlocked.dataKey)
         }
     }
 
@@ -179,7 +179,7 @@ internal class UnlockSession(
         selectedGroupId = state.selectedGroupId.ifBlank { "default" }
         onUnlocked()
         if (autofillEnabled()) {
-            AutofillBridge.enable(AutofillBridge.toAutofillAccounts(accounts), key)
+            AutofillBridge.enable(context, AutofillBridge.toAutofillAccounts(accounts), key)
         }
     }
 
@@ -249,8 +249,8 @@ internal class UnlockSession(
     }
 
     /**
-     * ON_STOP：进入后台立即锁定 UI 会话。桥不随后台回收——填充发生在其他 App 前台期间，
-     * 窗口必须跨后台存活（与锁定解耦，见 lockApp）；关闭只能靠用户手动关闭或进程死。
+     * ON_STOP：进入后台立即锁定 UI 会话，同时撤桥（onSessionLocked）——锁定态填充走
+     * AutofillAuthActivity 的验证瞬时通道（账号卡/占位卡），不依赖驻留快照。
      */
     fun onAppStop() {
         if (isUnlocked) lockApp()

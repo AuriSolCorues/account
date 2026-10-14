@@ -40,11 +40,14 @@ internal object AutofillMatcher {
      * web 匹配：目标域名（清洗值 + 根域名 + SSO 回退根域名）逐一与账号 url 的清洗值/
      * 根域名比对（相等或双向包含）。对应 PM 的 queryWebAccounts + queryWebAccountsFuzzy，
      * 数据源换快照后两条查询合一。
+     * 泛型 + 选择器：同一份逻辑服务全量快照（AutofillAccount）与锁定态公开索引
+     * （AutofillAccountLight），两者都以 url/packageName 参与匹配。
      */
-    fun queryWebAccounts(
-        snapshot: List<AutofillAccount>,
-        rawWebDomain: String
-    ): List<AutofillAccount> {
+    fun <T> queryWebAccounts(
+        source: List<T>,
+        rawWebDomain: String,
+        urlOf: (T) -> String
+    ): List<T> {
         val cleaned = cleanDomain(rawWebDomain)
         if (cleaned.isEmpty()) return emptyList()
         val rootDomain = extractRootDomain(cleaned)
@@ -54,8 +57,8 @@ internal object AutofillMatcher {
         for (fallback in extractFallbackRootDomains(rawWebDomain)) {
             if (fallback.isNotBlank()) targetDomains.add(fallback)
         }
-        return snapshot.filter { card ->
-            val cardDomain = cleanDomain(card.url)
+        return source.filter { card ->
+            val cardDomain = cleanDomain(urlOf(card))
             if (cardDomain.isEmpty()) return@filter false
             val cardRoot = extractRootDomain(cardDomain)
             targetDomains.any { target ->
@@ -69,19 +72,21 @@ internal object AutofillMatcher {
      * app 兜底匹配：包名精准匹配（忽略大小写、剥 :process 后缀），外加 PM 的
      * 「存的名与目标应用标签相等」的兼容路径（老数据可能存的是应用名）。
      */
-    fun queryPackageAccounts(
+    fun <T> queryPackageAccounts(
         context: Context,
-        snapshot: List<AutofillAccount>,
-        targetPackage: String
-    ): List<AutofillAccount> {
+        source: List<T>,
+        targetPackage: String,
+        packageNameOf: (T) -> String?,
+        nameOf: (T) -> String
+    ): List<T> {
         val targetLabel = try {
             context.packageManager.getApplicationInfo(targetPackage, 0)
                 .let { context.packageManager.getApplicationLabel(it).toString() }
         } catch (_: Exception) {
             ""
         }
-        return snapshot.filter { card ->
-            val storedPackage = card.packageName?.trim().orEmpty()
+        return source.filter { card ->
+            val storedPackage = packageNameOf(card)?.trim().orEmpty()
             storedPackage.isNotBlank() && (
                     matchesPackageName(storedPackage, targetPackage) ||
                             (targetLabel.isNotBlank() && storedPackage.equals(targetLabel, ignoreCase = true))
