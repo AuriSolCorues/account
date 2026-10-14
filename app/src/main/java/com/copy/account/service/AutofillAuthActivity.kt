@@ -309,22 +309,25 @@ class AutofillAuthActivity : FragmentActivity() {
         replyFilled(filled)
     }
 
-    /** 已回填数据集应答：全部命中账号平铺成一个 FillResponse 回给系统并结束本页。 */
+    /**
+     * 已回填数据集应答：单账号回**裸 Dataset**（系统直接填入，无需再点气泡——
+     * 账号卡主流程「点一次 → 验证 → 自动填入」的关键）；多账号回 FillResponse
+     * 平铺（系统重新弹气泡让用户挑账号，第二次点击不可避免）。
+     */
     private fun replyFilled(accounts: List<AutofillAccount>) {
-        val response = runCatching {
-            val datasets = AutofillMatcher.buildDatasets(accounts) { acc -> buildFilledDatasetFor(acc) }
-            if (datasets.isEmpty()) return@runCatching null
-            val builder = FillResponse.Builder()
-            for (dataset in datasets) {
-                builder.addDataset(dataset)
-            }
-            builder.build()
-        }.getOrNull()
-        if (response == null) {
+        val datasets = runCatching {
+            AutofillMatcher.buildDatasets(accounts) { acc -> buildFilledDatasetFor(acc) }
+        }.getOrNull().orEmpty()
+        if (datasets.isEmpty()) {
             finishCancel()
             return
         }
-        setResult(Activity.RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, response))
+        val result = if (datasets.size == 1) {
+            datasets.single()
+        } else {
+            FillResponse.Builder().apply { for (dataset in datasets) addDataset(dataset) }.build()
+        }
+        setResult(Activity.RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, result))
         finish()
     }
 
