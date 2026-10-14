@@ -75,7 +75,10 @@ import com.copy.account.security.AccExportInput
 import com.copy.account.security.ExportPasswordRequiredException
 import com.copy.account.security.SecureVaultStore
 import com.copy.account.security.exportAcc
-import com.copy.account.security.exportPlainJson
+import com.copy.account.security.AccImportResult
+import com.copy.account.security.ACCOUNTBOX_MAGIC
+import com.copy.account.security.exportAccountBoxJson
+import com.copy.account.security.importAccountBoxJson
 import com.copy.account.security.importAcc
 import com.copy.account.ui.theme.parseThemeJson
 import java.io.File
@@ -511,13 +514,15 @@ fun AccountApp(
                                     Result.failure(IllegalStateException(gateError))
                                 } else {
                                     runCatching {
-                                        val bytes = exportPlainJson(
+                                        // 明文轨与「账号本子」App 互导：产 ACCOUNTBOX v13 格式
+                                        //（首行魔数 + JSON）。绑定关系（url/包名）无对应概念，不导出。
+                                        val bytes = exportAccountBoxJson(
                                             PersistedVault(
                                                 accounts = currentAccounts,
                                                 groups = currentGroups,
                                                 selectedGroupId = currentSelectedGroupId
                                             ),
-                                            plainExportTimestamp()
+                                            System.currentTimeMillis()
                                         )
                                         // 命名与 mime 都与 .acc 分开：文件名带 plain 前缀，SAF 轨用 application/json
                                         // 让文件管理器把扩展名和类型对上。写完立刻清零字节，尽量缩短明文在堆上的时间。
@@ -572,7 +577,18 @@ fun AccountApp(
                 accountCount = accounts.size,
                 groupCount = groups.size,
                 onImport = { bytes, password ->
-                    importAcc(bytes, password)
+                    // 按首行魔数嗅探：账号本子明文格式免密导入；否则按 .acc 解密验证。
+                    val firstLine = bytes.toString(Charsets.UTF_8).lineSequence().firstOrNull()?.trim()
+                    if (firstLine == ACCOUNTBOX_MAGIC) {
+                        val imported = importAccountBoxJson(bytes)
+                        if (imported.isSuccess) {
+                            Result.success(AccImportResult(vault = imported.getOrThrow(), settings = settingsContainer.baseSettings))
+                        } else {
+                            Result.failure(imported.exceptionOrNull() ?: IllegalStateException("账号本子文件解析失败"))
+                        }
+                    } else {
+                        importAcc(bytes, password)
+                    }
                 },
                 onApplyImport = { imported ->
                     session.accounts = imported.vault.accounts

@@ -40,6 +40,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.security.AccImportResult
+import com.copy.account.security.ACCOUNTBOX_MAGIC
 import com.copy.account.security.ExportPasswordRequiredException
 import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.isMasterPasswordValid
@@ -104,7 +105,24 @@ internal fun BackupScreen(
         pendingImportBytes = read
         importError = if (read == null) "无法读取备份" else ""
         importPassword = ""
-        showImportPasswordDialog = true
+        // 账号本子明文格式（首行魔数）免密：跳过密码框直接验证。
+        val isPlainAccountBox = read != null &&
+                read.toString(Charsets.UTF_8).lineSequence().firstOrNull()?.trim() == ACCOUNTBOX_MAGIC
+        if (isPlainAccountBox) {
+            scope.launch {
+                val bytes = pendingImportBytes ?: return@launch
+                val result = withContext(Dispatchers.Default) { onImport(bytes, "") }
+                if (result == null || result.isFailure) {
+                    importError = result?.exceptionOrNull()?.message ?: "账号本子文件解析失败"
+                    bytes.fill(0); pendingImportBytes = null
+                } else {
+                    bytes.fill(0); pendingImportBytes = null
+                    pendingImportResult = result.getOrThrow(); showImportConfirmDialog = true
+                }
+            }
+        } else {
+            showImportPasswordDialog = true
+        }
     }
     fun exportBackup() {
         exportError = ""
@@ -241,8 +259,8 @@ internal fun BackupScreen(
                 buildAnnotatedString {
                     append("将把 $accountCount 个账号、$groupCount 个分组的")
                     withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("全部密码与两步验证密钥") }
-                    append("以明文 JSON 写入 ${directory.backupFolder}。\n\n")
-                    append("该文件没有任何加密，任何人拿到即可登录你的所有账号，且应用内无法删除它。确认导出？")
+                    append("以账号本子明文格式（ACCOUNTBOX_JSON_13）写入 ${directory.backupFolder}。\n\n")
+                    append("该文件没有任何加密，任何人拿到即可登录你的所有账号，且应用内无法删除它。绑定关系（网址/应用）不会随明文导出保留。确认导出？")
                 }
             )
         },
