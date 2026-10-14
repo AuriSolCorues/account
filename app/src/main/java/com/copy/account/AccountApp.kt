@@ -261,6 +261,10 @@ fun AccountApp(
                 session.accounts = session.accounts.filterNot { it.id == id }
                 session.persistVault()
             },
+            onDeleteAccounts = { ids ->
+                session.accounts = session.accounts.filterNot { it.id in ids }
+                session.persistVault()
+            },
             onMoveAccounts = { ids, fromGroupId, toGroupId ->
                 val from = groups.firstOrNull { it.id == fromGroupId }
                 val to = groups.firstOrNull { it.id == toGroupId }
