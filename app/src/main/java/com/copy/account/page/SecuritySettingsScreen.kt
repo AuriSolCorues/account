@@ -75,14 +75,11 @@ internal fun SecuritySettingsScreen(
         item { SettingsSwitchRow("禁止截图", blockScreenshots, onBlockScreenshotsChange) }
         item { SettingsRow("自动锁定", autoLockLabel(autoLockSeconds)) { showAutoLockDialog = true } }
         item {
-            SettingsRow(
+            SettingsSwitchRow(
                 "生物识别解锁",
-                when {
-                    !biometricAvailable -> "设备不支持"
-                    biometricEnabled -> "开启"
-                    else -> "关闭"
-                },
-                if (biometricAvailable) { { onToggleBiometric(!biometricEnabled) } } else null
+                biometricEnabled,
+                onToggleBiometric,
+                enabled = biometricAvailable
             )
         }
         // ===== 自动填充区：总开关（开窗闸）+ 窗口状态行（含说明）+ 系统填充服务跳转 =====
