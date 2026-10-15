@@ -1175,6 +1175,10 @@ class AppAutofillService : AutofillService() {
      * 自愈认证 PendingIntent：同样指向 AutofillAuthActivity（Mode B 由 EXTRA_SELF_HEAL
      * 区分）。FLAG_MUTABLE 与普通认证路径同理：系统回传结果时要附加 fill-in intent，
      * 且 BiometricPrompt 的 CryptoObject 通道要求 intent 可变。
+     * requestCode 取账号 id 哈希并加 SELF_HEAL 偏置：PendingIntent 同一性由
+     * (filterEquals, requestCode) 决定，而 filterEquals 忽略 extras——同响应内多账号
+     * 卡若共用 requestCode 会互相覆盖（曾用时间戳 + FLAG_CANCEL_CURRENT，同毫秒构建
+     * 导致整批卡片只剩最后一张）。
      */
     private fun selfHealIntentSender(
         targetPackage: String,
@@ -1199,9 +1203,9 @@ class AppAutofillService : AutofillService() {
         }
         return PendingIntent.getActivity(
             this,
-            System.currentTimeMillis().toInt(),
+            (accountId.orEmpty().hashCode() * 2 + 1),
             intent,
-            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         ).intentSender
     }
 
@@ -1233,6 +1237,9 @@ class AppAutofillService : AutofillService() {
      * ::class 引用——该 Activity 由并行任务线交付，字符串引用保证本文件先行独立编译；
      * 集成后类真实存在，运行时解析不受影响。FLAG_MUTABLE：系统要在回传结果时附加
      * 远端凭证（fill-in intent），不可用 IMMUTABLE。
+     * requestCode 取账号 id 哈希（偶数位，与 selfHealIntentSender 的奇数位错开，
+     * 避免解锁/锁定两条路径互相覆盖）；FLAG_UPDATE_CURRENT 让重复请求原地更新
+     * 同一账号的卡，而非取消（filterEquals 忽略 extras，见 selfHealIntentSender 注）。
      */
     private fun newIntentSender(
         account: AutofillAccount,
@@ -1251,9 +1258,9 @@ class AppAutofillService : AutofillService() {
         }
         return PendingIntent.getActivity(
             this,
-            System.currentTimeMillis().toInt(),
+            account.id.hashCode() * 2,
             intent,
-            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         ).intentSender
     }
 

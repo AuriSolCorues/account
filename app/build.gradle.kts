@@ -18,8 +18,8 @@ if (keystorePropertiesFile.exists()) {
 
 // 版本号：CI 可经 -Paccount.versionName/-Paccount.versionCode 注入，本地不传时用默认值。
 // 同时被 APK 命名复用（见文末 androidComponents），保证 tag、包内版本与文件名三者一致。
-val appVersionName = providers.gradleProperty("account.versionName").getOrElse("1.3")
-val appVersionCode = providers.gradleProperty("account.versionCode").getOrElse("3").toInt()
+val appVersionName = providers.gradleProperty("account.versionName").getOrElse("1.7")
+val appVersionCode = providers.gradleProperty("account.versionCode").getOrElse("18").toInt()
 
 android {
     namespace = "com.copy.account"
