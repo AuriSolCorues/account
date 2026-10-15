@@ -106,7 +106,7 @@ class MainActivity : FragmentActivity() {
                     isAppearanceLightNavigationBars = useDarkSystemIcons
                 }
             }
-            AccountTheme(dynamicColor = false, darkTheme = darkTheme, accentTheme = accentTheme, customThemeJson = customThemeJson) {
+            AccountTheme(darkTheme = darkTheme, accentTheme = accentTheme, customThemeJson = customThemeJson) {
                 Surface(
                     color = androidx.compose.material3.MaterialTheme.colorScheme.background,
                     modifier = androidx.compose.ui.Modifier.fillMaxSize()

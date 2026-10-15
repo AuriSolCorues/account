@@ -38,6 +38,7 @@ import com.copy.account.ui.components.AnimatedReorderCard
 import com.copy.account.ui.components.DangerButton
 import com.copy.account.ui.components.DeleteConfirmDialog
 import com.copy.account.ui.components.DragHandleGlyph
+import com.copy.account.ui.components.TextInputDialog
 import com.copy.account.ui.components.SheetTitleRow
 import com.copy.account.ui.components.TextActionButton
 import com.copy.account.ui.components.ReorderCardStyle
@@ -82,19 +83,17 @@ internal fun GroupManageScreen(
         }
         item { Text("固定分组不可删除或排序；删除自定义分组不会删除账号。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp)) }
     }
-    // 新增和编辑均使用底部面板；编辑分组直接保存，不经过额外操作菜单。
+    // 新增分组走标准 TextInputDialog（与 AccountEdit「以模板新建」同款）；编辑分组用底部面板。
     if (showAddSheet) {
-        AppBottomSheet(onDismiss = { showAddSheet = false }, skipPartiallyExpanded = true) {
-            AddGroupSheetContent(
-                value = dialogText,
-                onValueChange = { dialogText = it },
-                onCancel = { showAddSheet = false },
-                onSave = {
-                    onAddGroup(dialogText.trim())
-                    showAddSheet = false
-                }
-            )
-        }
+        TextInputDialog(
+            title = "新增分组",
+            label = "分组名称",
+            onConfirm = { name ->
+                onAddGroup(name.trim())
+                showAddSheet = false
+            },
+            onDismiss = { showAddSheet = false }
+        )
     }
     // 点名称直接进入编辑框，不再经过操作菜单或展示行内改名/删除按钮。
     editGroup?.let { group ->
@@ -145,36 +144,6 @@ internal fun LazyItemScope.GroupManageItem(
     }
 }
 
-/** 新增分组面板内容（不含弹层容器），运行时与 IDE 预览共用。 */
-@Composable
-private fun AddGroupSheetContent(
-    value: String,
-    onValueChange: (String) -> Unit,
-    onCancel: () -> Unit,
-    onSave: () -> Unit
-) {
-    SheetTitleRow("新增分组")
-    Spacer(Modifier.height(12.dp))
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { Text("分组名称") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth()
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.End
-    ) {
-        TextActionButton("取消", onClick = onCancel)
-        TextActionButton(
-            text = "保存",
-            enabled = value.isNotBlank(),
-            onClick = onSave
-        )
-    }
-}
-
 /** 编辑分组面板内容（不含弹层容器），运行时与 IDE 预览共用。 */
 @Composable
 private fun RenameGroupSheetContent(
@@ -202,16 +171,6 @@ private fun RenameGroupSheetContent(
         DangerButton("删除分组", onClick = onDelete)
     }
     Spacer(Modifier.height(8.dp))
-}
-
-@Preview(name = "新增分组面板", widthDp = 411, heightDp = 600, showBackground = true)
-@Composable
-private fun AddGroupSheetPagePreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
-        SheetPagePreview {
-            AddGroupSheetContent(value = "旅行", onValueChange = {}, onCancel = {}, onSave = {})
-        }
-    }
 }
 
 @Preview(name = "编辑分组面板", widthDp = 411, heightDp = 600, showBackground = true)

@@ -53,13 +53,12 @@ internal fun AppBottomSheet(
     onDismiss: () -> Unit,
     skipPartiallyExpanded: Boolean = false,
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
-    containerColor: Color = Color.Unspecified,
     content: @Composable ColumnScope.() -> Unit
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = skipPartiallyExpanded),
-        containerColor = if (containerColor == Color.Unspecified) MaterialTheme.colorScheme.surfaceContainerLow else containerColor
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
         Column(
             // 内容可滚：长账号（多字段/长值）超弹层最大高时不被裁，可滚到底；短内容仍自适应高度。
@@ -106,9 +105,9 @@ internal fun SheetPagePreview(
 
 /** 底部面板中整行可点击的条目（同背景、同圆角，文本颜色区分主次）。 */
 @Composable
-internal fun ActionSheetRow(text: String, muted: Boolean = false, color: Color = Color.Unspecified, containerColor: Color = Color.Unspecified, onClick: () -> Unit) {
+internal fun ActionSheetRow(text: String, muted: Boolean = false, color: Color = Color.Unspecified, onClick: () -> Unit) {
     Surface(
-        color = if (containerColor == Color.Unspecified) MaterialTheme.colorScheme.surfaceContainer else containerColor,
+        color = MaterialTheme.colorScheme.surfaceContainer,
         shape = RoundedCornerShape(14.dp),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
     ) {

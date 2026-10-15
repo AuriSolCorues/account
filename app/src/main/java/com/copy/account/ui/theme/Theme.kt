@@ -11,6 +11,7 @@ package com.copy.account.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -84,19 +85,20 @@ data class ThemeJsonDefinition(
     val colors: ThemeJsonColors = ThemeJsonColors()
 )
 
+// 默认深绿 19 色：CompositionLocal 兜底值与 resolveTheme 深绿分支共用同一实例，防两处手写漂移。
+private val GreenDarkPalette = AccountThemePalette(
+    topBar = AccountGreenDark, topBarText = Color.White, background = AccountBackground,
+    surface = AccountSurface, surfaceAlt = AccountSurfaceVariant, primary = AccountGreen,
+    primaryText = Color(0xFF082016), selectedBackground = AccountGreenContainer,
+    text = Color(0xFFF0F4F1), textMuted = Color(0xFFA7B2AC), divider = Color(0xFF303733),
+    inputBackground = Color(0xFF272B29), inputBorder = Color(0xFF4A554E),
+    icon = Color(0xFFDCE8E0), danger = Color(0xFFFF7070), warning = Color(0xFFE2B34E),
+    success = AccountGreen, disabled = Color(0xFF66726B), overlay = Color(0x99000000)
+)
+
 // staticCompositionLocalOf：值一变整棵子树全部重建——主题切换本就要全屏换色，正合适；
 // （普通 compositionLocalOf 只重建「读到它」的组件，粒度细但记录开销更大。）
-val LocalAccountThemePalette = staticCompositionLocalOf {
-    AccountThemePalette(
-        topBar = AccountGreenDark, topBarText = Color.White, background = AccountBackground,
-        surface = AccountSurface, surfaceAlt = AccountSurfaceVariant, primary = AccountGreen,
-        primaryText = Color(0xFF082016), selectedBackground = AccountGreenContainer,
-        text = Color(0xFFF0F4F1), textMuted = Color(0xFFA7B2AC), divider = Color(0xFF303733),
-        inputBackground = Color(0xFF272B29), inputBorder = Color(0xFF4A554E),
-        icon = Color(0xFFDCE8E0), danger = Color(0xFFFF7070), warning = Color(0xFFE2B34E),
-        success = AccountGreen, disabled = Color(0xFF66726B), overlay = Color(0x99000000)
-    )
-}
+val LocalAccountThemePalette = staticCompositionLocalOf { GreenDarkPalette }
 
 private val themeJson = Json { ignoreUnknownKeys = true; encodeDefaults = true; prettyPrint = true }
 
@@ -217,22 +219,12 @@ fun defaultThemePresets(): List<SavedTheme> = listOf(
     }""")
 )
 
-private fun AccountThemePalette.toScheme(darkTheme: Boolean) = if (darkTheme) {
+private fun AccountThemePalette.toScheme(darkTheme: Boolean): ColorScheme {
     val popup = popupSurface ?: surface
     val popupItem = popupItemSurface ?: surfaceAlt
-    darkColorScheme(
-        primary = primary, onPrimary = primaryText, primaryContainer = selectedBackground,
-        onPrimaryContainer = text, secondary = success, tertiary = warning,
-        background = background, surface = surface, surfaceVariant = surfaceAlt,
-        onBackground = text, onSurface = text, onSurfaceVariant = textMuted,
-        error = danger, onError = Color.White, outline = inputBorder, outlineVariant = divider,
-        surfaceContainerLowest = surface, surfaceContainerLow = popup, surfaceContainer = popupItem,
-        surfaceContainerHigh = popup, surfaceContainerHighest = popup
-    )
-} else {
-    val popup = popupSurface ?: surface
-    val popupItem = popupItemSurface ?: surfaceAlt
-    lightColorScheme(
+    // 19 色到 Material3 槽位的映射与明暗无关：先取默认明/暗骨架，再统一覆盖槽位。
+    val base = if (darkTheme) darkColorScheme() else lightColorScheme()
+    return base.copy(
         primary = primary, onPrimary = primaryText, primaryContainer = selectedBackground,
         onPrimaryContainer = text, secondary = success, tertiary = warning,
         background = background, surface = surface, surfaceVariant = surfaceAlt,
@@ -268,13 +260,7 @@ fun resolveTheme(darkTheme: Boolean, accentTheme: String, customThemeJson: Strin
             Color(0xFF9AAACC), Color(0xFF34548A), Color(0xFFD94E58), Color(0xFFA66A00),
             AccountLightBlue, Color(0xFF8392A8), Color(0x55000000)
         )
-        darkTheme -> AccountThemePalette(
-            AccountGreenDark, Color.White, AccountBackground, AccountSurface, AccountSurfaceVariant,
-            AccountGreen, Color(0xFF082016), AccountGreenContainer, Color(0xFFF0F4F1),
-            Color(0xFFA7B2AC), Color(0xFF303733), Color(0xFF272B29), Color(0xFF4A554E),
-            Color(0xFFDCE8E0), Color(0xFFFF7070), Color(0xFFE2B34E), AccountGreen,
-            Color(0xFF66726B), Color(0x99000000)
-        )
+        darkTheme -> GreenDarkPalette
         else -> AccountThemePalette(
             AccountLightGreen, Color.White, Color(0xFFF4F5F4), Color.White,
             Color(0xFFF8FAF8), AccountLightGreen, Color.White, AccountLightContainer,
@@ -291,8 +277,6 @@ fun resolveTheme(darkTheme: Boolean, accentTheme: String, customThemeJson: Strin
 @Composable
 fun AccountTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // 固定产品色板，避免系统动态配色注入无关的白色或紫色，破坏 JPG 参考风格。
-    dynamicColor: Boolean = false,
     accentTheme: String = "green",
     customThemeJson: String = "",
     content: @Composable () -> Unit
@@ -301,7 +285,6 @@ fun AccountTheme(
 
     MaterialTheme(
         colorScheme = resolved.colorScheme,
-        typography = Typography,
         content = {
             androidx.compose.runtime.CompositionLocalProvider(LocalAccountThemePalette provides resolved.palette) { content() }
         }
