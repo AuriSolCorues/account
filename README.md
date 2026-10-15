@@ -38,7 +38,7 @@
 ## 构建
 
 ```sh
-./test.sh unit      # 本地单元测试（72 个）
+./test.sh unit      # 本地单元测试（82 个）
 ./build.sh          # debug APK 并安装到真机
 ./build.sh release  # 已签名 release APK
 ```
