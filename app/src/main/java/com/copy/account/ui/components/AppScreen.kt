@@ -25,12 +25,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.copy.account.ui.theme.LocalAccountThemePalette
 
-/** 二级页骨架：Scaffold + 主题色顶栏 + 可选「‹ 返回」+ 右部 actions。Home（无返回、顶栏非标）不适用。 */
+/** 二级页骨架：Scaffold + 主题色顶栏 + 「‹ 返回」+ 右部 actions。Home（无返回、顶栏非标）不适用。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AppScreen(
     title: String,
-    onBack: (() -> Unit)? = null,
+    onBack: () -> Unit,
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable (PaddingValues) -> Unit
 ) {
@@ -41,9 +41,7 @@ internal fun AppScreen(
             colors = accountTopBarColors(),
             title = { Text(title, color = LocalAccountThemePalette.current.topBarText) },
             navigationIcon = {
-                if (onBack != null) {
-                    TextActionButton("‹ 返回", onBack, textColor = LocalAccountThemePalette.current.topBarText)
-                }
+                TextActionButton("‹ 返回", onBack, textColor = LocalAccountThemePalette.current.topBarText)
             },
             actions = actions
         )

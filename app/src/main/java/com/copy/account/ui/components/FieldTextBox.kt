@@ -84,9 +84,7 @@ internal fun FieldTextBox(
     hidden: Boolean = false,
     mask: Char = '•',
     modifier: Modifier = Modifier,
-    onFocused: () -> Unit = {},
-    textStyle: TextStyle = MaterialTheme.typography.bodyLarge,
-    textColor: Color = MaterialTheme.colorScheme.onSurface
+    onFocused: () -> Unit = {}
 ) {
     // 显隐态只随 hidden 配置重置；以 value 为键会让打字中已显示的明文塌回掩码。
     var revealed by remember(hidden) { mutableStateOf(false) }
@@ -100,7 +98,7 @@ internal fun FieldTextBox(
         value = value,
         onValueChange = onValueChange,
         singleLine = true,
-        textStyle = textStyle.copy(color = textColor),
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
         visualTransformation = visualTransformation,
         interactionSource = interactionSource,
         modifier = modifier.height(48.dp).onFocusChanged { if (it.isFocused) onFocused() },

@@ -145,9 +145,6 @@ internal fun uniquePlainExportName(exists: (String) -> Boolean): String {
     return filename
 }
 
-/** 明文导出 JSON 里 exportedAt 字段的取值；与文件名同源但格式适合人读（冒号在 JSON 里无碍）。 */
-internal fun plainExportTimestamp(): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-
 // ===== API>=30 直写路径（所有文件访问 + 可自定义子目录），绕开被 OEM 锁死的 SAF 目录选择器；以下函数仅在 directBackup（API>=30）时调用 =====
 
 /** API>=30 是否已授予「所有文件访问」。 */

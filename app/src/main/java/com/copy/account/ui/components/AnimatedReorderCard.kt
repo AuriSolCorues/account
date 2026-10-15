@@ -24,7 +24,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.copy.account.ui.theme.AccountTheme
@@ -33,10 +32,6 @@ import com.copy.account.ui.theme.LocalAccountThemePalette
 internal data class ReorderCardStyle(
     val normalColor: Color,
     val draggingColor: Color,
-    val normalElevation: Dp = 1.dp,
-    val draggingElevation: Dp = 8.dp,
-    val normalScale: Float = 1f,
-    val draggingScale: Float = 1.03f,
     val contentPadding: PaddingValues = PaddingValues()
 )
 
@@ -69,11 +64,11 @@ internal fun LazyItemScope.AnimatedReorderCard(
         label = "reorder-card-color"
     )
     val cardElevation by animateDpAsState(
-        targetValue = if (isDragging) style.draggingElevation else style.normalElevation,
+        targetValue = if (isDragging) 8.dp else 1.dp,
         label = "reorder-card-elevation"
     )
     val cardScale by animateFloatAsState(
-        targetValue = if (isDragging) style.draggingScale else style.normalScale,
+        targetValue = if (isDragging) 1.03f else 1f,
         label = "reorder-card-scale"
     )
     // animateItem()：列表项换位时的槽位平移动画；zIndex 拖起时浮到最顶层，盖住邻卡。
