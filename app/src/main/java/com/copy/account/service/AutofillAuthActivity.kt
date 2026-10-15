@@ -60,8 +60,6 @@ class AutofillAuthActivity : FragmentActivity() {
 
     // extras 快照：onCreate 一次读齐，验证回调里只读这些本地字段，不再碰 intent。
     private var selfHeal = false
-    private var targetPackage: String = ""
-    private var targetWebDomain: String = ""
     private var accountId: String = ""
     private var usernameIds: List<AutofillId> = emptyList()
     private var phoneIds: List<AutofillId> = emptyList()
@@ -73,13 +71,11 @@ class AutofillAuthActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         selfHeal = intent.getBooleanExtra(AutofillSelfHeal.EXTRA_SELF_HEAL, false)
-        targetPackage = intent.getStringExtra(AutofillSelfHeal.EXTRA_TARGET_PACKAGE).orEmpty()
-        targetWebDomain = intent.getStringExtra(AutofillSelfHeal.EXTRA_TARGET_WEB_DOMAIN).orEmpty()
-        accountId = intent.getStringExtra(EXTRA_ACCOUNT_ID).orEmpty()
-        usernameIds = readIds(EXTRA_USERNAME_IDS)
-        phoneIds = readIds(EXTRA_PHONE_IDS)
-        emailIds = readIds(EXTRA_EMAIL_IDS)
-        passwordIds = readIds(EXTRA_PASSWORD_IDS)
+        accountId = intent.getStringExtra(AutofillMatcher.EXTRA_ACCOUNT_ID).orEmpty()
+        usernameIds = readIds(AutofillMatcher.EXTRA_USERNAME_IDS)
+        phoneIds = readIds(AutofillMatcher.EXTRA_PHONE_IDS)
+        emailIds = readIds(AutofillMatcher.EXTRA_EMAIL_IDS)
+        passwordIds = readIds(AutofillMatcher.EXTRA_PASSWORD_IDS)
         val hasTargets = usernameIds.isNotEmpty() || passwordIds.isNotEmpty() ||
                 phoneIds.isNotEmpty() || emailIds.isNotEmpty()
         // Mode A 缺账号 id；锁定态（SELF_HEAL）也必须带账号 id——服务端锁定分支只发
@@ -330,14 +326,5 @@ class AutofillAuthActivity : FragmentActivity() {
         finish()
     }
 
-    companion object {
-        // extras 键名：与 AppAutofillService 端同名常量一一对应，两端契约。
-        // 锁定态模式的两键见 AutofillSelfHeal 常量（SELF_HEAL / TARGET_PACKAGE /
-        // TARGET_WEB_DOMAIN），节点 id 列表与 account_id 复用同名键。
-        private const val EXTRA_ACCOUNT_ID = "account_id"
-        private const val EXTRA_USERNAME_IDS = "username_ids"
-        private const val EXTRA_PHONE_IDS = "phone_ids"
-        private const val EXTRA_EMAIL_IDS = "email_ids"
-        private const val EXTRA_PASSWORD_IDS = "password_ids"
-    }
+    companion object
 }

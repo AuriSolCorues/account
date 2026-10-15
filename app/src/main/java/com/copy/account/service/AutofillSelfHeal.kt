@@ -17,6 +17,7 @@
 package com.copy.account.service
 
 import com.copy.account.runtime.AutofillAccount
+import com.copy.account.runtime.toAutofillAccount
 import com.copy.account.security.SecureVaultStore
 import javax.crypto.Cipher
 
@@ -24,12 +25,6 @@ internal object AutofillSelfHeal {
 
     /** Boolean extra：锁定态填充标记（认证 Intent 携带，Activity 端据此切换模式）。 */
     const val EXTRA_SELF_HEAL = "com.copy.account.autofill.SELF_HEAL"
-
-    /** String extra：锁定态目标包名（保留契约字段；当前单段路径不依赖它取数）。 */
-    const val EXTRA_TARGET_PACKAGE = "com.copy.account.autofill.TARGET_PACKAGE"
-
-    /** String extra：锁定态目标 web 域名（清洗后的值；非网页场景为空串；同上保留契约）。 */
-    const val EXTRA_TARGET_WEB_DOMAIN = "com.copy.account.autofill.TARGET_WEB_DOMAIN"
 
     /**
      * 指纹路径：CryptoObject 授权的 cipher 解开包装 DEK → loadAccount 只解被点选账号
@@ -40,15 +35,7 @@ internal object AutofillSelfHeal {
         val dek = runCatching { cipher.doFinal(store.biometricCiphertext() ?: return null) }
             .getOrNull() ?: return null
         try {
-            val acc = store.loadAccount(dek, accountId) ?: return null
-            return AutofillAccount(
-                id = acc.id,
-                name = acc.name,
-                username = acc.username,
-                password = acc.password,
-                url = acc.url,
-                packageName = acc.packageName
-            )
+            return store.loadAccount(dek, accountId)?.toAutofillAccount()
         } finally {
             dek.fill(0)
         }
@@ -69,15 +56,7 @@ internal object AutofillSelfHeal {
             // 不留到 GC（此前版本漏清此字段，已修）。
             unlocked.backupKey.clear()
             try {
-                val acc = store.loadAccount(dek, accountId) ?: return null
-                AutofillAccount(
-                    id = acc.id,
-                    name = acc.name,
-                    username = acc.username,
-                    password = acc.password,
-                    url = acc.url,
-                    packageName = acc.packageName
-                )
+                return store.loadAccount(dek, accountId)?.toAutofillAccount()
             } finally {
                 dek.fill(0)
             }
