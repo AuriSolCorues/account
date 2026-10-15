@@ -52,13 +52,22 @@ internal fun SettingsRow(title: String, value: String, onClick: (() -> Unit)? = 
     }
 }
 
-/** 设置页的开关行。 */
+/**
+ * 设置页的开关行：只有开关本体响应点击，整卡不可点（防误触——生物识别解锁的关闭是
+ * 立即生效的高危操作，误点行内空白不该触发）。enabled=false 时仅开关置灰不可点
+ * （如设备不支持该能力），卡片底色保持不变。
+ */
 @Composable
-internal fun SettingsSwitchRow(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    SurfaceCard(onClick = { onCheckedChange(!checked) }, modifier = Modifier.fillMaxWidth()) {
+internal fun SettingsSwitchRow(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true
+) {
+    SurfaceCard(modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(title, modifier = Modifier.weight(1f))
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
+            Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
         }
     }
 }
