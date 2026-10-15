@@ -113,16 +113,7 @@ internal object AutofillBridge {
     fun findAccount(id: String): AutofillAccount? = snapshot.firstOrNull { it.id == id }
 
     /** Account 列表 → 快照行：只取填充所需字段，多余的 UI 态一律不带出。 */
-    fun toAutofillAccounts(accounts: List<Account>): List<AutofillAccount> = accounts.map {
-        AutofillAccount(
-            id = it.id,
-            name = it.name,
-            username = it.username,
-            password = it.password,
-            url = it.url,
-            packageName = it.packageName
-        )
-    }
+    fun toAutofillAccounts(accounts: List<Account>): List<AutofillAccount> = accounts.map { it.toAutofillAccount() }
 
     /**
      * 冷启动恢复公开索引：进程死后索引内存态丢失，从沙箱文件读回（只含公开字段）。
@@ -155,3 +146,13 @@ internal object AutofillBridge {
         }
     }
 }
+
+/** 单账号映射：快照行/自愈回包共用的六字段转换（service 层锁定态单段解封也走这里）。 */
+internal fun Account.toAutofillAccount(): AutofillAccount = AutofillAccount(
+    id = id,
+    name = name,
+    username = username,
+    password = password,
+    url = url,
+    packageName = packageName
+)

@@ -242,27 +242,6 @@ class AppAutofillService : AutofillService() {
         }
     }
 
-    // ==================== 网页/应用匹配 ====================
-    // 匹配与构建的纯逻辑已上移到 AutofillMatcher（自愈回包路径需共用），此处仅委托。
-
-    private fun queryWebAccounts(
-        snapshot: List<AutofillAccount>,
-        rawWebDomain: String
-    ): List<AutofillAccount> = AutofillMatcher.queryWebAccounts(snapshot, rawWebDomain) { it.url }
-
-    private fun queryPackageAccounts(
-        snapshot: List<AutofillAccount>,
-        targetPackage: String
-    ): List<AutofillAccount> = AutofillMatcher.queryPackageAccounts(
-        this, snapshot, targetPackage,
-        packageNameOf = { it.packageName },
-        nameOf = { it.name }
-    )
-
-    /** 保存路径的同轨去重仍在用：委托共享实现。 */
-    private fun matchesPackageName(storedPackage: String, targetPackage: String): Boolean =
-        AutofillMatcher.matchesPackageName(storedPackage, targetPackage)
-
     // ==================== 保存路径 ====================
 
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
@@ -429,7 +408,7 @@ class AppAutofillService : AutofillService() {
                                 cardRoot.isNotEmpty() && cardRoot == targetRootDomain
                             } else {
                                 account.packageName?.trim().orEmpty().let { stored ->
-                                    stored.isNotBlank() && matchesPackageName(stored, targetPackageName)
+                                    stored.isNotBlank() && AutofillMatcher.matchesPackageName(stored, targetPackageName)
                                 }
                             }
                         }
@@ -1150,14 +1129,13 @@ class AppAutofillService : AutofillService() {
                 response.addDataset(
                     AutofillMatcher.buildAuthDataset(
                         presentation,
-                        selfHealIntentSender(
-                            targetPackage ?: "",
-                            webDomain.orEmpty(),
-                            account.id,
-                            accountNodes,
-                            phoneNodes,
-                            emailNodes,
-                            passwordNodes
+                        authIntentSender(
+                            selfHeal = true,
+                            accountId = account.id,
+                            accountNodes = accountNodes,
+                            phoneNodes = phoneNodes,
+                            emailNodes = emailNodes,
+                            passwordNodes = passwordNodes
                         ),
                         accountNodes,
                         passwordNodes
@@ -1172,17 +1150,18 @@ class AppAutofillService : AutofillService() {
     }
 
     /**
-     * 自愈认证 PendingIntent：同样指向 AutofillAuthActivity（Mode B 由 EXTRA_SELF_HEAL
-     * 区分）。FLAG_MUTABLE 与普通认证路径同理：系统回传结果时要附加 fill-in intent，
-     * 且 BiometricPrompt 的 CryptoObject 通道要求 intent 可变。
-     * requestCode 取账号 id 哈希并加 SELF_HEAL 偏置：PendingIntent 同一性由
-     * (filterEquals, requestCode) 决定，而 filterEquals 忽略 extras——同响应内多账号
-     * 卡若共用 requestCode 会互相覆盖（曾用时间戳 + FLAG_CANCEL_CURRENT，同毫秒构建
-     * 导致整批卡片只剩最后一张）。
+     * 认证 PendingIntent：解锁态与锁定态（selfHeal）两路共用，指向 AutofillAuthActivity。
+     * 以类名字符串构造显式组件而非 ::class 引用——该 Activity 由并行任务线交付，
+     * 字符串引用保证本文件先行独立编译；集成后类真实存在，运行时解析不受影响。
+     * FLAG_MUTABLE：系统要在回传结果时附加远端凭证（fill-in intent），不可用 IMMUTABLE。
+     * requestCode 取账号 id 哈希：偶数位=解锁态、奇数位=锁定态，两条路径错开互不覆盖；
+     * 占位卡（无 accountId）奇数位取 1。PendingIntent 同一性由 (filterEquals, requestCode)
+     * 决定，而 filterEquals 忽略 extras——同响应内多账号卡若共用 requestCode 会互相覆盖
+     * （曾用时间戳 + FLAG_CANCEL_CURRENT，同毫秒构建导致整批卡片只剩最后一张）；
+     * FLAG_UPDATE_CURRENT 让重复请求原地更新同一账号的卡，而非取消。
      */
-    private fun selfHealIntentSender(
-        targetPackage: String,
-        webDomain: String,
+    private fun authIntentSender(
+        selfHeal: Boolean,
         accountId: String?,
         accountNodes: List<AutofillId>,
         phoneNodes: List<AutofillId>,
@@ -1191,19 +1170,22 @@ class AppAutofillService : AutofillService() {
     ): IntentSender {
         val intent = Intent().apply {
             component = ComponentName(packageName, AUTH_ACTIVITY_CLASS)
-            putExtra(AutofillSelfHeal.EXTRA_SELF_HEAL, true)
+            if (selfHeal) putExtra(AutofillSelfHeal.EXTRA_SELF_HEAL, true)
             // 账号卡带 id：验证后只回填选中账号；占位卡不带：验证后按目标平铺。
-            if (!accountId.isNullOrBlank()) putExtra(EXTRA_ACCOUNT_ID, accountId)
-            putExtra(AutofillSelfHeal.EXTRA_TARGET_PACKAGE, targetPackage)
-            putExtra(AutofillSelfHeal.EXTRA_TARGET_WEB_DOMAIN, webDomain)
-            putParcelableArrayListExtra(EXTRA_USERNAME_IDS, ArrayList(accountNodes))
-            putParcelableArrayListExtra(EXTRA_PHONE_IDS, ArrayList(phoneNodes))
-            putParcelableArrayListExtra(EXTRA_EMAIL_IDS, ArrayList(emailNodes))
-            putParcelableArrayListExtra(EXTRA_PASSWORD_IDS, ArrayList(passwordNodes))
+            if (!accountId.isNullOrBlank()) putExtra(AutofillMatcher.EXTRA_ACCOUNT_ID, accountId)
+            putParcelableArrayListExtra(AutofillMatcher.EXTRA_USERNAME_IDS, ArrayList(accountNodes))
+            putParcelableArrayListExtra(AutofillMatcher.EXTRA_PHONE_IDS, ArrayList(phoneNodes))
+            putParcelableArrayListExtra(AutofillMatcher.EXTRA_EMAIL_IDS, ArrayList(emailNodes))
+            putParcelableArrayListExtra(AutofillMatcher.EXTRA_PASSWORD_IDS, ArrayList(passwordNodes))
+        }
+        val requestCode = if (selfHeal) {
+            accountId.orEmpty().hashCode() * 2 + 1
+        } else {
+            accountId.orEmpty().hashCode() * 2
         }
         return PendingIntent.getActivity(
             this,
-            (accountId.orEmpty().hashCode() * 2 + 1),
+            requestCode,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         ).intentSender
@@ -1226,55 +1208,23 @@ class AppAutofillService : AutofillService() {
         )
         return AutofillMatcher.buildAuthDataset(
             presentation,
-            newIntentSender(account, accountNodes, phoneNodes, emailNodes, passwordNodes),
+            authIntentSender(
+                selfHeal = false,
+                accountId = account.id,
+                accountNodes = accountNodes,
+                phoneNodes = phoneNodes,
+                emailNodes = emailNodes,
+                passwordNodes = passwordNodes
+            ),
             accountNodes,
             passwordNodes
         )
-    }
-
-    /**
-     * 认证 PendingIntent：指向 AutofillAuthActivity。以类名字符串构造显式组件而非
-     * ::class 引用——该 Activity 由并行任务线交付，字符串引用保证本文件先行独立编译；
-     * 集成后类真实存在，运行时解析不受影响。FLAG_MUTABLE：系统要在回传结果时附加
-     * 远端凭证（fill-in intent），不可用 IMMUTABLE。
-     * requestCode 取账号 id 哈希（偶数位，与 selfHealIntentSender 的奇数位错开，
-     * 避免解锁/锁定两条路径互相覆盖）；FLAG_UPDATE_CURRENT 让重复请求原地更新
-     * 同一账号的卡，而非取消（filterEquals 忽略 extras，见 selfHealIntentSender 注）。
-     */
-    private fun newIntentSender(
-        account: AutofillAccount,
-        accountNodes: List<AutofillId>,
-        phoneNodes: List<AutofillId>,
-        emailNodes: List<AutofillId>,
-        passwordNodes: List<AutofillId>
-    ): IntentSender {
-        val intent = Intent().apply {
-            component = ComponentName(packageName, AUTH_ACTIVITY_CLASS)
-            putExtra(EXTRA_ACCOUNT_ID, account.id)
-            putParcelableArrayListExtra(EXTRA_USERNAME_IDS, ArrayList(accountNodes))
-            putParcelableArrayListExtra(EXTRA_PHONE_IDS, ArrayList(phoneNodes))
-            putParcelableArrayListExtra(EXTRA_EMAIL_IDS, ArrayList(emailNodes))
-            putParcelableArrayListExtra(EXTRA_PASSWORD_IDS, ArrayList(passwordNodes))
-        }
-        return PendingIntent.getActivity(
-            this,
-            account.id.hashCode() * 2,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-        ).intentSender
     }
 
     companion object {
         private const val TAG = "AppAutofillService"
         /** 认证回填页组件名：与 manifest 注册的 .service.AutofillAuthActivity 保持一致。 */
         private const val AUTH_ACTIVITY_CLASS = "com.copy.account.service.AutofillAuthActivity"
-
-        // extras 键名：AutofillAuthActivity 端按同名常量读取，两端契约。
-        private const val EXTRA_ACCOUNT_ID = "account_id"
-        private const val EXTRA_USERNAME_IDS = "username_ids"
-        private const val EXTRA_PHONE_IDS = "phone_ids"
-        private const val EXTRA_EMAIL_IDS = "email_ids"
-        private const val EXTRA_PASSWORD_IDS = "password_ids"
 
         private val AREA_CODE_REGEX = Regex("""^\+\d{1,4}$""")
         private val COUNTRY_CODE_REGEX = Regex("""^\+\d{1,4}""")

@@ -29,6 +29,18 @@ import com.copy.account.util.extractRootDomain
 
 internal object AutofillMatcher {
 
+    // ==================== 两端契约 ====================
+
+    /**
+     * 认证回包 extras 键名：AppAutofillService（写入端）与 AutofillAuthActivity（读取端）
+     * 共用此单点定义，杜绝双份维护漂移。节点 id 列表与 account_id 两端同名。
+     */
+    const val EXTRA_ACCOUNT_ID = "account_id"
+    const val EXTRA_USERNAME_IDS = "username_ids"
+    const val EXTRA_PHONE_IDS = "phone_ids"
+    const val EXTRA_EMAIL_IDS = "email_ids"
+    const val EXTRA_PASSWORD_IDS = "password_ids"
+
     private const val TAG = "AutofillMatcher"
 
     /** 单个 FillResponse 里的数据集上限：服务端首发与自愈回包共用同一上限。 */

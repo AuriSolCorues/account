@@ -144,11 +144,6 @@ internal class UnlockSession(
         onLocked()
     }
 
-    /** 手动关闭填充窗口：唯一主动撤桥入口（设置页调用），连公开索引一起清。 */
-    fun closeAutofillWindow() {
-        AutofillBridge.clear(context)
-    }
-
     /** HOTP 复制即 +1：把该账号计数器 +1 并持久化，下次重绘即下一组码。 */
     fun advanceHotp(id: String) {
         accounts = accounts.map { account ->
@@ -159,19 +154,8 @@ internal class UnlockSession(
         persistVault()
     }
 
-    private fun finishUnlock(unlocked: VaultUnlock) {
-        dataKey?.fill(0)
-        dataKey = unlocked.dataKey
-        accounts = unlocked.state.accounts
-        groups = unlocked.state.groups.ifEmpty { initialGroups }
-        selectedGroupId = unlocked.state.selectedGroupId.ifBlank { "default" }
-        onUnlocked()
-        if (autofillEnabled()) {
-            AutofillBridge.enable(context, AutofillBridge.toAutofillAccounts(accounts), unlocked.dataKey)
-        }
-    }
-
-    private fun finishBiometricUnlock(key: ByteArray, state: PersistedVault) {
+    /** 主密码/生物识别两条解锁路径的汇合点：装 DEK、灌库、通知、按开关灌填充桥。 */
+    private fun completeUnlock(key: ByteArray, state: PersistedVault) {
         dataKey?.fill(0)
         dataKey = key
         accounts = state.accounts
@@ -182,6 +166,10 @@ internal class UnlockSession(
             AutofillBridge.enable(context, AutofillBridge.toAutofillAccounts(accounts), key)
         }
     }
+
+    private fun finishUnlock(unlocked: VaultUnlock) = completeUnlock(unlocked.dataKey, unlocked.state)
+
+    private fun finishBiometricUnlock(key: ByteArray, state: PersistedVault) = completeUnlock(key, state)
 
     fun authenticateBiometric(onError: () -> Unit = {}) {
         Log.d("UnlockSession", "authenticateBiometric: active=$biometricPromptActive enabled=${biometricEnabled()} avail=${store.biometricAvailable()}")

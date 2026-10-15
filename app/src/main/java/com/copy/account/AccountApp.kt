@@ -35,7 +35,6 @@ import com.copy.account.data.backup.deleteBackupFile
 import com.copy.account.data.backup.deleteFileBackup
 import com.copy.account.data.backup.listBackupFiles
 import com.copy.account.data.backup.listFileBackups
-import com.copy.account.data.backup.plainExportTimestamp
 import com.copy.account.data.backup.readFileBackup
 import com.copy.account.data.backup.readSelectedDocument
 import com.copy.account.data.backup.uniqueBackupName
@@ -114,10 +113,6 @@ fun AccountApp(
     // ===== 设置域（P1 抽取）：状态与 DataStore 读写全部收敛在 SettingsContainer =====
     // onThemeApplied：设置生效值变化时把 4 个窗口级主题项回推 MainActivity（原冷启动/reload 的四次回调合一）。
     val settingsContainer = rememberSettingsContainer(
-        initialCustomThemeJson = customThemeJson,
-        initialThemeMode = themeMode,
-        initialAccentTheme = accentTheme,
-        initialAllowScreenshots = allowScreenshots,
         onThemeApplied = { applied ->
             onThemeModeChange(applied.themeMode)
             onAccentThemeChange(applied.accentTheme)
@@ -337,7 +332,8 @@ fun AccountApp(
                 // 关开关=关闭填充窗口：不再等下次解锁，明文快照、DEK 副本与公开索引必须随开关即时失效。
                 if (!enabled) AutofillBridge.clear(context)
             },
-            onCloseAutofillWindow = { session.closeAutofillWindow() },
+            // 手动关闭填充窗口：唯一主动撤桥入口，连公开索引一起清（AutofillBridge.clear）。
+            onCloseAutofillWindow = { AutofillBridge.clear(context) },
             autoLockSeconds = settings.autoLockSeconds,
             onAutoLockChange = { seconds ->
                 settingsContainer.update { it.copy(autoLockSeconds = seconds.coerceIn(0, MAX_AUTO_LOCK_SECONDS)) }

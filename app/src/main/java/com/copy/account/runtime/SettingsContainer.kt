@@ -54,20 +54,16 @@ import java.io.File
 
 /**
  * 设置域状态容器。无 ViewModel 哲学下的「状态上提」：状态与改状态的逻辑同住一类，
- * 页面仍是无状态 props + 回调。初始快照参数（initial*）对应 AccountApp 原先从
- * MainActivity 下发的同名参数——冷启动 DataStore 缺键时的回退值，构造时定格，不复读当前值。
+ * 页面仍是无状态 props + 回调。DataStore 缺键时的回退值与 MainActivity 冷启动初值同源
+ * （BuildConfig 常量/字面量），构造时定格。
  */
 internal class SettingsContainer(
     private val context: Context,
     private val scope: CoroutineScope,
-    private val initialCustomThemeJson: String,
-    private val initialThemeMode: String = BuildConfig.DEFAULT_THEME_MODE,
-    private val initialAccentTheme: String = "green",
-    private val initialAllowScreenshots: Boolean = false,
     private val onThemeApplied: (AppSettings) -> Unit
 ) {
     /** DataStore 真值（App 正常设置）。appsettings.json 外挂只读覆盖，不写回。 */
-    var baseSettings by mutableStateOf(AppSettings(customThemeJson = initialCustomThemeJson))
+    var baseSettings by mutableStateOf(AppSettings())
         private set
     /** 外挂覆盖层：启动为 null（不主动读文件），仅手动「重新加载配置文件」时置入。 */
     var appSettingsOverride by mutableStateOf<AppSettingsOverride?>(null)
@@ -81,8 +77,7 @@ internal class SettingsContainer(
 
     /**
      * 冷启动从 DataStore 读一次设置真值（.data.first() 取首值即退出，不持续订阅，
-     * 之后的变更靠 update 增量写回）。初始快照定格在构造参数里：缺键回退用 initial 值
-     * 而非 baseSettings 当前值——语义与 AccountApp 原参数回退严格一致。
+     * 之后的变更靠 update 增量写回）。缺键回退值与 MainActivity 冷启动初值同源。
      * backupTreeUri/backupFolder 的读取不在此（属 BackupLocationState 域）。
      */
     suspend fun loadInitial() {
@@ -93,13 +88,13 @@ internal class SettingsContainer(
             autoLockSeconds = values[AUTO_LOCK_SETTING]
                 // 迁移：旧键存分钟（×60 转秒）；两键都缺省 300（= 原 5 分钟）。
                 ?: ((values[LEGACY_AUTO_LOCK_MINUTES_SETTING] ?: 5) * 60).coerceIn(0, MAX_AUTO_LOCK_SECONDS),
-            themeMode = values[THEME_MODE_SETTING] ?: initialThemeMode,
-            accentTheme = values[ACCENT_THEME_SETTING] ?: initialAccentTheme,
+            themeMode = values[THEME_MODE_SETTING] ?: BuildConfig.DEFAULT_THEME_MODE,
+            accentTheme = values[ACCENT_THEME_SETTING] ?: "green",
             languageTag = values[LANGUAGE_TAG_SETTING] ?: "zh-CN",
-            customThemeJson = values[CUSTOM_THEME_JSON_SETTING] ?: initialCustomThemeJson,
+            customThemeJson = values[CUSTOM_THEME_JSON_SETTING] ?: "",
             customThemes = decodeSavedThemes(values[CUSTOM_THEMES_SETTING].orEmpty()),
             clipboardClearSeconds = (values[CLIPBOARD_CLEAR_SETTING] ?: 30).coerceIn(0, 86_400),
-            allowScreenshots = values[ALLOW_SCREENSHOTS_SETTING] ?: initialAllowScreenshots
+            allowScreenshots = values[ALLOW_SCREENSHOTS_SETTING] ?: false
         )
         baseSettings = loadedSettings
         // 主题/强调色/自定义主题/截图开关四项回调原为 AccountApp 里四次单独下发，这里合并为
@@ -165,10 +160,6 @@ internal class SettingsContainer(
  */
 @Composable
 internal fun rememberSettingsContainer(
-    initialCustomThemeJson: String = "",
-    initialThemeMode: String = BuildConfig.DEFAULT_THEME_MODE,
-    initialAccentTheme: String = "green",
-    initialAllowScreenshots: Boolean = false,
     onThemeApplied: (AppSettings) -> Unit = {}
 ): SettingsContainer {
     val currentOnThemeApplied by rememberUpdatedState(onThemeApplied)
@@ -178,10 +169,6 @@ internal fun rememberSettingsContainer(
         SettingsContainer(
             context = context,
             scope = scope,
-            initialCustomThemeJson = initialCustomThemeJson,
-            initialThemeMode = initialThemeMode,
-            initialAccentTheme = initialAccentTheme,
-            initialAllowScreenshots = initialAllowScreenshots,
             onThemeApplied = { currentOnThemeApplied(it) }
         )
     }
