@@ -17,11 +17,19 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.Gravity
 import android.view.Window
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.TextView
+import android.view.WindowManager
 import android.widget.Toast
+import androidx.activity.compose.setContent
 import androidx.biometric.BiometricPrompt
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.credentials.GetCredentialResponse
 import androidx.credentials.PublicKeyCredential
@@ -39,6 +47,11 @@ import com.copy.account.security.softwareSigner
 import androidx.credentials.webauthn.AuthenticatorAssertionResponse
 import androidx.credentials.webauthn.FidoPublicKeyCredential
 import androidx.credentials.webauthn.PublicKeyCredentialRequestOptions
+import com.copy.account.ui.components.AppBottomSheet
+import com.copy.account.ui.components.OverlayThemeHost
+import com.copy.account.ui.components.PrimaryButton
+import com.copy.account.ui.components.SheetTitleRow
+import com.copy.account.ui.components.TextActionButton
 import javax.crypto.Cipher
 
 /** 登录确认页。任何失败路径都 setResult(RESULT_CANCELED)，系统放弃本次断言。 */
@@ -66,35 +79,29 @@ class PasskeyGetActivity : FragmentActivity() {
         showConfirmCard(request, clientDataHash)
     }
 
-    /** 透明窗口 + 底部小卡：标题（网站域）+「验证指纹」按钮。 */
+    /** Compose 底部弹层（主界面 AppBottomSheet 同款）：标题（网站域）+「用指纹验证」。 */
     private fun showConfirmCard(request: WebAuthnRequest, clientDataHash: ByteArray) {
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 40, 48, 40)
-            setBackgroundColor(0xE6FFFFFF.toInt())
+        setContent {
+            OverlayThemeHost {
+                AppBottomSheet(onDismiss = { finishCanceled() }) {
+                    SheetTitleRow("通行密钥")
+                    Spacer(Modifier.height(8.dp))
+                    Text("使用通行密钥登录 ${request.rpId}", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "验证指纹后向网站证明身份；私钥随加密库在本机保存",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        TextActionButton("取消", onClick = { finishCanceled() }, modifier = Modifier.weight(1f))
+                        PrimaryButton("用指纹验证", onClick = { beginAssertion(request, clientDataHash) }, modifier = Modifier.weight(2f))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
         }
-        val title = TextView(this).apply {
-            text = "使用通行密钥登录 ${request.rpId}"
-            textSize = 18f
-        }
-        val subtitle = TextView(this).apply {
-            text = "验证指纹后向网站证明身份；私钥随加密库在本机保存"
-            textSize = 14f
-            setPadding(0, 16, 0, 24)
-        }
-        val confirm = Button(this).apply {
-            text = "用指纹验证"
-            setOnClickListener { beginAssertion(request, clientDataHash) }
-        }
-        val cancel = Button(this).apply {
-            text = "取消"
-            setOnClickListener { finishCanceled() }
-        }
-        card.addView(title)
-        card.addView(subtitle)
-        card.addView(confirm)
-        card.addView(cancel)
-        setContentView(card)
     }
 
     /** 弹 BiometricPrompt（CryptoObject=cipher）；通过后解封 DEK 完成断言。 */
@@ -241,8 +248,8 @@ class PasskeyGetActivity : FragmentActivity() {
         window.requestFeature(Window.FEATURE_NO_TITLE)
         window.setGravity(Gravity.BOTTOM)
         window.setLayout(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT
         )
         window.setBackgroundDrawableResource(android.R.color.transparent)
     }
