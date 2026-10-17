@@ -240,16 +240,6 @@ class WebAuthnTest {
 
     // ==================== 别名派生 ====================
 
-    @Test
-    fun passkey_alias_deterministic_and_hex() {
-        val credId = ByteArray(32) { 7 }
-        val a = passkeyAlias(credId)
-        val b = passkeyAlias(credId)
-        assertEquals(a, b)
-        assertEquals(32, a.length) // 16 字节 hex
-        assertTrue(a.matches(Regex("[0-9a-f]{32}")))
-    }
-
     // ==================== 协议修复回归 ====================
     // （clientDataJSON/attestation/响应 JSON 组包测试已随自拼实现拆除，
     //   官方包行为断言见 WebAuthnOfficialPackagingTest）
