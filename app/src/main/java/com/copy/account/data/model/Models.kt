@@ -117,8 +117,88 @@ internal data class Account(
     val packageName: String? = null,
 
     /** TOTP 为标准验证码，STEAM 为 Steam Guard 专用 5 字符验证码。 */
-    val totpType: String = DEFAULT_TOTP_TYPE
+    val totpType: String = DEFAULT_TOTP_TYPE,
+
+    /**
+     * 稳定唯一标识："a-<毫秒>-<4位随机>"，新建与编辑都重新生成——内嵌毫秒即最近修改时间
+     * （modifiedMillis 解析）；空串=旧数据，读库后惰性生成，不主动重写库文件。
+     */
+    val uid: String = "",
+
+    /** 本账号名下的通行密钥（私钥随账号段加密落盘，随库备份/导出——对齐 KeePassDX 存 kdbx 的取舍）。 */
+    val passkeys: List<AccountPasskey> = emptyList(),
 )
+
+/**
+ * 单条通行密钥（WebAuthn 凭据）。私钥为软件 ES256（PKCS8/Base64），受账号段 AES-GCM 保护：
+ * 落盘密文、解锁后内存签名、随库备份/明文导出搬家、绝不进自动填充公开索引。
+ */
+@Serializable
+internal data class AccountPasskey(
+    /** 网站凭据编号：SecureRandom 32 字节 Base64URL，本机生成。 */
+    val credentialId: String,
+    /** 依赖方域名（rpId），如 "github.com"。 */
+    val rpId: String,
+    /** 用户名（user.name），系统出卡显示。 */
+    val userName: String,
+    /** 网站用户标识（user.id），Base64URL。 */
+    val userHandle: String,
+    /** ES256 私钥，PKCS8 DER 的 Base64——库密文已是保护层，字段内不再单独加密。 */
+    val privateKeyPkcs8: String,
+    /** 公钥坐标 Base64（x||y），attestation 内 COSE key 编码用。 */
+    val publicKeyXY: String,
+    /** 公钥 SPKI DER 的 Base64——Chrome CredMan 通道回包 publicKey 字段要求 DER 格式。 */
+    val publicKeyDer: String = "",
+    /** 签名计数器：每次断言 +1（WebAuthn 要求递增）。 */
+    val signCount: Long = 0,
+    /** 绑定时间（epoch 毫秒）。 */
+    val createdAt: Long
+)
+
+// ==================== uid 与时间解析 ====================
+
+/** uid 随机后缀的字母表（去易混淆 0/O/1/L）；6 位组合 10 亿级，配合毫秒时间戳撞号概率可忽略。 */
+private const val UID_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
+
+/**
+ * 生成新 uid："a-<毫秒>-<6位随机>"。新建与编辑时调用（编辑刷新 uid=更新修改时间锚）。
+ * 随机后缀防同毫秒批量创建撞号（明文导入/自动填充保存等代码路径）；6 位使千级同毫秒批次
+ * 碰撞期望 <0.1 个（生日悖论：n²/2M，1000²/2×1e9=0.0005）。
+ */
+internal fun newUid(nowMillis: Long = System.currentTimeMillis()): String {
+    val suffix = buildString(6) {
+        repeat(6) { append(UID_ALPHABET[kotlin.random.Random.nextInt(UID_ALPHABET.length)]) }
+    }
+    return "a-$nowMillis-$suffix"
+}
+
+/**
+ * 从标识串解析内嵌毫秒时间戳（创建/修改时间的统一读取口）：
+ * 依次尝试 "a-<ms>-<suffix>"、"account-<ms>"、"ab-<ms>-<hash>"、"abf-<ms>-..." 各段的数字部分；
+ * 无内嵌时间戳（demo-login 等）返回 0，排序时垫底。
+ */
+internal fun embeddedMillis(tag: String): Long =
+    tag.split('-').firstNotNullOfOrNull { segment -> segment.toLongOrNull() } ?: 0L
+
+/** 账号创建时间：id 内嵌毫秒（新建走 account-<ms>，导入走 ab-<ms>）；旧 demo 数据为 0。 */
+internal val Account.createdMillis: Long get() = embeddedMillis(id)
+
+/** 账号最近修改时间：uid 内嵌毫秒；uid 空（旧数据未再保存过）退化为创建时间。 */
+internal val Account.modifiedMillis: Long get() = if (uid.isNotBlank()) embeddedMillis(uid) else createdMillis
+
+/** 补全缺失的 uid：读库后惰性调用（不重写库文件，下次保存自然固化）。 */
+internal fun Account.withUidFilled(): Account = if (uid.isBlank()) copy(uid = newUid()) else this
+
+// ==================== 账号排序 ====================
+
+/**
+ * 账号列表排序（单一来源）：创建序倒序（新的在前）。
+ * createdMillis=0 的 demo 数据垫底（符合示例账号沉底预期）。
+ * （2026-10-17：自定义拖动排序档已砍——交互在真机上反复出索引错位问题，全链拆除，
+ * 库里历史 sortKey 字段随 JSON ignoreUnknownKeys 自然忽略。）
+ */
+internal fun sortAccounts(accounts: List<Account>): List<Account> =
+    accounts.sortedWith(compareByDescending { it.createdMillis })
 
 // ==================== 扩展属性 (UI 辅助) ====================
 

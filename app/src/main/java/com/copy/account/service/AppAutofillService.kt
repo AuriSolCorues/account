@@ -60,6 +60,7 @@ import android.widget.Toast
 import com.copy.account.data.model.Account
 import com.copy.account.data.model.AccountField
 import com.copy.account.data.model.PersistedVault
+import com.copy.account.data.model.newUid
 import com.copy.account.runtime.AutofillAccount
 import com.copy.account.runtime.AutofillAccountLight
 import com.copy.account.runtime.AutofillBridge
@@ -458,6 +459,7 @@ class AppAutofillService : AutofillService() {
                             val now = System.currentTimeMillis()
                             val newAccount = Account(
                                 id = "account-$now",
+                                uid = newUid(now), // 同毫秒多次保存不撞号；内嵌毫秒=修改时间锚
                                 name = displayName,
                                 username = primaryAccount,
                                 password = cleanPassword,

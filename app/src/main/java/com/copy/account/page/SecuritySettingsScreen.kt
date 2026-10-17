@@ -14,6 +14,7 @@ import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -61,12 +62,20 @@ internal fun SecuritySettingsScreen(
     /** 是否禁止截图（true=禁止，即加 FLAG_SECURE）；与 AppSettings.allowScreenshots（是否允许）互为反相。 */
     blockScreenshots: Boolean,
     onBlockScreenshotsChange: (Boolean) -> Unit,
+    /** 本机通行密钥列表（AccountApp 读注册表下发；页面不直接依赖 Context 文件 IO）。 */
+    passkeyEntries: List<PasskeyDisplayEntry>,
+    /** 删除本机通行密钥（AccountApp 同步删 KeyStore 密钥 + 注册表条目）。 */
+    onDeletePasskey: (String) -> Unit,
+    /** 设备是否支持通行密钥提供方（API≥34）；false 时区块替换为引导文案。 */
+    passkeySupported: Boolean,
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var showAutoLockDialog by remember { mutableStateOf(false) }
     var showClipboardDialog by remember { mutableStateOf(false) }
     var showChangePasswordDialog by remember { mutableStateOf(false) }
+    /** 待删除的通行密钥 credentialId；非 null 时弹确认框。 */
+    var showDeletePasskeyFor by remember { mutableStateOf<String?>(null) }
     var newPassword by remember { mutableStateOf("") }
     var confirmNewPassword by remember { mutableStateOf("") }
     var changePasswordError by remember { mutableStateOf("") }
@@ -116,6 +125,47 @@ internal fun SecuritySettingsScreen(
         }
         item { SettingsHeader("剪贴板") }
         item { SettingsRow("敏感内容自动清除", clipboardClearLabel(clipboardClearSeconds)) { showClipboardDialog = true } }
+        // ===== 通行密钥区：设备支持（API≥34）才显示；列表 + 逐条删除 =====
+        if (passkeySupported) {
+            item { SettingsHeader("通行密钥") }
+            if (passkeyEntries.isEmpty()) {
+                item {
+                    Text(
+                        "本机还没有通行密钥。在 GitHub/Google 等网站注册通行密钥时选择「账号本子」即可保存到这里。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                items(passkeyEntries, key = { it.credentialId }) { entry ->
+                    Column {
+                        SettingsRow(
+                            entry.rpId,
+                            buildString {
+                                append("添加于 ")
+                                append(java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date(entry.createdAt)))
+                                if (entry.accountName.isNotBlank()) append(" · ").append(entry.accountName)
+                            }
+                        ) { showDeletePasskeyFor = entry.credentialId }
+                    }
+                }
+            }
+        }
+    }
+    // 删除通行密钥确认弹窗：文案强调不可逆（网站侧不会自动知晓，需自行到网站移除）
+    showDeletePasskeyFor?.let { credentialId ->
+        val entry = passkeyEntries.firstOrNull { it.credentialId == credentialId }
+        AlertDialog(
+            onDismissRequest = { showDeletePasskeyFor = null },
+            title = { Text("删除通行密钥") },
+            text = { Text("删除后本机将无法再登录 ${entry?.rpId.orEmpty()} 的该账号（网站侧的通行密钥需自行到网站设置里移除）。此操作不可恢复。") },
+            confirmButton = {
+                TextActionButton("删除", { onDeletePasskey(credentialId); showDeletePasskeyFor = null }, textColor = MaterialTheme.colorScheme.error)
+            },
+            dismissButton = {
+                TextActionButton("取消", { showDeletePasskeyFor = null })
+            }
+        )
     }
     if (showChangePasswordDialog) AlertDialog(
         onDismissRequest = { showChangePasswordDialog = false },
@@ -241,7 +291,7 @@ private fun AutofillJumpRow() {
 @Preview(showBackground = true)
 @Composable
 private fun SecuritySettingsScreenPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         SecuritySettingsScreen(
             biometricEnabled = false,
             biometricAvailable = true,
@@ -257,7 +307,21 @@ private fun SecuritySettingsScreenPreview() {
             onClipboardClearChange = {},
             blockScreenshots = false,
             onBlockScreenshotsChange = {},
+            passkeyEntries = emptyList(),
+            onDeletePasskey = {},
+            passkeySupported = true,
             onBack = {}
         )
     }
 }
+
+/**
+ * 通行密钥列表条目的展示模型（页面解耦层）：AccountApp 从 PasskeyRegistry 读原始条目后
+ * 映射成此模型下发（accountId 已换成账号显示名）；页面不依赖 Context/文件 IO。
+ */
+internal data class PasskeyDisplayEntry(
+    val credentialId: String,
+    val rpId: String,
+    val accountName: String,
+    val createdAt: Long
+)

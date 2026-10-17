@@ -2,7 +2,7 @@
  * 职责：自动填充的认证回填页——用户在系统填充气泡里点了「需认证的数据集」后由系统拉起，
  *       验证后回包。三种模式：
  *   Mode A（解锁态逐账号认证）：extras 带 account_id、无 SELF_HEAL → 弹 BiometricPrompt，
- *       通过后经 AutofillBridge.findAccount 从活跃快照取明文，本地重建已回填 Dataset 回系统；
+ *       通过后优先单段解密磁盘库取最新明文（快照兜底），本地重建已回填 Dataset 回系统；
  *   Mode B（锁定态·指纹）：extras 带 SELF_HEAL=true + account_id → 验证挂 CryptoObject
  *       （Keystore 每次使用必认证的密钥），通过后 AutofillSelfHeal.unlockAccount 用
  *       loadAccount **只解密被点选账号的密文段**（vault.bin v2 分段格式），瞬时构建
@@ -51,6 +51,7 @@ import androidx.fragment.app.FragmentActivity
 import com.copy.account.runtime.AutofillAccount
 import com.copy.account.runtime.AutofillBridge
 import com.copy.account.security.SecureVaultStore
+import com.copy.account.runtime.toAutofillAccount
 import javax.crypto.Cipher
 
 class AutofillAuthActivity : FragmentActivity() {
@@ -245,17 +246,25 @@ class AutofillAuthActivity : FragmentActivity() {
     }
 
     /**
-     * Mode A（单卡，解锁态）：认证通过——从桥快照取账号明文并本地重建 Dataset 回给系统。
-     * 快照被清（锁定/关开关）或回填值非法 → 取消；不落地任何明文副本，用完即弃。
+     * Mode A（单卡，解锁态）：认证通过——优先**单段解密磁盘库**取账号明文（vault.bin 是
+     * saveVault 落盘后的最新态，杜绝「改完账号自动填充还是旧值」的快照滞后窗口），
+     * 解密失败（历史版本库格式等）再退桥快照；两者皆空 → 取消。
+     * dek 用桥内现存 DEK 副本，不落地、用完即弃（loadAccount 内部清零自己的拷贝）。
      */
     private fun loadAccountAndReply() {
-        val acc = AutofillBridge.findAccount(accountId)
+        val acc = loadFreshAccount(accountId) ?: AutofillBridge.findAccount(accountId)
         if (acc == null) {
             Toast.makeText(this, "填充会话已失效，请先解锁本应用", Toast.LENGTH_SHORT).show()
             finishCancel()
             return
         }
         replyFilled(listOf(acc))
+    }
+
+    /** 磁盘单段解密：桥 DEK 在手（解锁态必非空）时按 id 现解 vault.bin 对应段；任何失败返回 null。 */
+    private fun loadFreshAccount(accountId: String): AutofillAccount? {
+        val dek = AutofillBridge.dek ?: return null
+        return runCatching { vaultStore.loadAccount(dek, accountId)?.toAutofillAccount() }.getOrNull()
     }
 
     /**

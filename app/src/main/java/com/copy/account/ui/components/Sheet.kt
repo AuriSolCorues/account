@@ -120,7 +120,7 @@ internal fun ActionSheetRow(text: String, muted: Boolean = false, color: Color =
 @Preview(showBackground = true)
 @Composable
 private fun ActionSheetRowPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         ActionSheetRow("普通操作") {}
     }
 }

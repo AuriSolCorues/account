@@ -124,6 +124,14 @@ internal object AutofillBridge {
         if (publicIndex.isNotEmpty()) return
         val file = indexFile(context)
         if (!file.exists()) return
+        // 过期自检：索引文件比密码库旧 = 库在索引落盘之后又被写过（历史脏数据/写索引
+        // 中途进程死）→ 丢弃索引退占位卡，绝不展示旧名字。两者并存时时间差容忍 2 秒
+        // （原子写库与写索引是两次独立落盘，毫秒级先后属正常时序）。
+        val vaultLast = File(context.filesDir, "vault.bin").lastModified()
+        if (vaultLast - file.lastModified() > 2_000L) {
+            runCatching { file.delete() }
+            return
+        }
         publicIndex = runCatching {
             indexJson.decodeFromString(ListSerializer(AutofillAccountLight.serializer()), file.readText())
         }.getOrDefault(emptyList())
@@ -140,9 +148,13 @@ internal object AutofillBridge {
             AutofillAccountLight(id = it.id, name = it.name, url = it.url, packageName = it.packageName)
         }
         publicIndex = index
-        // 索引落盘失败不致命：内存态已更新，本次锁定/冷启动最多退占位卡。
+        // 索引落盘失败 → 删旧文件并清内存索引（宁缺勿旧）：留着旧文件，冷启动/锁定态会
+        // 展示已改名/已删除账号的旧名字卡。失败后锁定态退占位卡，验证路径不受影响。
         runCatching {
             indexFile(context).writeText(indexJson.encodeToString(ListSerializer(AutofillAccountLight.serializer()), index))
+        }.onFailure {
+            runCatching { indexFile(context).delete() }
+            publicIndex = emptyList()
         }
     }
 }

@@ -18,8 +18,10 @@ if (keystorePropertiesFile.exists()) {
 
 // 版本号：CI 可经 -Paccount.versionName/-Paccount.versionCode 注入，本地不传时用默认值。
 // 同时被 APK 命名复用（见文末 androidComponents），保证 tag、包内版本与文件名三者一致。
-val appVersionName = providers.gradleProperty("account.versionName").getOrElse("1.7")
-val appVersionCode = providers.gradleProperty("account.versionCode").getOrElse("18").toInt()
+// BUILD_ID：构建流水号（纯数字）——版本号不变时靠它区分装的哪一包（关于页「版本」行可见）。
+val appVersionName = providers.gradleProperty("account.versionName").getOrElse("1.9")
+val appVersionCode = providers.gradleProperty("account.versionCode").getOrElse("20").toInt()
+val appBuildId = providers.gradleProperty("account.buildId").getOrElse("9").toInt()
 
 android {
     namespace = "com.copy.account"
@@ -44,6 +46,8 @@ android {
             "DEFAULT_THEME_MODE",
             "\"${providers.gradleProperty("account.defaultThemeMode").getOrElse("light")}\""
         )
+        // 构建流水号（纯数字）：同版本号多次构建的可辨识度（关于页「版本」行拼接显示）。
+        buildConfigField("int", "BUILD_ID", "$appBuildId")
     }
 
     signingConfigs {
@@ -134,6 +138,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.biometric)
+    implementation(libs.androidx.credentials)
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.serialization.json)

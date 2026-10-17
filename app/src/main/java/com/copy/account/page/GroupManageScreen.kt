@@ -176,7 +176,7 @@ private fun RenameGroupSheetContent(
 @Preview(name = "编辑分组面板", widthDp = 411, heightDp = 600, showBackground = true)
 @Composable
 private fun RenameGroupSheetPagePreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         SheetPagePreview(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             RenameGroupSheetContent(
                 group = Group(id = "custom-preview", name = "旅行", kind = GroupKind.CUSTOM),
@@ -192,7 +192,7 @@ private fun RenameGroupSheetPagePreview() {
 @Preview(showBackground = true)
 @Composable
 private fun GroupManageScreenPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         GroupManageScreen(
             groups = initialGroups,
             onBack = {},

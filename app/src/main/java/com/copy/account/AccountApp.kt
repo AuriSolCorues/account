@@ -11,6 +11,7 @@
 package com.copy.account
 
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -42,11 +43,16 @@ import com.copy.account.data.backup.uniquePlainExportName
 import com.copy.account.data.backup.writeBackupFile
 import com.copy.account.data.backup.writeFileBackup
 import com.copy.account.data.model.Account
+import com.copy.account.data.model.AccountField
 import com.copy.account.data.model.FIXED_GROUP_COUNT
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
 import com.copy.account.data.model.MAX_AUTO_LOCK_SECONDS
 import com.copy.account.data.model.PersistedVault
+import com.copy.account.security.PasskeyRegistry
+import com.copy.account.security.PasskeyVaultAccess
+import com.copy.account.security.parseImportPayload
+import com.copy.account.page.PasskeyDisplayEntry
 import com.copy.account.data.model.SavedTheme
 import com.copy.account.data.model.accountInGroup
 import com.copy.account.data.model.initialGroups
@@ -105,6 +111,11 @@ fun AccountApp(
     val store = remember { SecureVaultStore(context) }
     val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf<AppPage>(AppPage.Unlock) }
+    // 通行密钥注册表：设备本地文件；版本号驱动设置页列表重组（删除后自增）。
+    val passkeyRegistry = remember { PasskeyRegistry(context) }
+    var passkeyRegistryVersion by remember { mutableStateOf(0) }
+    // 扫码导入账号：ScanQrOverlay 全屏层开关（首页入口）；扫到 accountbox-import:// 走编辑页预填。
+    var scanImportOpen by remember { mutableStateOf(false) }
     /** 主页速览面板展开的账号 id；内存级（rememberSaveable 扛旋转/进程重建），锁屏重解锁后保持展开。 */
     var previewAccountId by rememberSaveable { mutableStateOf<String?>(null) }
     /** 长按“作为模板新建”时临时携带的模板；进入编辑页后预填但按新账号保存。 */
@@ -246,6 +257,10 @@ fun AccountApp(
             selectedGroupId = selectedGroupId,
             clipboardClearSeconds = settings.clipboardClearSeconds,
             maskChar = maskChar,
+            passkeyAccountIds = remember(passkeyRegistryVersion, accounts) {
+                passkeyRegistry.load().mapNotNull { e -> e.accountId.takeIf { it.isNotBlank() } }.toSet()
+            },
+            onScanImport = { scanImportOpen = true },
             previewAccountId = previewAccountId,
             onPreviewAccountIdChange = { previewAccountId = it },
             onGroupSelected = { session.selectedGroupId = it; session.persistVault() },
@@ -348,7 +363,27 @@ fun AccountApp(
                 val allow = !blocked
                 settingsContainer.update { it.copy(allowScreenshots = allow) }
                 onAllowScreenshotsChange(allow)
-            }
+            },
+            passkeyEntries = remember(passkeyRegistryVersion) {
+                passkeyRegistry.load().map { entry ->
+                    PasskeyDisplayEntry(
+                        credentialId = entry.credentialId,
+                        rpId = entry.rpId,
+                        accountName = accounts.firstOrNull { it.id == entry.accountId }?.name.orEmpty(),
+                        createdAt = entry.createdAt
+                    )
+                }
+            },
+            onDeletePasskey = { credentialId ->
+                // 双删：vault 账号段内的 passkey（含私钥）+ 注册表索引条目；
+                // 版本号自增触发上方 remember 重读列表。（UI 解锁态：经 session DEK 直写）
+                scope.launch {
+                    val deleted = session.deletePasskey(credentialId)
+                    passkeyRegistry.remove(credentialId)
+                    if (deleted) passkeyRegistryVersion++
+                }
+            },
+            passkeySupported = Build.VERSION.SDK_INT >= 34
         )
 
         AppPage.AppearanceSettings -> AppearanceSettingsScreen(
@@ -594,6 +629,10 @@ fun AccountApp(
                     session.accounts = imported.vault.accounts
                     session.groups = imported.vault.groups.ifEmpty { initialGroups }
                     session.selectedGroupId = imported.vault.selectedGroupId.ifBlank { "default" }
+                    // 通行密钥随库恢复：registry 不进备份文件，从导入的账号数据重建出卡索引
+                    //（vault 的 Account.passkeys 是唯一权威源；锁定态出卡的 Service 靠 registry 查询）
+                    passkeyRegistry.rebuildFromVault(imported.vault.accounts)
+                    passkeyRegistryVersion++
                     // 生物识别包装密钥属于当前设备，备份不携带它；保留本机开关，使已启用的指纹解锁在导入后仍可用。
                     val importedSettings = imported.settings.copy(biometricEnabled = settingsContainer.baseSettings.biometricEnabled)
                     settingsContainer.update { importedSettings }
@@ -615,7 +654,10 @@ fun AccountApp(
             maskChar = maskChar,
             onBack = { page = AppPage.Home },
             onEdit = { page = AppPage.Edit(current.accountId) },
-            onHotpAdvance = session::advanceHotp
+            onHotpAdvance = session::advanceHotp,
+            hasPasskey = remember(passkeyRegistryVersion) {
+                passkeyRegistry.byAccountId(current.accountId).isNotEmpty()
+            }
         )
 
         is AppPage.Edit -> AccountEditScreen(
@@ -625,6 +667,23 @@ fun AccountApp(
             initialGroupId = selectedGroupId,
             clipboardClearSeconds = settings.clipboardClearSeconds,
             maskChar = maskChar,
+            passkeyInfo = remember(passkeyRegistryVersion, current.accountId) {
+                passkeyRegistry.byAccountId(current.accountId.orEmpty()).firstOrNull()?.let { entry ->
+                    PasskeyDisplayEntry(
+                        credentialId = entry.credentialId,
+                        rpId = entry.rpId,
+                        accountName = "",
+                        createdAt = entry.createdAt
+                    )
+                }
+            },
+            onDeletePasskey = { credentialId ->
+                scope.launch {
+                    val deleted = session.deletePasskey(credentialId)
+                    passkeyRegistry.remove(credentialId)
+                    if (deleted) passkeyRegistryVersion++
+                }
+            },
             onBack = { page = AppPage.Home; editTemplate = null },
             onCreateGroup = ::createGroup,
             onSave = { edited ->
@@ -646,6 +705,34 @@ fun AccountApp(
                         session.accounts = nextAccounts
                         page = AppPage.Home
                     }
+                }
+            }
+        )
+    }
+
+    // 扫码导入账号（首页入口）：全屏扫码层盖在当前页上；扫到 accountbox-import:// payload
+    // 解析成功 → 以 template 进编辑页预览确认（走现有新建保存链路）；非本 App 格式提示无效。
+    if (scanImportOpen) {
+        com.copy.account.ui.components.ScanQrOverlay(
+            onClose = { scanImportOpen = false },
+            onScanned = { raw ->
+                scanImportOpen = false
+                val payload = parseImportPayload(raw)
+                if (payload != null) {
+                    // 走模板新建：编辑页以 template 预填，保存时自动获得 uid
+                    editTemplate = Account(
+                        id = "",
+                        name = payload.name,
+                        username = payload.username,
+                        password = payload.password,
+                        url = payload.url,
+                        customFields = if (payload.notes.isNotBlank()) {
+                            listOf(AccountField(id = "import-note", label = "备注", value = payload.notes, hidden = false))
+                        } else emptyList()
+                    )
+                    page = AppPage.Edit(null)
+                } else {
+                    android.widget.Toast.makeText(context, "二维码不是账号本子导入格式", android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
         )
