@@ -4,14 +4,13 @@
  *       CBOR 编解码、Get/Create 请求解析、ES256 签名格式与 signCount 回填。纯函数无状态无 IO、无 Android 依赖、
  *       不依赖 org.json（手拼 JSON + 轻量提取），可用固定测试向量做纯 JVM 单测。
  * 架构位置：service/PasskeyProviderService 与两个透明 Activity 调用本文件完成协议编解码；
- *           密钥对生成/签名在 PasskeyKeys.kt（AndroidKeyStore，不可在本文件测试）。
+ *           密钥对生成/签名在 PasskeyKeys.kt（软件 JCA，纯 JVM 可测）。
  * Python 类比：本文件 ≈ 一个手写的 cbor2 + webauthn 编解码库——
  *           cbor 编码 ≈ struct.pack 的递归版（major type 打头、参数跟后），
  *           authenticatorData ≈ 手拼 bytes：hashlib.sha256(rpId) + flags + 计数器 + 凭据段。
  */
 package com.copy.account.security
 
-import java.security.MessageDigest
 import java.security.Signature
 
 // ==================== 常量 ====================
@@ -406,9 +405,3 @@ internal fun base64UrlDecode(text: String): ByteArray =
 /** ES256 签名格式自适应：64 字节（裸 r||s）转 DER；否则视为 DER 原样返回（标准 JCA 直出 DER）。 */
 internal fun es256AdaptRaw(out: ByteArray): ByteArray =
     if (out.size == 64) es256RawToDer(out) else out
-
-/** credentialId → 确定性别名（旧 KeyStore 路线遗留的派生规则，现仅测试与展示指纹用）。 */
-internal fun passkeyAlias(credentialId: ByteArray): String =
-    MessageDigest.getInstance("SHA-256").digest(credentialId)
-        .take(16)
-        .joinToString("") { "%02x".format(it) }

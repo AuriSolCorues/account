@@ -64,7 +64,7 @@ internal fun SecuritySettingsScreen(
     onBlockScreenshotsChange: (Boolean) -> Unit,
     /** 本机通行密钥列表（AccountApp 读注册表下发；页面不直接依赖 Context 文件 IO）。 */
     passkeyEntries: List<PasskeyDisplayEntry>,
-    /** 删除本机通行密钥（AccountApp 同步删 KeyStore 密钥 + 注册表条目）。 */
+    /** 删除本机通行密钥（AccountApp 同步删 vault 账号段密钥 + 注册表条目）。 */
     onDeletePasskey: (String) -> Unit,
     /** 设备是否支持通行密钥提供方（API≥34）；false 时区块替换为引导文案。 */
     passkeySupported: Boolean,

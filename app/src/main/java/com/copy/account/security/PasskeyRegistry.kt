@@ -5,7 +5,7 @@
  *       本表只是出卡索引缓存——vault 数据是其唯一权威源（导入/恢复后 rebuildFromVault 重建）；
  *       锁定态出卡的 Service 无 DEK 读不了 vault，靠本表明文查询。
  * 架构位置：PasskeyCreateActivity 写入、PasskeyProviderService 查询出卡、AccountDetailScreen
- *           弱关联展示（accountId 失效不出卡）、编辑页删除时同步删 KeyStore 密钥。
+ *           弱关联展示（accountId 失效不出卡）、编辑页删除时同步删 vault 账号段密钥。
  * Python 类比：≈ 一个手写的 JSON 持久化列表 + 按 credentialId 的主键索引；
  *           SecureRandom 32 字节 ≈ secrets.token_bytes(32)，碰撞概率宇宙级忽略。
  */
@@ -81,7 +81,7 @@ internal class PasskeyRegistry(context: Context) {
         save(entries.filterNot { it.credentialId == credentialId } + updated.copy(signCount = signCount))
     }
 
-    /** 删除单条（编辑页删除通行密钥时调用；KeyStore 密钥由调用方按 passkeyAlias 同步删）。 */
+    /** 删除单条（编辑页删除通行密钥时调用；vault 账号段密钥由调用方同步删）。 */
     fun remove(credentialId: String) {
         save(load().filterNot { it.credentialId == credentialId })
     }
