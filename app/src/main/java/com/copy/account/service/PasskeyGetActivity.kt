@@ -21,15 +21,6 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.biometric.BiometricPrompt
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.credentials.GetCredentialResponse
 import androidx.credentials.PublicKeyCredential
@@ -49,9 +40,7 @@ import androidx.credentials.webauthn.FidoPublicKeyCredential
 import androidx.credentials.webauthn.PublicKeyCredentialRequestOptions
 import com.copy.account.ui.components.AppBottomSheet
 import com.copy.account.ui.components.OverlayThemeHost
-import com.copy.account.ui.components.PrimaryButton
-import com.copy.account.ui.components.SheetTitleRow
-import com.copy.account.ui.components.TextActionButton
+import com.copy.account.ui.components.PasskeyGetSheetItems
 import javax.crypto.Cipher
 
 /** 登录确认页。任何失败路径都 setResult(RESULT_CANCELED)，系统放弃本次断言。 */
@@ -79,26 +68,16 @@ class PasskeyGetActivity : FragmentActivity() {
         showConfirmCard(request, clientDataHash)
     }
 
-    /** Compose 底部弹层（主界面 AppBottomSheet 同款）：标题（网站域）+「用指纹验证」。 */
+    /** Compose 底部弹层（主界面 AppBottomSheet 同款）：内容组件在 ui/components（可 IDE 预览）。 */
     private fun showConfirmCard(request: WebAuthnRequest, clientDataHash: ByteArray) {
         setContent {
             OverlayThemeHost {
                 AppBottomSheet(onDismiss = { finishCanceled() }) {
-                    SheetTitleRow("通行密钥")
-                    Spacer(Modifier.height(8.dp))
-                    Text("使用通行密钥登录 ${request.rpId}", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "验证指纹后向网站证明身份；私钥随加密库在本机保存",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    PasskeyGetSheetItems(
+                        rpId = request.rpId,
+                        onConfirm = { beginAssertion(request, clientDataHash) },
+                        onCancel = { finishCanceled() }
                     )
-                    Spacer(Modifier.height(16.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        TextActionButton("取消", onClick = { finishCanceled() }, modifier = Modifier.weight(1f))
-                        PrimaryButton("用指纹验证", onClick = { beginAssertion(request, clientDataHash) }, modifier = Modifier.weight(2f))
-                    }
-                    Spacer(Modifier.height(8.dp))
                 }
             }
         }
