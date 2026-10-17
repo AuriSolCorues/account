@@ -11,13 +11,11 @@
  */
 package com.copy.account.ui.components
 
-import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,7 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.copy.account.BuildConfig
 import com.copy.account.data.config.ACCENT_THEME_SETTING
 import com.copy.account.data.config.CUSTOM_THEME_JSON_SETTING
 import com.copy.account.data.config.THEME_MODE_SETTING
@@ -120,16 +117,30 @@ internal fun PasskeyCreateSheetItems(rpId: String, userName: String, onConfirm: 
     )
 }
 
-/** 登录确认内容：网站域 + 指纹验证说明。 */
+/**
+ * 通行密钥登录密码验证内容（无指纹设备的兜底路径）：
+ * 系统验证框在无指纹设备弹的是「设备锁屏凭据」，DEK 仍需本应用主密码派生——
+ * 系统框通过后落到这里输主密码。状态自持（文本/提交中锁按钮）。
+ */
 @Composable
-internal fun PasskeyGetSheetItems(rpId: String, onConfirm: () -> Unit, onCancel: () -> Unit) {
+internal fun PasskeyPasswordSheetItems(rpId: String, onConfirm: (String) -> Unit, onCancel: () -> Unit) {
+    var pwd by remember { mutableStateOf("") }
+    var submitting by remember { mutableStateOf(false) }
     OverlaySheetItems(
         title = "通行密钥",
-        headline = "使用通行密钥登录 $rpId",
-        description = "验证指纹后向网站证明身份；私钥随加密库在本机保存",
-        confirmText = "用指纹验证",
-        onConfirm = onConfirm,
-        onCancel = onCancel
+        headline = "验证主密码以登录 $rpId",
+        description = "本设备未配置指纹，输入主密码完成验证",
+        confirmText = "验证并继续",
+        onConfirm = {
+            if (!submitting && pwd.isNotBlank()) {
+                submitting = true
+                onConfirm(pwd)
+            }
+        },
+        onCancel = onCancel,
+        extraContent = {
+            PasswordField("主密码", pwd, { pwd = it }, showPasswordToggle = true)
+        }
     )
 }
 
@@ -163,37 +174,107 @@ internal fun AutofillPasswordSheetItems(onConfirm: (String) -> Unit, onCancel: (
 
 // ==================== IDE 预览 ====================
 // SheetPagePreview：ModalBottomSheet 在预览窗不弹层，此件把内容画成「遮罩 + 底部圆角面板」，
-// Design/Split 视图即查成品（Sheet.kt 先例）。uiMode 出明暗两套。
+// Design/Split 视图即查成品（Sheet.kt 先例）。
+// darkTheme 显式直写（预览环境 isSystemInDarkTheme 不可靠，== "system" 判跟随系统的旧写法
+// 在默认值改为 system 后恒真→预览恒暗）；配色按 resolveTheme 全路径铺 5 组：
+// 绿明/绿暗（内置默认）、蓝明/蓝暗（accentTheme）、自定义 JSON 暗（customThemeJson 分支）。
 
-@Preview(name = "注册确认·亮", showBackground = true, widthDp = 411, heightDp = 320)
-@Preview(name = "注册确认·暗", showBackground = true, widthDp = 411, heightDp = 320, uiMode = Configuration.UI_MODE_NIGHT_YES)
+/** 预览配色组：覆盖 resolveTheme 的全部代码路径（自定义明与暗同一解析分支，铺暗即可）。 */
+private val PreviewThemeMatrix: List<Pair<String, Triple<Boolean, String, String>>> = listOf(
+    "绿·明" to Triple(false, "green", ""),
+    "绿·暗" to Triple(true, "green", ""),
+    "蓝·明" to Triple(false, "blue", ""),
+    "蓝·暗" to Triple(true, "blue", ""),
+    "自定义·暗" to Triple(true, "green", SAMPLE_CUSTOM_THEME_JSON)
+)
+
+/** 自定义主题样例（19 色槽位；暖橙深色，验证 customThemeJson 解析分支与弹层观感）。 */
+private const val SAMPLE_CUSTOM_THEME_JSON =
+    """{"topBar":"#2A2118","topBarText":"#F5E7D5","background":"#221B13","surface":"#2E2419",
+       "surfaceAlt":"#3A2E20","primary":"#E8A34D","primaryText":"#1A1208","selectedBackground":"#4A3618",
+       "text":"#F0E2CC","textMuted":"#A89578","divider":"#4A3D2B","inputBackground":"#332918",
+       "inputBorder":"#5A4A32","icon":"#D8C4A4","danger":"#E86A5A","warning":"#E2B34E",
+       "success":"#8FBC6A","disabled":"#6A5C48","overlay":"#99000000"}"""
+
 @Composable
-private fun PasskeyCreateSheetPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
-        SheetPagePreview {
-            PasskeyCreateSheetItems("github.com", "octocat", onConfirm = {}, onCancel = {})
-        }
+private fun ThemedSheetPreview(
+    theme: Triple<Boolean, String, String>,
+    heightDp: Int,
+    content: @Composable () -> Unit
+) {
+    AccountTheme(darkTheme = theme.first, accentTheme = theme.second, customThemeJson = theme.third) {
+        SheetPagePreview { content() }
     }
 }
 
-@Preview(name = "登录确认·亮", showBackground = true, widthDp = 411, heightDp = 320)
-@Preview(name = "登录确认·暗", showBackground = true, widthDp = 411, heightDp = 320, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(name = "注册确认·绿明", showBackground = true, widthDp = 411, heightDp = 320)
 @Composable
-private fun PasskeyGetSheetPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
-        SheetPagePreview {
-            PasskeyGetSheetItems("github.com", onConfirm = {}, onCancel = {})
-        }
+private fun PasskeyCreateSheetPreviewGreenLight() {
+    ThemedSheetPreview(PreviewThemeMatrix[0].second, 320) {
+        PasskeyCreateSheetItems("github.com", "octocat", onConfirm = {}, onCancel = {})
     }
 }
 
-@Preview(name = "密码验证·亮", showBackground = true, widthDp = 411, heightDp = 380)
-@Preview(name = "密码验证·暗", showBackground = true, widthDp = 411, heightDp = 380, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(name = "注册确认·绿暗", showBackground = true, widthDp = 411, heightDp = 320)
 @Composable
-private fun AutofillPasswordSheetPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
-        SheetPagePreview {
-            AutofillPasswordSheetItems(onConfirm = {}, onCancel = {})
-        }
+private fun PasskeyCreateSheetPreviewGreenDark() {
+    ThemedSheetPreview(PreviewThemeMatrix[1].second, 320) {
+        PasskeyCreateSheetItems("github.com", "octocat", onConfirm = {}, onCancel = {})
+    }
+}
+
+@Preview(name = "注册确认·蓝明", showBackground = true, widthDp = 411, heightDp = 320)
+@Composable
+private fun PasskeyCreateSheetPreviewBlueLight() {
+    ThemedSheetPreview(PreviewThemeMatrix[2].second, 320) {
+        PasskeyCreateSheetItems("github.com", "octocat", onConfirm = {}, onCancel = {})
+    }
+}
+
+@Preview(name = "注册确认·蓝暗", showBackground = true, widthDp = 411, heightDp = 320)
+@Composable
+private fun PasskeyCreateSheetPreviewBlueDark() {
+    ThemedSheetPreview(PreviewThemeMatrix[3].second, 320) {
+        PasskeyCreateSheetItems("github.com", "octocat", onConfirm = {}, onCancel = {})
+    }
+}
+
+@Preview(name = "注册确认·自定义暗", showBackground = true, widthDp = 411, heightDp = 320)
+@Composable
+private fun PasskeyCreateSheetPreviewCustomDark() {
+    ThemedSheetPreview(PreviewThemeMatrix[4].second, 320) {
+        PasskeyCreateSheetItems("github.com", "octocat", onConfirm = {}, onCancel = {})
+    }
+}
+
+@Preview(name = "登录密码·绿明", showBackground = true, widthDp = 411, heightDp = 380)
+@Composable
+private fun PasskeyPasswordSheetPreviewGreenLight() {
+    ThemedSheetPreview(PreviewThemeMatrix[0].second, 380) {
+        PasskeyPasswordSheetItems("github.com", onConfirm = {}, onCancel = {})
+    }
+}
+
+@Preview(name = "登录密码·绿暗", showBackground = true, widthDp = 411, heightDp = 380)
+@Composable
+private fun PasskeyPasswordSheetPreviewGreenDark() {
+    ThemedSheetPreview(PreviewThemeMatrix[1].second, 380) {
+        PasskeyPasswordSheetItems("github.com", onConfirm = {}, onCancel = {})
+    }
+}
+
+@Preview(name = "登录密码·蓝暗", showBackground = true, widthDp = 411, heightDp = 380)
+@Composable
+private fun PasskeyPasswordSheetPreviewBlueDark() {
+    ThemedSheetPreview(PreviewThemeMatrix[3].second, 380) {
+        PasskeyPasswordSheetItems("github.com", onConfirm = {}, onCancel = {})
+    }
+}
+
+@Preview(name = "自动填充密码·绿暗", showBackground = true, widthDp = 411, heightDp = 380)
+@Composable
+private fun AutofillPasswordSheetPreviewGreenDark() {
+    ThemedSheetPreview(PreviewThemeMatrix[1].second, 380) {
+        AutofillPasswordSheetItems(onConfirm = {}, onCancel = {})
     }
 }
