@@ -133,7 +133,7 @@ internal fun FieldTextBox(
 @Preview(showBackground = true)
 @Composable
 private fun TextActionButtonPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         TextActionButton("文字操作", onClick = {})
     }
 }
@@ -141,7 +141,7 @@ private fun TextActionButtonPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun FieldTextBoxPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         FieldTextBox("hunter2", onValueChange = {}, hidden = true)
     }
 }

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -61,6 +62,7 @@ import com.copy.account.data.model.GroupKind
 import com.copy.account.data.model.accountInGroup
 import com.copy.account.data.model.initialAccounts
 import com.copy.account.data.model.initialGroups
+import com.copy.account.data.model.sortAccounts
 import com.copy.account.security.isHotp
 import com.copy.account.security.totpCode
 import com.copy.account.ui.components.AccountActionSheet
@@ -99,7 +101,11 @@ internal fun HomeScreen(
     onManageGroups: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDetail: (String) -> Unit,
-    onHotpAdvance: (String) -> Unit = {}
+    onHotpAdvance: (String) -> Unit = {},
+    /** 本机已绑定通行密钥的账号 id 集合（AccountApp 查注册表下发）：卡片名称行尾显示 🔑。 */
+    passkeyAccountIds: Set<String> = emptySet(),
+    /** 顶栏扫码导入入口：打开全屏扫码层（AccountApp 持有状态与解析）。 */
+    onScanImport: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
@@ -140,12 +146,14 @@ internal fun HomeScreen(
     val showTotpOnCards = (batchSourceGroup ?: selectedGroup).kind == GroupKind.DYNAMIC
     // 批量转移时列源分组账号；搜索跨全部分组；否则按当前分组过滤。
     // remember(依赖表)：任一依赖变了才重算过滤——≈ 手写的派生值缓存，免得每次重组全列表扫一遍。
+    // 过滤后统一走 sortAccounts：创建序倒序（新的在前）。
     val visibleAccounts = remember(accounts, groups, selectedGroupId, searchQuery, batchGroupId) {
-        when {
+        val filtered = when {
             batchSourceGroup != null -> accounts.filter { accountInGroup(it, groups, batchSourceGroup.id) }
             searchQuery.isNotBlank() -> accounts.filter { accountMatchesSearch(it, groups, searchQuery) }
             else -> accounts.filter { accountInGroup(it, groups, selectedGroup.id) }
         }
+        sortAccounts(filtered)
     }
     // 仅动态分组且有可见 TOTP 时每秒刷新，倒计时无需 100ms 重组；否则长周期空转即可。
     val nowMillis = rememberClock(if (showTotpOnCards && visibleAccounts.any { it.hasTotp }) 1_000L else 60_000L)
@@ -181,6 +189,7 @@ internal fun HomeScreen(
                 },
                 actions = {
                     IconButton(onClick = onNewAccount) { Text("＋", color = LocalAccountThemePalette.current.topBarText, fontSize = 24.sp) }
+                    IconButton(onClick = onScanImport) { Text("⎙", color = LocalAccountThemePalette.current.topBarText, fontSize = 22.sp) }
                     IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) searchQuery = "" }) { Text("⌕", color = LocalAccountThemePalette.current.topBarText, fontSize = 22.sp) }
                     IconButton(onClick = onOpenSettings) { Text("☰", color = LocalAccountThemePalette.current.topBarText, fontSize = 20.sp) }
                 }
@@ -249,10 +258,10 @@ internal fun HomeScreen(
                         )
                     } else {
                         // LazyColumn + items(key=账号id)：只为滚入屏幕的行创建组合（虚拟化）；
-                        // 稳定 key 让换位动画与状态跟随数据项而非位置（不写 key 用索引，删中间项会错位复用）。
+                        // 稳定 key 让状态跟随数据项而非位置（不写 key 用索引，删中间项会错位复用）。
+                        // （2026-10-17：批量模式拖动排序已随自定义排序功能一并拆除。）
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                             items(visibleAccounts, key = { it.id }) { account ->
-                                // 勾选模式：点卡片即选/取消（点击时实时读集合，勿捕获布尔快照），速览与长按菜单让位。
                                 AccountCard(
                                     account,
                                     showTotpOnCards,
@@ -263,7 +272,8 @@ internal fun HomeScreen(
                                             batchSelectedIds = if (account.id in batchSelectedIds) batchSelectedIds - account.id else batchSelectedIds + account.id
                                         } else onPreviewAccountIdChange(account.id)
                                     },
-                                    onLongClick = { if (batchSourceGroup == null) menuAccount = account }
+                                    onLongClick = { if (batchSourceGroup == null) menuAccount = account },
+                                    hasPasskey = account.id in passkeyAccountIds
                                 )
                             }
                         }
@@ -383,7 +393,9 @@ internal fun AccountCard(
     nowMillis: Long,
     selected: Boolean = false,
     onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    /** 本机已绑定通行密钥：名称行尾显示 🔑（AccountApp 查注册表下发集合）。 */
+    hasPasskey: Boolean = false
 ) {
     // combinedClickable 而非 pointerInput：手势 lambda 跨重组自动更新，
     // 避免勾选切换等依赖最新状态的回调被首次组合的陈旧闭包冻结。
@@ -416,7 +428,10 @@ internal fun AccountCard(
                 }
             }
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Text(account.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(account.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    if (hasPasskey) Text("🔑", style = MaterialTheme.typography.titleSmall)
+                }
                 val subtitle = when {
                     !(showTotp && account.hasTotp) -> account.username
                     hotp -> "${totpCode(account, nowMillis)}  ·  HOTP"
@@ -453,7 +468,7 @@ internal fun accountCopyableText(account: Account): String = buildList {
 @Preview(showBackground = true)
 @Composable
 private fun HomeScreenPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         HomeScreen(
             accounts = initialAccounts,
             groups = initialGroups,

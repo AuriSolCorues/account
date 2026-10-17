@@ -62,7 +62,7 @@ private fun AccountPreviewContent(
 @Preview(name = "账号速览面板", widthDp = 411, heightDp = 700, showBackground = true)
 @Composable
 private fun AccountPreviewSheetPagePreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         SheetPagePreview {
             AccountPreviewContent(initialAccounts[1], clipboardClearSeconds = 30, maskChar = '•', onEdit = {}, onDetail = {})
         }

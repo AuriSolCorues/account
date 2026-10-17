@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.copy.account.data.model.Account
+import com.copy.account.data.model.withUidFilled
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.PersistedVault
 import com.copy.account.data.model.initialAccounts
@@ -104,6 +105,39 @@ internal class UnlockSession(
     }
 
     /**
+     * 删除账号段内的通行密钥（设置页/编辑页删除入口；解锁态 UI 专用）。
+     * 内存态与磁盘同时改，经 vaultWriteMutex 防与 saveVault 并发写坏文件；
+     * 落盘失败返回 false（内存不回滚——下次解锁自会以磁盘为准，宁缺勿错）。
+     */
+    suspend fun deletePasskey(credentialId: String): Boolean {
+        val key = dataKey?.copyOf() ?: return false
+        try {
+            var removed = false
+            val nextAccounts = accounts.map { acc ->
+                if (acc.passkeys.none { it.credentialId == credentialId }) {
+                    acc
+                } else {
+                    removed = true
+                    acc.copy(passkeys = acc.passkeys.filterNot { it.credentialId == credentialId })
+                }
+            }
+            if (!removed) return false
+            val snapshot = PersistedVault(
+                accounts = nextAccounts,
+                groups = groups,
+                selectedGroupId = selectedGroupId
+            )
+            val ok = vaultWriteMutex.withLock {
+                withContext(Dispatchers.IO) { runCatching { store.save(snapshot, key) }.isSuccess }
+            }
+            if (ok) accounts = nextAccounts
+            return ok
+        } finally {
+            key.fill(0)
+        }
+    }
+
+    /**
      * 主密码解锁（含首装建库）：PBKDF2 派生 + 文件读写放后台线程；成功即缓存导出密钥
      * （backupKey 用后即清）并进入解锁态。返回是否成功（UnlockScreen 据此清输入/报错）。
      */
@@ -158,7 +192,8 @@ internal class UnlockSession(
     private fun completeUnlock(key: ByteArray, state: PersistedVault) {
         dataKey?.fill(0)
         dataKey = key
-        accounts = state.accounts
+        // 旧库账号 uid 为空：读库时惰性补全（仅内存，不立即重写文件；下次保存自然固化）。
+        accounts = state.accounts.map { it.withUidFilled() }
         groups = state.groups.ifEmpty { initialGroups }
         selectedGroupId = state.selectedGroupId.ifBlank { "default" }
         onUnlocked()

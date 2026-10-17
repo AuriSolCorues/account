@@ -24,7 +24,7 @@ private const val PROJECT_URL = "https://github.com/AuriSolCorues/account"
 internal fun AboutScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     AppListScreen("关于", onBack) {
-        item { SettingsRow("版本", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})") }
+        item { SettingsRow("版本", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}/b${BuildConfig.BUILD_ID})") }
         item { SettingsRow("包名", BuildConfig.APPLICATION_ID) }
         item {
             // 值刻意只写「打开」两字，**不显示 URL**：URL 有 37 字符，塞进设置行的值位会换行成
@@ -43,7 +43,7 @@ internal fun AboutScreen(onBack: () -> Unit) {
 @Preview(showBackground = true)
 @Composable
 private fun AboutScreenPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         AboutScreen(onBack = {})
     }
 }

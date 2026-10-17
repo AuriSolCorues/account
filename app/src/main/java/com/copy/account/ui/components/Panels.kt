@@ -62,7 +62,7 @@ private fun AccountActionContent(
 @Preview(name = "长按账号操作面板", widthDp = 411, heightDp = 700, showBackground = true)
 @Composable
 private fun AccountActionSheetPagePreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         SheetPagePreview(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             AccountActionContent(initialAccounts[1], onDismiss = {}, onEdit = {}, onDelete = {}, onTemplateNew = {}, onCopyAll = {})
         }

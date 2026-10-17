@@ -68,6 +68,7 @@ import com.copy.account.data.model.DEFAULT_TOTP_ALGORITHM
 import com.copy.account.data.model.DEFAULT_TOTP_DIGITS
 import com.copy.account.data.model.DEFAULT_TOTP_PERIOD
 import com.copy.account.data.model.DEFAULT_TOTP_TYPE
+import com.copy.account.data.model.newUid
 import com.copy.account.security.decodeSecret
 import com.copy.account.security.normalizedTotpSecret
 import com.copy.account.security.parseOtpAuth
@@ -83,6 +84,7 @@ import com.copy.account.ui.components.ActionSheetRow
 import com.copy.account.ui.components.AnimatedReorderCard
 import com.copy.account.ui.components.AppBottomSheet
 import com.copy.account.ui.components.DangerButton
+import com.copy.account.page.PasskeyDisplayEntry
 import com.copy.account.ui.components.DeleteConfirmDialog
 import com.copy.account.ui.components.DragHandleGlyph
 import com.copy.account.ui.components.FieldTextBox
@@ -163,7 +165,10 @@ internal fun AccountEditScreen(
     onBack: () -> Unit,
     onCreateGroup: (String) -> String,
     onSave: suspend (Account) -> Result<Unit>,
-    onDelete: (suspend () -> Result<Unit>)? = null
+    onDelete: (suspend () -> Result<Unit>)? = null,
+    /** 本机通行密钥信息（AccountApp 查注册表下发）：非 null 显示绑定提示与删除入口。 */
+    passkeyInfo: PasskeyDisplayEntry? = null,
+    onDeletePasskey: ((String) -> Unit)? = null
 ) {
     val source = account ?: template
     // 表单状态整片以 source?.id 为 remember 键：编辑对象一换（含从模板新建），全部状态重建为初值再预填。
@@ -202,6 +207,8 @@ internal fun AccountEditScreen(
     var addGroupDialog by remember { mutableStateOf(false) }
     var showMissingName by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
+    /** 通行密钥删除确认框开关（删除入口唯一在编辑页危险区；AccountApp 回调侧再做校验）。 */
+    var passkeyDeleteConfirm by remember { mutableStateOf(false) }
     var showPasswordGenerator by remember { mutableStateOf(false) }
     /** 两步验证二维码扫码层开关；打开时盖在当前页上方，编辑状态不丢。 */
     var showScan by remember { mutableStateOf(false) }
@@ -248,6 +255,8 @@ internal fun AccountEditScreen(
             else -> {
                 val edited = Account(
                     id = account?.id ?: "account-${System.currentTimeMillis()}",
+                    // uid：新建/编辑都重新生成（内嵌毫秒=最近修改时间锚）。
+                    uid = newUid(),
                     name = name.trim(),
                     username = username,
                     password = password,
@@ -565,6 +574,17 @@ internal fun AccountEditScreen(
             if (totpError.isNotBlank()) item { Text(totpError, color = MaterialTheme.colorScheme.error) }
         }
         if (saveError.isNotBlank()) item { Text(saveError, color = MaterialTheme.colorScheme.error) }
+        // 危险区：删除本机通行密钥（唯一入口，用户拍板）在删除账号之上。
+        if (passkeyInfo != null && onDeletePasskey != null) {
+            item { DangerButton("删除本机通行密钥（${passkeyInfo.rpId}）", onClick = { passkeyDeleteConfirm = true }) }
+            item {
+                Text(
+                    "删除后本机不再能以此通行密钥登录 ${passkeyInfo.rpId}；网站侧需自行到账号设置移除。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         if (account != null && onDelete != null) item { DangerButton("删除账号", onClick = { deleteConfirm = true }) }
     }
 
@@ -628,6 +648,17 @@ internal fun AccountEditScreen(
             confirmButton = { TextActionButton("确定", onClick = { showMissingName = false }) }
         )
     }
+    if (passkeyDeleteConfirm && passkeyInfo != null) AlertDialog(
+        onDismissRequest = { passkeyDeleteConfirm = false },
+        title = { Text("删除本机通行密钥") },
+        text = { Text("删除后本机将无法再用指纹登录 ${passkeyInfo.rpId}（网站侧不受影响，需自行到网站设置移除通行密钥）。此操作不可恢复。") },
+        confirmButton = {
+            TextActionButton("删除", { passkeyDeleteConfirm = false; onDeletePasskey?.invoke(passkeyInfo.credentialId) }, textColor = MaterialTheme.colorScheme.error)
+        },
+        dismissButton = {
+            TextActionButton("取消", { passkeyDeleteConfirm = false })
+        }
+    )
     if (deleteConfirm) {
         DeleteConfirmDialog(
             title = "删除账号",
@@ -927,7 +958,7 @@ private fun RowScope.LabelInputField(
 @Preview(showBackground = true)
 @Composable
 private fun AccountEditScreenPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         AccountEditScreen(
             account = initialAccounts.first(),
             template = null,

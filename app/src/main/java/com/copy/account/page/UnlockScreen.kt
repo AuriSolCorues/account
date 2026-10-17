@@ -98,7 +98,7 @@ internal fun UnlockScreen(
 @Preview(showBackground = true)
 @Composable
 private fun UnlockScreenPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         UnlockScreen(
             firstUse = false,
             biometricEnabled = true,

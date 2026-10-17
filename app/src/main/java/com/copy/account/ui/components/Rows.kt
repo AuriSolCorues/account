@@ -110,7 +110,7 @@ internal fun SurfaceCard(
 @Preview(showBackground = true)
 @Composable
 private fun SettingsHeaderPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         SettingsHeader("设置行")
     }
 }
@@ -118,7 +118,7 @@ private fun SettingsHeaderPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun SettingsRowPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         SettingsRow("自动锁定", "5 分钟")
     }
 }
@@ -126,7 +126,7 @@ private fun SettingsRowPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun SettingsSwitchRowPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         SettingsSwitchRow("允许截图", true, {})
     }
 }
@@ -134,7 +134,7 @@ private fun SettingsSwitchRowPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun SwitchRowPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         SwitchRow("两步验证", false, {}, subtitle = "已配置 · 自动显示在动态密码分组")
     }
 }
@@ -142,7 +142,7 @@ private fun SwitchRowPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun DangerButtonPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         DangerButton("删除账号", onClick = {})
     }
 }
@@ -150,7 +150,7 @@ private fun DangerButtonPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun SurfaceCardPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         SurfaceCard {
             Row(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                 Text("surface 卡片", modifier = Modifier.weight(1f))

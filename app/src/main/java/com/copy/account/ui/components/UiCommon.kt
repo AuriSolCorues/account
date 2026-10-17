@@ -1,6 +1,6 @@
 /**
- * 职责：跨页通用件——时钟 rememberClock、顶栏配色、敏感值行、动态密码行、空态文案、
- *       长按拖动排序手势与手柄字形。
+ * 职责：跨页通用件——时钟 rememberClock、顶栏配色、敏感值行、动态密码行、空态文案。
+ *       （拖动排序手势/字形/动画卡片已归拢至 AnimatedReorderCard.kt。）
  * 架构位置：Home/Detail/Preview/GroupManage 等页面复用；复制动作走 ui/platform/Clipboard.kt。
  * Python 类比：rememberClock ≈ 起一个 asyncio 循环任务、每秒给「被观察的变量」赋新值——
  *           LaunchedEffect 里的 while(true)+delay 在 key 变化或组件销毁时自动取消重启。
@@ -8,7 +8,6 @@
 package com.copy.account.ui.components
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,7 +25,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -108,61 +106,10 @@ internal fun EmptyState(text: String, modifier: Modifier = Modifier) {
     Box(modifier = modifier, contentAlignment = Alignment.Center) { Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
-/** 长按拖动排序共用手势；每移动 48dp 通知一次方向。 */
-internal fun Modifier.reorderDragHandle(
-    key: Any,
-    onMove: (Int) -> Unit,
-    onDrag: (Float) -> Unit = {},
-    onDragStart: () -> Unit = {},
-    onDragEnd: () -> Unit = {},
-    onDragCancel: () -> Unit = {}
-): Modifier = pointerInput(key) {
-    // pointerInput(key)：key 变化即整体重启手势识别器（这里 key=行数据，内容变了手势重挂）。
-    var distance = 0f
-    detectDragGesturesAfterLongPress(
-        onDragStart = {
-            distance = 0f
-            onDragStart()
-        },
-        onDrag = { change, amount ->
-            change.consume()
-            onDrag(amount.y)
-            distance += amount.y
-            // 48dp 为触发步长：累计拖过量即折算成「移动一行」事件，余数留给下一段拖动。
-            while (distance > 48f) {
-                onMove(1)
-                distance -= 48f
-            }
-            while (distance < -48f) {
-                onMove(-1)
-                distance += 48f
-            }
-        },
-        onDragEnd = {
-            distance = 0f
-            onDragEnd()
-        },
-        onDragCancel = {
-            distance = 0f
-            onDragCancel()
-        }
-    )
-}
-
-/** 拖动排序手柄字形：拖动态时切换 ↕/☷ 及配色；与 reorderDragHandle/AnimatedReorderCard 配套。 */
-@Composable
-internal fun DragHandleGlyph(isDragging: Boolean, modifier: Modifier = Modifier) {
-    Text(
-        text = if (isDragging) "↕" else "☷",
-        color = if (isDragging) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary,
-        modifier = modifier
-    )
-}
-
 @Preview(showBackground = true)
 @Composable
 private fun SensitiveValueRowPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         SensitiveValueRow("密码", "hunter2", masked = true, sensitive = true, clearAfterSeconds = 30)
     }
 }
@@ -170,7 +117,7 @@ private fun SensitiveValueRowPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun EmptyStatePreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         EmptyState("暂无账号", Modifier.fillMaxWidth())
     }
 }

@@ -65,6 +65,37 @@
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:theme="@style/Theme.Account.Transparent" />
+
+        <!-- 通行密钥提供方（Android 14+）：系统凭据管理器绑定服务；API<34 设备不认此声明。
+             enabled 显式声明（对齐 KeePassDX；个别 ROM 对默认值处理异常）。
+             xml 里 capability 名必须为 androidx.credentials.TYPE_PUBLIC_KEY_CREDENTIAL
+             （androidx 请求 type 原样透传 framework 精确匹配；KeePassDX/OPPO 密码本同款）。 -->
+        <service
+            android:name=".service.PasskeyProviderService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="@string/passkey_service_label"
+            android:permission="android.permission.BIND_CREDENTIAL_PROVIDER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.credentials.CredentialProviderService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.credentials.provider"
+                android:resource="@xml/passkey_provider_config" />
+        </service>
+        <!-- 通行密钥注册/登录确认页：透明浮层（照 AutofillAuthActivity），由系统凭据流程拉起。 -->
+        <activity
+            android:name=".service.PasskeyCreateActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.Account.Transparent" />
+        <activity
+            android:name=".service.PasskeyGetActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.Account.Transparent" />
     </application>
 
 </manifest>
