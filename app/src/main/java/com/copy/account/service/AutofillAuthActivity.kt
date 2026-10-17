@@ -35,16 +35,23 @@ import android.content.Intent
 import android.os.Bundle
 import android.service.autofill.Dataset
 import android.service.autofill.FillResponse
-import android.view.Gravity
-import android.view.View
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillManager
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
 import android.widget.Toast
+import androidx.activity.compose.setContent
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import androidx.fragment.app.FragmentActivity
@@ -52,6 +59,12 @@ import com.copy.account.runtime.AutofillAccount
 import com.copy.account.runtime.AutofillBridge
 import com.copy.account.security.SecureVaultStore
 import com.copy.account.runtime.toAutofillAccount
+import com.copy.account.ui.components.AppBottomSheet
+import com.copy.account.ui.components.OverlayThemeHost
+import com.copy.account.ui.components.PasswordField
+import com.copy.account.ui.components.PrimaryButton
+import com.copy.account.ui.components.SheetTitleRow
+import com.copy.account.ui.components.TextActionButton
 import javax.crypto.Cipher
 
 class AutofillAuthActivity : FragmentActivity() {
@@ -135,46 +148,53 @@ class AutofillAuthActivity : FragmentActivity() {
         }
     }
 
-    /** Mode C：锁定态无生物识别时的主密码输入小卡（程序化构建，透明浮层内嵌一块卡）。 */
+    /** Mode C：锁定态无生物识别时的主密码输入弹层（Compose 底部弹层，主界面同款）。 */
     private fun showPasswordEntry() {
-        val density = resources.displayMetrics.density
-        val pad = (16 * density).toInt()
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF202124.toInt())
-            setPadding(pad, pad, pad, pad)
-        }
-        val input = EditText(this).apply {
-            hint = "主密码"
-            transformationMethod = android.text.method.PasswordTransformationMethod.getInstance()
-            setSingleLine(true)
-        }
-        val confirm = Button(this).apply { text = "验证并填充" }
-        val cancel = Button(this).apply { text = "取消" }
-        container.addView(input)
-        container.addView(confirm)
-        container.addView(cancel)
-        setContentView(container, LinearLayout.LayoutParams(
-            (280 * density).toInt(), LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { gravity = Gravity.CENTER })
-        confirm.setOnClickListener {
-            val pwd = input.text.toString()
-            if (pwd.isBlank()) return@setOnClickListener
-            confirm.isEnabled = false
-            Thread {
-                val acc = AutofillSelfHeal.unlockAccountWithPassword(vaultStore, pwd, accountId)
-                runOnUiThread {
-                    if (acc != null) {
-                        replyFilled(listOf(acc))
-                    } else {
-                        Toast.makeText(this, "主密码错误或账号已不存在", Toast.LENGTH_SHORT).show()
-                        confirm.isEnabled = true
-                        input.setText("")
+        setContent {
+            OverlayThemeHost {
+                val pwd = remember { mutableStateOf("") }
+                val verifying = remember { mutableStateOf(false) }
+                AppBottomSheet(onDismiss = { finishCancel() }) {
+                    SheetTitleRow("验证主密码")
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "验证后向目标应用填充所选账号",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    PasswordField("主密码", pwd.value, { pwd.value = it }, showPasswordToggle = true)
+                    Spacer(Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        TextActionButton("取消", onClick = { finishCancel() }, modifier = Modifier.weight(1f))
+                        PrimaryButton(
+                            "验证并填充",
+                            onClick = {
+                                if (pwd.value.isNotBlank() && !verifying.value) {
+                                    verifying.value = true
+                                    val entered = pwd.value
+                                    Thread {
+                                        val acc = AutofillSelfHeal.unlockAccountWithPassword(vaultStore, entered, accountId)
+                                        runOnUiThread {
+                                            if (acc != null) {
+                                                replyFilled(listOf(acc))
+                                            } else {
+                                                Toast.makeText(this@AutofillAuthActivity, "主密码错误或账号已不存在", Toast.LENGTH_SHORT).show()
+                                                verifying.value = false
+                                                pwd.value = ""
+                                            }
+                                        }
+                                    }.start()
+                                }
+                            },
+                            enabled = pwd.value.isNotBlank() && !verifying.value,
+                            modifier = Modifier.weight(2f)
+                        )
                     }
+                    Spacer(Modifier.height(8.dp))
                 }
-            }.start()
+            }
         }
-        cancel.setOnClickListener { finishCancel() }
     }
 
     /**

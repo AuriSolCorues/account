@@ -290,3 +290,10 @@ fun AccountTheme(
         }
     )
 }
+
+/** 主题三态折算（light/system/dark）→ 是否暗色。MainActivity 与浮层 Activity 共用，防两处手写漂移。 */
+fun resolveDarkTheme(themeMode: String, isSystemDark: Boolean): Boolean = when (themeMode) {
+    "light" -> false
+    "system" -> isSystemDark
+    else -> true
+}
