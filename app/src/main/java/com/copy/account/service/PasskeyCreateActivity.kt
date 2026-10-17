@@ -22,15 +22,6 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.biometric.BiometricPrompt
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.credentials.CreatePublicKeyCredentialResponse
 import androidx.credentials.provider.PendingIntentHandler
@@ -54,9 +45,7 @@ import androidx.credentials.webauthn.FidoPublicKeyCredential
 import androidx.credentials.webauthn.PublicKeyCredentialCreationOptions
 import com.copy.account.ui.components.AppBottomSheet
 import com.copy.account.ui.components.OverlayThemeHost
-import com.copy.account.ui.components.PrimaryButton
-import com.copy.account.ui.components.SheetTitleRow
-import com.copy.account.ui.components.TextActionButton
+import com.copy.account.ui.components.PasskeyCreateSheetItems
 import javax.crypto.Cipher
 
 /**
@@ -86,26 +75,17 @@ class PasskeyCreateActivity : FragmentActivity() {
         showConfirmCard(request, clientDataHash)
     }
 
-    /** Compose 底部弹层（主界面 AppBottomSheet 同款）：标题（网站域 + 用户名）+「创建通行密钥」。 */
+    /** Compose 底部弹层（主界面 AppBottomSheet 同款）：内容组件在 ui/components（可 IDE 预览）。 */
     private fun showConfirmCard(request: WebAuthnRequest, clientDataHash: ByteArray) {
         setContent {
             OverlayThemeHost {
                 AppBottomSheet(onDismiss = { finishCanceled() }) {
-                    SheetTitleRow("通行密钥")
-                    Spacer(Modifier.height(8.dp))
-                    Text("为 ${request.rpId} 创建通行密钥", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "用户名：${request.userName.orEmpty()}\n私钥随加密库保存（.acc 备份可恢复）",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    PasskeyCreateSheetItems(
+                        rpId = request.rpId,
+                        userName = request.userName.orEmpty(),
+                        onConfirm = { beginCreation(request, clientDataHash) },
+                        onCancel = { finishCanceled() }
                     )
-                    Spacer(Modifier.height(16.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        TextActionButton("取消", onClick = { finishCanceled() }, modifier = Modifier.weight(1f))
-                        PrimaryButton("创建通行密钥", onClick = { beginCreation(request, clientDataHash) }, modifier = Modifier.weight(2f))
-                    }
-                    Spacer(Modifier.height(8.dp))
                 }
             }
         }
