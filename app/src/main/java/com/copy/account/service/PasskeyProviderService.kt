@@ -7,11 +7,12 @@
  *       本类只做系统协议胶水；CBOR 组包/生物识别在两透明 Activity，算法在 WebAuthn.kt。
  * 架构位置：service/ 系统入口组件（manifest 注册 BIND_CREDENTIAL_PROVIDER_SERVICE + providers
  *           元数据；API<34 设备不认此声明，App 内入口在 UI 层按 SDK_INT 隐藏）。
- *           与透明 Activity 的契约：Intent extras 传 requestJson（Create 的 createJson / Get 的
- *           requestJson 原文）+ optionId + callingPackage + origin；Activity 验证完成后以
- *           setResult(RESULT_OK) 结束，响应须经 PendingIntentHandler.setGetCredentialResponse /
- *           setCreateCredentialResponse 打包进 result Intent——系统只认 androidx 约定的
- *           BUNDLE 键（自定义 extras 键系统读不到，曾因此 GitHub 不识别）。
+ *           与透明 Activity 的契约：Intent extras 传完整性标签 EXTRA_INTEGRITY
+ *           （HMAC(requestJson)，防第三方伪造 extras 拉起浮层骗签名）；Activity 端验签
+ *           通过后以 setResult(RESULT_OK) 结束，响应须经
+ *           PendingIntentHandler.setGetCredentialResponse / setCreateCredentialResponse
+ *           打包进 result Intent——系统只认 androidx 约定的 BUNDLE 键（自定义 extras 键
+ *           系统读不到，曾因此 GitHub 不识别）。
  * Python 类比：≈ RPC 分发器——解析协议包、挑参数、返回「回调地址」（PendingIntent）；
  *           自身不实现业务，系统是调用方，本服务是被注册的端点。
  */
@@ -36,6 +37,7 @@ import androidx.credentials.exceptions.CreateCredentialUnknownException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.GetCredentialUnknownException
 import androidx.credentials.exceptions.ClearCredentialException
+import com.copy.account.security.PasskeyIntegrity
 
 /**
  * 系统凭据提供方。所有回调都在主线程进、主线程出（系统保证）；注册表读文件是
@@ -44,11 +46,8 @@ import androidx.credentials.exceptions.ClearCredentialException
 class PasskeyProviderService : CredentialProviderService() {
 
     companion object {
-        /** → 透明 Activity 的 extras：请求原文（Create 用 CREATE_KEY，Get 用 GET_KEY）。 */
-        const val EXTRA_CREATE_JSON = "com.copy.account.passkey.CREATE_JSON"
-        const val EXTRA_GET_JSON = "com.copy.account.passkey.GET_JSON"
-        const val EXTRA_OPTION_ID = "com.copy.account.passkey.OPTION_ID"
-        const val EXTRA_CALLING_PACKAGE = "com.copy.account.passkey.CALLING_PACKAGE"
+        /** → 透明 Activity 的 extras：完整性标签（HMAC(requestJson)），Activity 验签闸门。 */
+        const val EXTRA_INTEGRITY = "com.copy.account.passkey.INTEGRITY"
 
         // ← Activity 回包不走自定义 extras：系统契约要求经 PendingIntentHandler 打包
         //   响应对象（见 PasskeyGetActivity/PasskeyCreateActivity 的 setResult 处）。
@@ -75,9 +74,8 @@ class PasskeyProviderService : CredentialProviderService() {
                         this,
                         entry.credentialId.hashCode(),
                         Intent(this, PasskeyGetActivity::class.java).apply {
-                            putExtra(EXTRA_GET_JSON, pkOption.requestJson)
-                            putExtra(EXTRA_OPTION_ID, option.id)
-                            putExtra(EXTRA_CALLING_PACKAGE, request.callingAppInfo?.packageName.orEmpty())
+                            // 完整性标签：Activity 端验签防伪造拉起（见 PasskeyIntegrity）
+                            putExtra(EXTRA_INTEGRITY, PasskeyIntegrity.tag(pkOption.requestJson))
                         },
                         PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                     )
@@ -117,8 +115,8 @@ class PasskeyProviderService : CredentialProviderService() {
                 this,
                 pkRequest.requestJson.hashCode(),
                 Intent(this, PasskeyCreateActivity::class.java).apply {
-                    putExtra(EXTRA_CREATE_JSON, pkRequest.requestJson)
-                    putExtra(EXTRA_CALLING_PACKAGE, request.callingAppInfo?.packageName.orEmpty())
+                    // 完整性标签：Activity 端验签防伪造拉起（Create 侧伪造无害，纵深防御）
+                    putExtra(EXTRA_INTEGRITY, PasskeyIntegrity.tag(pkRequest.requestJson))
                 },
                 PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
