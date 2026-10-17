@@ -27,6 +27,9 @@ import androidx.credentials.GetCredentialResponse
 import androidx.credentials.PublicKeyCredential
 import androidx.credentials.provider.PendingIntentHandler
 import androidx.fragment.app.FragmentActivity
+import com.copy.account.data.config.ALLOW_SCREENSHOTS_SETTING
+import com.copy.account.data.config.settingsDataStore
+import com.copy.account.security.PasskeyIntegrity
 import com.copy.account.security.PasskeyRegistry
 import com.copy.account.security.PasskeyVaultAccess
 import com.copy.account.security.SecureVaultStore
@@ -43,6 +46,8 @@ import com.copy.account.ui.components.AppBottomSheet
 import com.copy.account.ui.components.OverlayThemeHost
 import com.copy.account.ui.components.PasskeyPasswordSheetItems
 import javax.crypto.Cipher
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 
 /** 登录确认页。任何失败路径都 setResult(RESULT_CANCELED)，系统放弃本次断言。 */
 class PasskeyGetActivity : FragmentActivity() {
@@ -52,6 +57,7 @@ class PasskeyGetActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyScreenshotFlag()
         setupTransparentWindow()
         // 完整请求经系统 API 取（requestJson + 系统下发的 clientDataHash——签名基准）
         val providerRequest = runCatching {
@@ -63,6 +69,13 @@ class PasskeyGetActivity : FragmentActivity() {
         val request = option?.requestJson?.let { parseWebAuthnRequest(it) }
         val clientDataHash = option?.clientDataHash
         if (providerRequest == null || option == null || request == null || clientDataHash == null) {
+            finishCanceled()
+            return
+        }
+        // 完整性闸门：extras 里没有本应用 Service 加的 HMAC 标签（第三方伪造 intent 拉起）
+        // 即静默取消——防断言钓鱼（详见 PasskeyIntegrity）。requestJson 与标签来自同一
+        // intent，标签对不上即参数被篡改/伪造。
+        if (!PasskeyIntegrity.verify(option.requestJson, intent.getByteArrayExtra(PasskeyProviderService.EXTRA_INTEGRITY))) {
             finishCanceled()
             return
         }
@@ -143,14 +156,26 @@ class PasskeyGetActivity : FragmentActivity() {
             }
         } else {
             promptPasswordThen(request.rpId) { password ->
-                runCatching {
-                    vaultStore.unlockWithPassword(password)?.dataKey ?: error("主密码不匹配")
-                }.onSuccess { dek ->
-                    signAndReply(request, clientDataHash, dek)
-                }.onFailure {
-                    Toast.makeText(this, "登录失败：${it.message.orEmpty()}", Toast.LENGTH_SHORT).show()
-                    finishCanceled()
-                }
+                // PBKDF2（30 万轮）计算密集，必须后台线程——主 App 解锁页同规矩；
+                // Toast/finish 回主线程（后台线程弹 Toast 会崩）。
+                Thread {
+                    val result = runCatching {
+                        val unlock = vaultStore.unlockWithPassword(password)
+                            ?: error("主密码不匹配")
+                        // backupKey 是导出用密钥材料，断言用不到：unwrap 成功即清零不留堆
+                        //（照 AutofillSelfHeal.unlockAccountWithPassword 先例）。
+                        unlock.backupKey.clear()
+                        unlock.dataKey
+                    }
+                    runOnUiThread {
+                        result.onSuccess { dek ->
+                            signAndReply(request, clientDataHash, dek)
+                        }.onFailure {
+                            Toast.makeText(this, "登录失败：${it.message.orEmpty()}", Toast.LENGTH_SHORT).show()
+                            finishCanceled()
+                        }
+                    }
+                }.start()
             }
         }
     }
@@ -170,73 +195,80 @@ class PasskeyGetActivity : FragmentActivity() {
         }
     }
 
-    /** 认证通过后的签名回包链路（DEK 用完即清零）。 */
+    /** 认证通过后的签名回包链路（DEK 用完即清零；任何失败 Toast+取消，不崩在回调里）。 */
     private fun signAndReply(request: WebAuthnRequest, clientDataHash: ByteArray, dek: ByteArray) {
         try {
-            val rpId = request.rpId
-            val matches = PasskeyVaultAccess.loadPasskeysByRpId(this, dek, rpId)
-            if (matches.isEmpty()) {
-                Toast.makeText(this, "库内无 $rpId 的通行密钥", Toast.LENGTH_SHORT).show()
-                finishCanceled()
-                return
-            }
-            // 多凭据：优先 allowCredentials 提示，其次用户名匹配，再次首条
-            val allowIds = request.allowCredentialIds.orEmpty()
-            val material = matches.firstOrNull { allowIds.contains(it.credentialId) }
-                ?: matches.firstOrNull { request.userName != null && it.userName == request.userName }
-                ?: matches.first()
-            val nextCount = signCountInVault(dek, material.credentialId) + 1
-
-            // ===== 官方 androidx.credentials.webauthn 组包（替代全部自拼协议）=====
-            // 官方 dataToSign() = authData || (clientDataHash ?: sha256(clientJson))——
-            // 浏览器流程传系统下发的 clientDataHash，签名基准与浏览器视角字节一致。
-            val requestOptions = PublicKeyCredentialRequestOptions(request.requestJson)
-            val userHandleBytes = base64UrlDecode(material.userHandle)
-            val assertionResponse = AuthenticatorAssertionResponse(
-                requestOptions = requestOptions,
-                credentialId = base64UrlDecode(material.credentialId),
-                origin = "https://" + rpId,
-                up = true,
-                uv = true,
-                be = false,
-                bs = false,
-                userHandle = userHandleBytes,
-                packageName = null,
-                clientDataHash = clientDataHash
-            )
-            // 用库内私钥对官方 dataToSign() 签名，塞回官方响应对象。
-            // 官方默认 authData 的 signCount 恒 0，回填 vault 维护的递增计数再签
-            //（RP 以计数不增判克隆；注册时为 0，首次登录回 1，此后递增）。
-            assertionResponse.authenticatorData =
-                patchSignCount(assertionResponse.authenticatorData, nextCount.toInt())
-            val signer = softwareSigner(material.privateKeyPkcs8)
-            signer.update(assertionResponse.dataToSign())
-            assertionResponse.signature = es256AdaptRaw(signer.sign())
-
-            val credential = FidoPublicKeyCredential(
-                rawId = base64UrlDecode(material.credentialId),
-                response = assertionResponse,
-                authenticatorAttachment = "platform"
-            )
-            val responseJson = credential.json()
-
-            // signCount 持久化（vault 账号段为准；registry 索引同步）
-            persistSignCount(dek, material.credentialId, nextCount)
-            if (registry.find(material.credentialId) != null) {
-                registry.updateSignCount(material.credentialId, nextCount)
-            }
-
-            // 系统契约：PendingIntent 的 result Intent 必须经 PendingIntentHandler 打包
-            val result = Intent()
-            PendingIntentHandler.setGetCredentialResponse(
-                result,
-                GetCredentialResponse(PublicKeyCredential(responseJson))
-            )
-            setResult(Activity.RESULT_OK, result)
-            finish()
+            signAndReplyInner(request, clientDataHash, dek)
+        } catch (e: Exception) {
+            Toast.makeText(this, "登录失败：${e.message.orEmpty()}", Toast.LENGTH_SHORT).show()
+            finishCanceled()
         } finally {
             dek.fill(0)
         }
+    }
+
+    private fun signAndReplyInner(request: WebAuthnRequest, clientDataHash: ByteArray, dek: ByteArray) {
+        val rpId = request.rpId
+        val matches = PasskeyVaultAccess.loadPasskeysByRpId(this, dek, rpId)
+        if (matches.isEmpty()) {
+            Toast.makeText(this, "库内无 $rpId 的通行密钥", Toast.LENGTH_SHORT).show()
+            finishCanceled()
+            return
+        }
+        // 多凭据：优先 allowCredentials 提示，其次用户名匹配，再次首条
+        val allowIds = request.allowCredentialIds.orEmpty()
+        val material = matches.firstOrNull { allowIds.contains(it.credentialId) }
+            ?: matches.firstOrNull { request.userName != null && it.userName == request.userName }
+            ?: matches.first()
+        val nextCount = signCountInVault(dek, material.credentialId) + 1
+
+        // ===== 官方 androidx.credentials.webauthn 组包（替代全部自拼协议）=====
+        // 官方 dataToSign() = authData || (clientDataHash ?: sha256(clientJson))——
+        // 浏览器流程传系统下发的 clientDataHash，签名基准与浏览器视角字节一致。
+        val requestOptions = PublicKeyCredentialRequestOptions(request.requestJson)
+        val userHandleBytes = base64UrlDecode(material.userHandle)
+        val assertionResponse = AuthenticatorAssertionResponse(
+            requestOptions = requestOptions,
+            credentialId = base64UrlDecode(material.credentialId),
+            origin = "https://" + rpId,
+            up = true,
+            uv = true,
+            be = false,
+            bs = false,
+            userHandle = userHandleBytes,
+            packageName = null,
+            clientDataHash = clientDataHash
+        )
+        // 用库内私钥对官方 dataToSign() 签名，塞回官方响应对象。
+        // 官方默认 authData 的 signCount 恒 0，回填 vault 维护的递增计数再签
+        //（RP 以计数不增判克隆；注册时为 0，首次登录回 1，此后递增）。
+        assertionResponse.authenticatorData =
+            patchSignCount(assertionResponse.authenticatorData, nextCount.toInt())
+        val signer = softwareSigner(material.privateKeyPkcs8)
+        signer.update(assertionResponse.dataToSign())
+        assertionResponse.signature = es256AdaptRaw(signer.sign())
+
+        val credential = FidoPublicKeyCredential(
+            rawId = base64UrlDecode(material.credentialId),
+            response = assertionResponse,
+            authenticatorAttachment = "platform"
+        )
+        val responseJson = credential.json()
+
+        // signCount 持久化（vault 账号段为准；registry 索引同步）
+        persistSignCount(dek, material.credentialId, nextCount)
+        if (registry.find(material.credentialId) != null) {
+            registry.updateSignCount(material.credentialId, nextCount)
+        }
+
+        // 系统契约：PendingIntent 的 result Intent 必须经 PendingIntentHandler 打包
+        val result = Intent()
+        PendingIntentHandler.setGetCredentialResponse(
+            result,
+            GetCredentialResponse(PublicKeyCredential(responseJson))
+        )
+        setResult(Activity.RESULT_OK, result)
+        finish()
     }
 
     /** vault 内该凭据的当前 signCount（跨账号扫描）。 */
@@ -276,5 +308,22 @@ class PasskeyGetActivity : FragmentActivity() {
             WindowManager.LayoutParams.WRAP_CONTENT
         )
         window.setBackgroundDrawableResource(android.R.color.transparent)
+    }
+
+    /**
+     * 截图保护跟随主界面「禁止截图」设置（DataStore 键 allow_screenshots 反相）：
+     * 浮层含主密码输入，不能比主界面少这层保护。runBlocking 一次读（毫秒级）——
+     * 浮层生命周期极短，不值得为此架协程。
+     */
+    private fun applyScreenshotFlag() {
+        val allow = runCatching {
+            runBlocking { settingsDataStore.data.first()[ALLOW_SCREENSHOTS_SETTING] ?: false }
+        }.getOrDefault(false)
+        if (!allow) {
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE
+            )
+        }
     }
 }

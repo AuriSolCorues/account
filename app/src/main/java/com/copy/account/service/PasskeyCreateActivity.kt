@@ -27,6 +27,7 @@ import androidx.credentials.CreatePublicKeyCredentialResponse
 import androidx.credentials.provider.PendingIntentHandler
 import androidx.fragment.app.FragmentActivity
 import com.copy.account.security.COSE_ALG_ES256
+import com.copy.account.security.PasskeyIntegrity
 import com.copy.account.security.PasskeyRegistry
 import com.copy.account.security.PasskeyRegistryEntry
 import com.copy.account.security.PasskeyVaultAccess
@@ -46,7 +47,11 @@ import androidx.credentials.webauthn.PublicKeyCredentialCreationOptions
 import com.copy.account.ui.components.AppBottomSheet
 import com.copy.account.ui.components.OverlayThemeHost
 import com.copy.account.ui.components.PasskeyCreateSheetItems
+import com.copy.account.data.config.ALLOW_SCREENSHOTS_SETTING
+import com.copy.account.data.config.settingsDataStore
 import javax.crypto.Cipher
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 
 /**
  * 注册确认页。流程失败（解析失败/认证取消/组包异常）一律 setResult(RESULT_CANCELED)，
@@ -59,6 +64,7 @@ class PasskeyCreateActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyScreenshotFlag()
         setupTransparentWindow()
         // 完整请求经系统 API 取：requestJson + 系统下发的 clientDataHash（关键！）
         val providerRequest = runCatching {
@@ -69,6 +75,11 @@ class PasskeyCreateActivity : FragmentActivity() {
         val request = pkRequest?.requestJson?.let { parseWebAuthnRequest(it) }
         val clientDataHash = pkRequest?.clientDataHash
         if (pkRequest == null || request == null || clientDataHash == null) {
+            finishCanceled()
+            return
+        }
+        // 完整性闸门（同 PasskeyGetActivity）：伪造拉起静默取消。
+        if (!PasskeyIntegrity.verify(pkRequest.requestJson, intent.getByteArrayExtra(PasskeyProviderService.EXTRA_INTEGRITY))) {
             finishCanceled()
             return
         }
@@ -249,5 +260,21 @@ class PasskeyCreateActivity : FragmentActivity() {
             WindowManager.LayoutParams.WRAP_CONTENT
         )
         window.setBackgroundDrawableResource(android.R.color.transparent)
+    }
+
+    /**
+     * 截图保护跟随主界面「禁止截图」设置（照 PasskeyGetActivity 同名函数；
+     * 注册浮层虽不含密码输入，弹层提示文案含用户名，一并保护）。
+     */
+    private fun applyScreenshotFlag() {
+        val allow = runCatching {
+            runBlocking { settingsDataStore.data.first()[ALLOW_SCREENSHOTS_SETTING] ?: false }
+        }.getOrDefault(false)
+        if (!allow) {
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE
+            )
+        }
     }
 }

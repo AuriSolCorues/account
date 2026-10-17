@@ -13,14 +13,21 @@
  */
 package com.copy.account.security
 
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
+import java.security.KeyStore
+import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.Signature
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
+import javax.crypto.KeyGenerator
+import javax.crypto.Mac
+import javax.crypto.SecretKey
 
 /**
  * 生成 ES256 软件密钥对（P-256）：返回 (私钥 PKCS8 Base64, 公钥坐标 Base64(x||y),
@@ -33,9 +40,53 @@ internal fun generateSoftwareEs256KeyPair(): Triple<String, String, String> {
     val keyPair = generator.generateKeyPair()
     val privateB64 = Base64.getEncoder().encodeToString(keyPair.private.encoded)
     val pub = keyPair.public as ECPublicKey
-    val publicXYB64 = Base64.getEncoder().encodeToString(ecPublicKeyXY(pub))
-    val publicDerB64 = Base64.getEncoder().encodeToString(keyPair.public.encoded)
-    return Triple(privateB64, publicXYB64, publicDerB64)
+    return Triple(privateB64, publicXYB64(pub), publicDerB64(pub))
+}
+
+/** 公钥坐标 Base64（x||y，attestation 内 COSE key 编码用）。 */
+internal fun publicXYB64(key: ECPublicKey): String =
+    Base64.getEncoder().encodeToString(ecPublicKeyXY(key))
+
+/** 公钥 SPKI DER Base64（Chrome CredMan 回包 publicKey 字段要求 DER 格式）。 */
+internal fun publicDerB64(key: ECPublicKey): String =
+    Base64.getEncoder().encodeToString(key.encoded)
+
+// ==================== PendingIntent 完整性标签（HMAC） ====================
+
+/**
+ * 防第三方 App 伪造 extras 直接拉起 passkey 透明浮层（断言钓鱼）：
+ * 两个浮层 Activity 是 exported 的（系统凭据流程拉起），任何本地 App 也能 startActivity
+ * 构造假的 requestJson（rpId 指向任意站点）骗签名。防线 = Service 建 PendingIntent 时对
+ * requestJson 加 HMAC 标签，Activity 验签不过即取消——攻击者没有密钥（AndroidKeyStore
+ * 不可提取），伪造不了标签；重放旧标签只能得到旧 challenge 的断言，RP 一次一密必拒，
+ * 无收益。
+ *
+ * 密钥无用户认证门槛（PURPOSE 仅 SIGN|VERIFY）：Service 在锁定态就要建 PendingIntent，
+ * 认证门槛会让出卡直接失败；密钥不参与任何数据解密，被滥用面仅「替攻击者算标签」，
+ * 而标签只有本应用组件会验。
+ */
+internal object PasskeyIntegrity {
+    private const val KEY_ALIAS = "passkey_intent_hmac"
+
+    /** get-or-create KeyStore HMAC-SHA256 密钥（AndroidKeyStore，不可提取）。 */
+    private fun macKey(): SecretKey {
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (ks.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
+        val generator = KeyGenerator.getInstance("HmacSHA256", "AndroidKeyStore")
+        generator.init(
+            KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+                .build()
+        )
+        return generator.generateKey()
+    }
+
+    /** payload（requestJson 原文）→ HMAC 标签。 */
+    fun tag(payload: String, key: SecretKey = macKey()): ByteArray =
+        Mac.getInstance("HmacSHA256").apply { init(key) }.doFinal(payload.toByteArray(Charsets.UTF_8))
+
+    /** 常量时间比较，防时序侧信道；key 抽成参数供 JVM 单测注入本地密钥。 */
+    fun verify(payload: String, tag: ByteArray?, key: SecretKey = macKey()): Boolean =
+        tag != null && MessageDigest.isEqual(tag, tag(payload, key))
 }
 
 /** PKCS8/Base64 私钥 → JCA 签名对象（SHA256withECDSA，标准 provider 输出 DER）。 */

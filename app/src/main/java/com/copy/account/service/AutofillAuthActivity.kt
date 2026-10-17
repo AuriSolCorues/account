@@ -141,12 +141,19 @@ class AutofillAuthActivity : FragmentActivity() {
                 AppBottomSheet(onDismiss = { finishCancel() }) {
                     AutofillPasswordSheetItems(
                         onConfirm = { entered ->
-                            val acc = AutofillSelfHeal.unlockAccountWithPassword(vaultStore, entered, accountId)
-                            if (acc != null) {
-                                replyFilled(listOf(acc))
-                            } else {
-                                Toast.makeText(this@AutofillAuthActivity, "主密码错误或账号已不存在", Toast.LENGTH_SHORT).show()
-                            }
+                            // PBKDF2（30 万轮）计算密集：后台线程算（旧 View 卡实现同规矩），
+                            // Toast/finish 回主线程。输错弹层直接取消（下次填充重新拉起重输）。
+                            Thread {
+                                val acc = AutofillSelfHeal.unlockAccountWithPassword(vaultStore, entered, accountId)
+                                runOnUiThread {
+                                    if (acc != null) {
+                                        replyFilled(listOf(acc))
+                                    } else {
+                                        Toast.makeText(this@AutofillAuthActivity, "主密码错误或账号已不存在", Toast.LENGTH_SHORT).show()
+                                        finishCancel()
+                                    }
+                                }
+                            }.start()
                         },
                         onCancel = { finishCancel() }
                     )
