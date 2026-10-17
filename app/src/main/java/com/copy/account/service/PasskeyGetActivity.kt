@@ -20,6 +20,7 @@ import android.view.Window
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.setContent
+import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.credentials.GetCredentialResponse
@@ -40,7 +41,7 @@ import androidx.credentials.webauthn.FidoPublicKeyCredential
 import androidx.credentials.webauthn.PublicKeyCredentialRequestOptions
 import com.copy.account.ui.components.AppBottomSheet
 import com.copy.account.ui.components.OverlayThemeHost
-import com.copy.account.ui.components.PasskeyGetSheetItems
+import com.copy.account.ui.components.PasskeyPasswordSheetItems
 import javax.crypto.Cipher
 
 /** 登录确认页。任何失败路径都 setResult(RESULT_CANCELED)，系统放弃本次断言。 */
@@ -65,25 +66,15 @@ class PasskeyGetActivity : FragmentActivity() {
             finishCanceled()
             return
         }
-        showConfirmCard(request, clientDataHash)
+        // 出卡（系统凭据卡）已是用户确认：直接弹系统验证框，无中间确认层。
+        beginAssertion(request, clientDataHash)
     }
 
-    /** Compose 底部弹层（主界面 AppBottomSheet 同款）：内容组件在 ui/components（可 IDE 预览）。 */
-    private fun showConfirmCard(request: WebAuthnRequest, clientDataHash: ByteArray) {
-        setContent {
-            OverlayThemeHost {
-                AppBottomSheet(onDismiss = { finishCanceled() }) {
-                    PasskeyGetSheetItems(
-                        rpId = request.rpId,
-                        onConfirm = { beginAssertion(request, clientDataHash) },
-                        onCancel = { finishCanceled() }
-                    )
-                }
-            }
-        }
-    }
-
-    /** 弹 BiometricPrompt（CryptoObject=cipher）；通过后解封 DEK 完成断言。 */
+    /**
+     * 直接弹系统验证框（无自家 UI）：认证器组合 BIOMETRIC_STRONG|DEVICE_CREDENTIAL——
+     * 有指纹弹系统指纹框，无指纹弹系统锁屏密码/PIN 框，两者同一套系统 UI。
+     * （passkey 功能本身要求 API≥34，组合+CryptoObject 的版本约束不落在支持设备上。）
+     */
     private fun beginAssertion(request: WebAuthnRequest, clientDataHash: ByteArray) {
         val cipher = runCatching { vaultStore.beginBiometricDecrypt() }.getOrNull()
         if (cipher == null) {
@@ -97,7 +88,9 @@ class PasskeyGetActivity : FragmentActivity() {
             ContextCompat.getMainExecutor(this),
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    completeAssertion(request, clientDataHash, result.cryptoObject?.cipher ?: cipher)
+                    val biometric =
+                        result.authenticationType == BiometricPrompt.AUTHENTICATION_RESULT_TYPE_BIOMETRIC
+                    completeAssertion(request, clientDataHash, result.cryptoObject?.cipher, biometric)
                 }
 
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -105,92 +98,144 @@ class PasskeyGetActivity : FragmentActivity() {
                 }
             }
         )
-        prompt.authenticate(
-            BiometricPrompt.PromptInfo.Builder()
-                .setTitle("通行密钥验证")
-                .setSubtitle(request.rpId)
-                .setNegativeButtonText("取消")
-                .build(),
-            BiometricPrompt.CryptoObject(cipher)
-        )
+        // 首选「强生物识别或锁屏凭据」（照 AutofillAuthActivity 先例）；个别 API<30 机型
+        // 不接受该组合（构造即抛），退回仅强生物识别——passkey 设备均 ≥34，组合常态生效。
+        val combined = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("使用通行密钥登录")
+            .setSubtitle(request.rpId)
+            .setAllowedAuthenticators(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            )
+            .build()
+        val strongOnly = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("使用通行密钥登录")
+            .setSubtitle(request.rpId)
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            .setNegativeButtonText("取消")
+            .build()
+        try {
+            prompt.authenticate(combined, BiometricPrompt.CryptoObject(cipher))
+        } catch (_: IllegalArgumentException) {
+            prompt.authenticate(strongOnly, BiometricPrompt.CryptoObject(cipher))
+        }
     }
 
-    /** 认证成功后：解 DEK → vault 读私钥 → 官方类组包签名 → signCount 回写 → 回包。 */
+    /**
+     * 认证成功后按认证类型取 DEK，随后同一条签名链路。
+     * 指纹态：cryptoCipher 解生物识别包装密文；密码/锁屏凭据态：CryptoObject 的 cipher
+     * 不被放行，且 DEVICE_CREDENTIAL 通过的是设备锁屏凭据（证明机主），DEK 仍需本应用
+     * 主密码派生——落到主密码输入弹层（theme 化，与主界面同视觉）。
+     */
     private fun completeAssertion(
         request: WebAuthnRequest,
         clientDataHash: ByteArray,
-        cipher: Cipher
+        cryptoCipher: Cipher?,
+        biometric: Boolean
     ) {
-        runCatching {
-            val dek = cipher.doFinal(vaultStore.biometricCiphertext() ?: error("无生物识别包装数据"))
-            try {
-                val rpId = request.rpId
-                val matches = PasskeyVaultAccess.loadPasskeysByRpId(this, dek, rpId)
-                if (matches.isEmpty()) {
-                    Toast.makeText(this, "库内无 $rpId 的通行密钥", Toast.LENGTH_SHORT).show()
-                    finishCanceled()
-                    return
-                }
-                // 多凭据：优先 allowCredentials 提示，其次用户名匹配，再次首条
-                val allowIds = request.allowCredentialIds.orEmpty()
-                val material = matches.firstOrNull { allowIds.contains(it.credentialId) }
-                    ?: matches.firstOrNull { request.userName != null && it.userName == request.userName }
-                    ?: matches.first()
-                val nextCount = signCountInVault(dek, material.credentialId) + 1
-
-                // ===== 官方 androidx.credentials.webauthn 组包（替代全部自拼协议）=====
-                // 官方 dataToSign() = authData || (clientDataHash ?: sha256(clientJson))——
-                // 浏览器流程传系统下发的 clientDataHash，签名基准与浏览器视角字节一致。
-                val requestOptions = PublicKeyCredentialRequestOptions(request.requestJson)
-                val userHandleBytes = base64UrlDecode(material.userHandle)
-                val assertionResponse = AuthenticatorAssertionResponse(
-                    requestOptions = requestOptions,
-                    credentialId = base64UrlDecode(material.credentialId),
-                    origin = "https://" + rpId,
-                    up = true,
-                    uv = true,
-                    be = false,
-                    bs = false,
-                    userHandle = userHandleBytes,
-                    packageName = null,
-                    clientDataHash = clientDataHash
-                )
-                // 用库内私钥对官方 dataToSign() 签名，塞回官方响应对象。
-                // 官方默认 authData 的 signCount 恒 0，回填 vault 维护的递增计数再签
-                //（RP 以计数不增判克隆；注册时为 0，首次登录回 1，此后递增）。
-                assertionResponse.authenticatorData =
-                    patchSignCount(assertionResponse.authenticatorData, nextCount.toInt())
-                val signer = softwareSigner(material.privateKeyPkcs8)
-                signer.update(assertionResponse.dataToSign())
-                assertionResponse.signature = es256AdaptRaw(signer.sign())
-
-                val credential = FidoPublicKeyCredential(
-                    rawId = base64UrlDecode(material.credentialId),
-                    response = assertionResponse,
-                    authenticatorAttachment = "platform"
-                )
-                val responseJson = credential.json()
-
-                // signCount 持久化（vault 账号段为准；registry 索引同步）
-                persistSignCount(dek, material.credentialId, nextCount)
-                if (registry.find(material.credentialId) != null) {
-                    registry.updateSignCount(material.credentialId, nextCount)
-                }
-
-                // 系统契约：PendingIntent 的 result Intent 必须经 PendingIntentHandler 打包
-                val result = Intent()
-                PendingIntentHandler.setGetCredentialResponse(
-                    result,
-                    GetCredentialResponse(PublicKeyCredential(responseJson))
-                )
-                setResult(Activity.RESULT_OK, result)
-                finish()
-            } finally {
-                dek.fill(0)
+        if (biometric && cryptoCipher != null) {
+            runCatching {
+                cryptoCipher.doFinal(vaultStore.biometricCiphertext() ?: error("无生物识别包装数据"))
+            }.onSuccess { dek ->
+                signAndReply(request, clientDataHash, dek)
+            }.onFailure {
+                Toast.makeText(this, "登录失败：${it.message.orEmpty()}", Toast.LENGTH_SHORT).show()
+                finishCanceled()
             }
-        }.onFailure {
-            Toast.makeText(this, "登录失败：${it.message.orEmpty()}", Toast.LENGTH_SHORT).show()
-            finishCanceled()
+        } else {
+            promptPasswordThen(request.rpId) { password ->
+                runCatching {
+                    vaultStore.unlockWithPassword(password)?.dataKey ?: error("主密码不匹配")
+                }.onSuccess { dek ->
+                    signAndReply(request, clientDataHash, dek)
+                }.onFailure {
+                    Toast.makeText(this, "登录失败：${it.message.orEmpty()}", Toast.LENGTH_SHORT).show()
+                    finishCanceled()
+                }
+            }
+        }
+    }
+
+    /** 密码态兜底：主密码输入弹层（Compose 主题化），验证通过后回调。 */
+    private fun promptPasswordThen(rpId: String, onVerified: (String) -> Unit) {
+        setContent {
+            OverlayThemeHost {
+                AppBottomSheet(onDismiss = { finishCanceled() }) {
+                    PasskeyPasswordSheetItems(
+                        rpId = rpId,
+                        onConfirm = onVerified,
+                        onCancel = { finishCanceled() }
+                    )
+                }
+            }
+        }
+    }
+
+    /** 认证通过后的签名回包链路（DEK 用完即清零）。 */
+    private fun signAndReply(request: WebAuthnRequest, clientDataHash: ByteArray, dek: ByteArray) {
+        try {
+            val rpId = request.rpId
+            val matches = PasskeyVaultAccess.loadPasskeysByRpId(this, dek, rpId)
+            if (matches.isEmpty()) {
+                Toast.makeText(this, "库内无 $rpId 的通行密钥", Toast.LENGTH_SHORT).show()
+                finishCanceled()
+                return
+            }
+            // 多凭据：优先 allowCredentials 提示，其次用户名匹配，再次首条
+            val allowIds = request.allowCredentialIds.orEmpty()
+            val material = matches.firstOrNull { allowIds.contains(it.credentialId) }
+                ?: matches.firstOrNull { request.userName != null && it.userName == request.userName }
+                ?: matches.first()
+            val nextCount = signCountInVault(dek, material.credentialId) + 1
+
+            // ===== 官方 androidx.credentials.webauthn 组包（替代全部自拼协议）=====
+            // 官方 dataToSign() = authData || (clientDataHash ?: sha256(clientJson))——
+            // 浏览器流程传系统下发的 clientDataHash，签名基准与浏览器视角字节一致。
+            val requestOptions = PublicKeyCredentialRequestOptions(request.requestJson)
+            val userHandleBytes = base64UrlDecode(material.userHandle)
+            val assertionResponse = AuthenticatorAssertionResponse(
+                requestOptions = requestOptions,
+                credentialId = base64UrlDecode(material.credentialId),
+                origin = "https://" + rpId,
+                up = true,
+                uv = true,
+                be = false,
+                bs = false,
+                userHandle = userHandleBytes,
+                packageName = null,
+                clientDataHash = clientDataHash
+            )
+            // 用库内私钥对官方 dataToSign() 签名，塞回官方响应对象。
+            // 官方默认 authData 的 signCount 恒 0，回填 vault 维护的递增计数再签
+            //（RP 以计数不增判克隆；注册时为 0，首次登录回 1，此后递增）。
+            assertionResponse.authenticatorData =
+                patchSignCount(assertionResponse.authenticatorData, nextCount.toInt())
+            val signer = softwareSigner(material.privateKeyPkcs8)
+            signer.update(assertionResponse.dataToSign())
+            assertionResponse.signature = es256AdaptRaw(signer.sign())
+
+            val credential = FidoPublicKeyCredential(
+                rawId = base64UrlDecode(material.credentialId),
+                response = assertionResponse,
+                authenticatorAttachment = "platform"
+            )
+            val responseJson = credential.json()
+
+            // signCount 持久化（vault 账号段为准；registry 索引同步）
+            persistSignCount(dek, material.credentialId, nextCount)
+            if (registry.find(material.credentialId) != null) {
+                registry.updateSignCount(material.credentialId, nextCount)
+            }
+
+            // 系统契约：PendingIntent 的 result Intent 必须经 PendingIntentHandler 打包
+            val result = Intent()
+            PendingIntentHandler.setGetCredentialResponse(
+                result,
+                GetCredentialResponse(PublicKeyCredential(responseJson))
+            )
+            setResult(Activity.RESULT_OK, result)
+            finish()
+        } finally {
+            dek.fill(0)
         }
     }
 
