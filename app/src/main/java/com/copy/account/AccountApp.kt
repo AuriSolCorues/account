@@ -241,6 +241,125 @@ fun AccountApp(
         return id
     }
 
+    // ===== 备份导出接线（供设置页一键备份与备份页共用）=====
+    // 接口实现对象 remember 一次，内部经 current* 现读状态，防闭包陈旧（同 IdleLock 的教训）。
+    // 提升到 when(page) 之前：AppPage.Settings 与 AppPage.BackupFiles 两个分支都要用它。
+    val currentAccounts by rememberUpdatedState(accounts)
+    val currentGroups by rememberUpdatedState(groups)
+    val currentSelectedGroupId by rememberUpdatedState(selectedGroupId)
+    val currentSettings by rememberUpdatedState(settings)
+    val currentDataKey by rememberUpdatedState(dataKey)
+
+    /**
+     * 加密导出与明文导出共用的门禁。刻意只写一份：明文路径风险更高（全部密码无加密落盘），
+     * 若各维护一份，将来加第 4 条条件时漏改明文那份，就是一次静默的安全绕过。
+     */
+    fun exportGateError(): String? = when {
+        directBackup && !backupLocation.storageAccessGranted -> "请先授予「所有文件访问」权限"
+        !directBackup && backupLocation.backupTreeUri == null -> "请先授权备份目录"
+        currentDataKey == null -> "当前未解锁，请重新解锁后重试"
+        else -> null
+    }
+
+    /** 落盘分派：直写轨只有命名器，SAF 轨还要 MIME。两条轨的差异收在这里。 */
+    fun writeExportBytes(bytes: ByteArray, nameFactory: BackupNameFactory, mimeType: String): String {
+        val tree = backupLocation.backupTreeUri?.let(Uri::parse)
+        return if (directBackup) writeFileBackup(bytes, backupLocation.backupFolder, nameFactory)
+        else writeBackupFile(context, tree!!, bytes, backupLocation.backupFolder, nameFactory, mimeType)
+    }
+
+    val exporter = remember {
+        object : BackupExporter {
+            override fun exportEncrypted(onDone: (Result<String>) -> Unit) {
+                scope.launch {
+                    val result = withContext(Dispatchers.Default) {
+                        val gateError = exportGateError()
+                        if (gateError != null) {
+                            Result.failure(IllegalStateException(gateError))
+                        } else {
+                            val vaultKey = currentDataKey!!.copyOf()
+                            runCatching {
+                                val material = store.loadCachedBackupKey(vaultKey) ?: throw ExportPasswordRequiredException()
+                                try {
+                                    val bytes = exportAcc(
+                                        AccExportInput(
+                                            PersistedVault(
+                                                accounts = currentAccounts,
+                                                groups = currentGroups,
+                                                selectedGroupId = currentSelectedGroupId
+                                            ),
+                                            currentSettings
+                                        ), material.key, material.salt, material.iterations
+                                    )
+                                    try {
+                                        writeExportBytes(bytes, ::uniqueBackupName, "application/octet-stream")
+                                    } finally {
+                                        bytes.fill(0)
+                                    }
+                                } finally {
+                                    material.clear()
+                                }
+                            }.also { vaultKey.fill(0) }
+                        }
+                    }
+                    onDone(result)
+                }
+            }
+
+            override fun exportPlaintext(onDone: (Result<String>) -> Unit) {
+                scope.launch {
+                    val result = withContext(Dispatchers.Default) {
+                        // 门禁与加密导出共用 exportGateError()。明文导出不需要 KEK：账号明文此刻就在
+                        // accounts/groups 里，所以不碰 loadCachedBackupKey，也就不会触发
+                        // ExportPasswordRequiredException 那个「首次导出输密码」的分支。
+                        val gateError = exportGateError()
+                        if (gateError != null) {
+                            Result.failure(IllegalStateException(gateError))
+                        } else {
+                            runCatching {
+                                // 明文轨与「账号本子」App 互导：产 ACCOUNTBOX v13 格式
+                                //（首行魔数 + JSON）。绑定关系（url/包名）无对应概念，不导出。
+                                val bytes = exportAccountBoxJson(
+                                    PersistedVault(
+                                        accounts = currentAccounts,
+                                        groups = currentGroups,
+                                        selectedGroupId = currentSelectedGroupId
+                                    ),
+                                    System.currentTimeMillis()
+                                )
+                                // 命名与 mime 都与 .acc 分开：文件名带 plain 前缀，SAF 轨用 application/json
+                                // 让文件管理器把扩展名和类型对上。写完立刻清零字节，尽量缩短明文在堆上的时间。
+                                try {
+                                    writeExportBytes(bytes, ::uniquePlainExportName, "application/json")
+                                } finally {
+                                    bytes.fill(0)
+                                }
+                            }
+                        }
+                    }
+                    onDone(result)
+                }
+            }
+
+            override fun prepareExport(password: String): Result<Unit> {
+                if (currentDataKey == null) {
+                    return Result.failure(IllegalStateException("当前未解锁，请重新解锁后重试"))
+                }
+                val unlocked = store.unlockWithPassword(password)
+                return if (unlocked == null) {
+                    Result.failure(IllegalArgumentException("主密码错误"))
+                } else {
+                    try {
+                        store.cacheBackupKey(unlocked.backupKey, unlocked.dataKey)
+                    } finally {
+                        unlocked.backupKey.clear()
+                        unlocked.dataKey.fill(0)
+                    }
+                }
+            }
+        }
+    }
+
     when (val current = page) {
         AppPage.Unlock -> UnlockScreen(
             firstUse = !passwordConfigured,
@@ -327,6 +446,7 @@ fun AccountApp(
         )
 
         AppPage.Settings -> SettingsScreen(
+            quickBackup = exporter,
             onOpenSecurity = { page = AppPage.SecuritySettings },
             onOpenAppearance = { page = AppPage.AppearanceSettings },
             onOpenBackup = { page = AppPage.BackupFiles },
@@ -434,30 +554,7 @@ fun AccountApp(
 
         AppPage.BackupFiles -> {
             // ===== 备份域接线（P2 收拢）：BackupScreen 只见三接口，IO/加解密/线程全在此实现 =====
-            // 接口实现对象 remember 一次，内部经 current* 现读状态，防闭包陈旧（同 IdleLock 的教训）。
-            val currentAccounts by rememberUpdatedState(accounts)
-            val currentGroups by rememberUpdatedState(groups)
-            val currentSelectedGroupId by rememberUpdatedState(selectedGroupId)
-            val currentSettings by rememberUpdatedState(settings)
-            val currentDataKey by rememberUpdatedState(dataKey)
-
-            /**
-             * 加密导出与明文导出共用的门禁。刻意只写一份：明文路径风险更高（全部密码无加密落盘），
-             * 若各维护一份，将来加第 4 条条件时漏改明文那份，就是一次静默的安全绕过。
-             */
-            fun exportGateError(): String? = when {
-                directBackup && !backupLocation.storageAccessGranted -> "请先授予「所有文件访问」权限"
-                !directBackup && backupLocation.backupTreeUri == null -> "请先授权备份目录"
-                currentDataKey == null -> "当前未解锁，请重新解锁后重试"
-                else -> null
-            }
-
-            /** 落盘分派：直写轨只有命名器，SAF 轨还要 MIME。两条轨的差异收在这里。 */
-            fun writeExportBytes(bytes: ByteArray, nameFactory: BackupNameFactory, mimeType: String): String {
-                val tree = backupLocation.backupTreeUri?.let(Uri::parse)
-                return if (directBackup) writeFileBackup(bytes, backupLocation.backupFolder, nameFactory)
-                else writeBackupFile(context, tree!!, bytes, backupLocation.backupFolder, nameFactory, mimeType)
-            }
+            // exporter 与门禁已提升到 when(page) 之前（设置页一键备份共用同一实例）。
 
             val fileStore = remember {
                 object : BackupFileStore {
@@ -495,98 +592,6 @@ fun AccountApp(
                                 }.isSuccess
                             }
                             onDone(ok)
-                        }
-                    }
-                }
-            }
-
-            val exporter = remember {
-                object : BackupExporter {
-                    override fun exportEncrypted(onDone: (Result<String>) -> Unit) {
-                        scope.launch {
-                            val result = withContext(Dispatchers.Default) {
-                                val gateError = exportGateError()
-                                if (gateError != null) {
-                                    Result.failure(IllegalStateException(gateError))
-                                } else {
-                                    val vaultKey = currentDataKey!!.copyOf()
-                                    runCatching {
-                                        val material = store.loadCachedBackupKey(vaultKey) ?: throw ExportPasswordRequiredException()
-                                        try {
-                                            val bytes = exportAcc(
-                                                AccExportInput(
-                                                    PersistedVault(
-                                                        accounts = currentAccounts,
-                                                        groups = currentGroups,
-                                                        selectedGroupId = currentSelectedGroupId
-                                                    ),
-                                                    currentSettings
-                                                ), material.key, material.salt, material.iterations
-                                            )
-                                            try {
-                                                writeExportBytes(bytes, ::uniqueBackupName, "application/octet-stream")
-                                            } finally {
-                                                bytes.fill(0)
-                                            }
-                                        } finally {
-                                            material.clear()
-                                        }
-                                    }.also { vaultKey.fill(0) }
-                                }
-                            }
-                            onDone(result)
-                        }
-                    }
-
-                    override fun exportPlaintext(onDone: (Result<String>) -> Unit) {
-                        scope.launch {
-                            val result = withContext(Dispatchers.Default) {
-                                // 门禁与加密导出共用 exportGateError()。明文导出不需要 KEK：账号明文此刻就在
-                                // accounts/groups 里，所以不碰 loadCachedBackupKey，也就不会触发
-                                // ExportPasswordRequiredException 那个「首次导出输密码」的分支。
-                                val gateError = exportGateError()
-                                if (gateError != null) {
-                                    Result.failure(IllegalStateException(gateError))
-                                } else {
-                                    runCatching {
-                                        // 明文轨与「账号本子」App 互导：产 ACCOUNTBOX v13 格式
-                                        //（首行魔数 + JSON）。绑定关系（url/包名）无对应概念，不导出。
-                                        val bytes = exportAccountBoxJson(
-                                            PersistedVault(
-                                                accounts = currentAccounts,
-                                                groups = currentGroups,
-                                                selectedGroupId = currentSelectedGroupId
-                                            ),
-                                            System.currentTimeMillis()
-                                        )
-                                        // 命名与 mime 都与 .acc 分开：文件名带 plain 前缀，SAF 轨用 application/json
-                                        // 让文件管理器把扩展名和类型对上。写完立刻清零字节，尽量缩短明文在堆上的时间。
-                                        try {
-                                            writeExportBytes(bytes, ::uniquePlainExportName, "application/json")
-                                        } finally {
-                                            bytes.fill(0)
-                                        }
-                                    }
-                                }
-                            }
-                            onDone(result)
-                        }
-                    }
-
-                    override fun prepareExport(password: String): Result<Unit> {
-                        if (currentDataKey == null) {
-                            return Result.failure(IllegalStateException("当前未解锁，请重新解锁后重试"))
-                        }
-                        val unlocked = store.unlockWithPassword(password)
-                        return if (unlocked == null) {
-                            Result.failure(IllegalArgumentException("主密码错误"))
-                        } else {
-                            try {
-                                store.cacheBackupKey(unlocked.backupKey, unlocked.dataKey)
-                            } finally {
-                                unlocked.backupKey.clear()
-                                unlocked.dataKey.fill(0)
-                            }
                         }
                     }
                 }

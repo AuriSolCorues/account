@@ -173,28 +173,27 @@ internal fun BackupScreen(
                     // 结构固定 <位置>/Account/account：行值直接展示完整推导路径（0 = 内部存储根），
                     // 编辑的只有「位置」前缀；不再单列一行说明文字。
                     SettingsRow("备份位置", backupLocationDisplay(directory.backupLocation), onClick = { showLocationDialog = true })
-                    // 两轨的授权状态在这里收一次：下面的按钮区与 EmptyState 共用同一个判定。
-                    val ready = if (directory.directBackup) directory.storageAccessGranted else directory.backupTreeUri != null
                     if (directory.directBackup) {
                         TextActionButton(if (directory.storageAccessGranted) "授予权限" else "授予文件访问权限", directory::requestStorageAccess)
                     } else {
                         TextActionButton(if (directory.backupTreeUri == null) "授权并创建目录" else "重新授权目录", directory::chooseDirectory)
                     }
-                    // 两个导出按钮只写一份：文案与行为都不该因 Android 版本而分叉，
-                    // 靠复制粘贴保持一致正是上次把「导出备份」改岔的原因。
-                    if (ready) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            TextActionButton("导出备份", onClick = ::exportBackup)
-                            TextActionButton("导出明文", onClick = { showPlainConfirm = true })
-                        }
-                    }
                     if (directory.directoryMessage.isNotBlank()) Text(directory.directoryMessage, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
-                    if (exportError.isNotBlank()) Text(exportError, color = if (exportSucceeded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             }
+            // 导出动作常驻折叠区外：收起目录区仍可一键导出；提示行贴按钮走，折叠时反馈同样可见。
+            val ready = if (directory.directBackup) directory.storageAccessGranted else directory.backupTreeUri != null
+            if (ready) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    // 两个导出按钮只写一份：文案与行为都不该因 Android 版本而分叉，
+                    // 靠复制粘贴保持一致正是上次把「导出备份」改岔的原因。
+                    TextActionButton("导出备份", onClick = ::exportBackup)
+                    TextActionButton("导出明文", onClick = { showPlainConfirm = true })
+                }
+            }
+            if (exportError.isNotBlank()) Text(exportError, color = if (exportSucceeded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
             Text("已保存的备份", style = MaterialTheme.typography.titleMedium)
-            val ready = if (directory.directBackup) directory.storageAccessGranted else directory.backupTreeUri != null
             if (!ready) EmptyState(if (directory.directBackup) "请先授予「所有文件访问」权限" else "请先授权备份目录", Modifier.fillMaxWidth().weight(1f))
             else if (refreshing) EmptyState("正在加载备份…", Modifier.fillMaxWidth().weight(1f))
             else if (backupRows.isEmpty()) EmptyState("暂无 .acc 文件，点击右上角「刷新」", Modifier.fillMaxWidth().weight(1f))
