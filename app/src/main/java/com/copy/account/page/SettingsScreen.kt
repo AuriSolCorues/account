@@ -30,6 +30,7 @@ import com.copy.account.security.ExportPasswordRequiredException
 import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.isMasterPasswordValid
 import com.copy.account.ui.components.AppListScreen
+import com.copy.account.ui.components.ExportConfirmDialog
 import com.copy.account.ui.components.PasswordField
 import com.copy.account.ui.components.SettingsRow
 import com.copy.account.ui.components.TextActionButton
@@ -49,8 +50,8 @@ internal fun SettingsScreen(
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    // 备份动作状态：busy 防重入；resultMessage 非空时值位显「导出成功/导出失败」、
-    // 行下显示详情小字，4 秒后两者一起消失（LaunchedEffect 定时清场），期间可再次点击导出。
+    // 备份动作状态：busy 防执行中重入；resultMessage 非空时值位显「导出成功/导出失败」、
+    // 行下显示详情小字，BACKUP_FEEDBACK_MILLIS 后自动清场；反馈在屏期间即冷却期，点击无效。
     var busy by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf("") }
     var resultIsError by remember { mutableStateOf(false) }
@@ -95,8 +96,8 @@ internal fun SettingsScreen(
                         else -> if (resultIsError) "导出失败" else "导出成功"
                     },
                     onClick = {
-                        if (!busy) {
-                            resultMessage = ""
+                        // 冷却 = 反馈还在屏上；期间点击一律忽略（确认框都不弹），防连点重复导出。
+                        if (!busy && resultMessage.isBlank()) {
                             showExportConfirm = true
                         }
                     }
@@ -117,29 +118,20 @@ internal fun SettingsScreen(
         // 版本号直接露在中枢上，不用进「关于」页也知道自己是哪一版。
         item { SettingsRow("关于", BuildConfig.VERSION_NAME, onClick = onOpenAbout) }
     }
-    // 反馈 4 秒自动消失：key 挂 resultMessage，新反馈进来重新计时；清空后值位回「备份」。
+    // 反馈 BACKUP_FEEDBACK_MILLIS 后自动消失：key 挂 resultMessage，新反馈进来重新计时；
+    // 清空后值位回「备份」，冷却随之结束可再次导出。
     LaunchedEffect(resultMessage) {
         if (resultMessage.isNotBlank()) {
-            delay(4000)
+            delay(BACKUP_FEEDBACK_MILLIS)
             resultMessage = ""
         }
     }
-    if (showExportConfirm) AlertDialog(
-        onDismissRequest = { showExportConfirm = false },
-        title = { Text("导出加密备份？") },
-        text = {
-            Text(
-                "将把当前全部账号与分组加密导出到备份文件夹。" +
-                        "备份靠主密码加密，请牢记主密码——遗忘后备份将无法恢复。"
-            )
+    if (showExportConfirm) ExportConfirmDialog(
+        onConfirm = {
+            showExportConfirm = false
+            exportBackup()
         },
-        confirmButton = {
-            TextActionButton("确定导出", onClick = {
-                showExportConfirm = false
-                exportBackup()
-            }, textColor = MaterialTheme.colorScheme.primary)
-        },
-        dismissButton = { TextActionButton("取消", onClick = { showExportConfirm = false }, textColor = MaterialTheme.colorScheme.primary) }
+        onDismiss = { showExportConfirm = false }
     )
     if (showPasswordDialog) AlertDialog(onDismissRequest = { showPasswordDialog = false }, title = { Text("完成导出升级") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

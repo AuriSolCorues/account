@@ -49,6 +49,7 @@ import com.copy.account.ui.components.CollapsibleSection
 import com.copy.account.ui.components.DangerButton
 import com.copy.account.ui.components.DeleteConfirmDialog
 import com.copy.account.ui.components.EmptyState
+import com.copy.account.ui.components.ExportConfirmDialog
 import com.copy.account.ui.components.PasswordField
 import com.copy.account.ui.components.SettingsRow
 import com.copy.account.ui.components.SurfaceCard
@@ -58,6 +59,7 @@ import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -82,6 +84,8 @@ internal fun BackupScreen(
     var exportPasswordError by remember { mutableStateOf("") }
     var exportError by remember { mutableStateOf("") }
     var exportSucceeded by remember { mutableStateOf(false) }
+    // 「导出备份」确认框：与设置页一键备份共用 ExportConfirmDialog，确定才真正导出。
+    var showExportConfirm by remember { mutableStateOf(false) }
     // 两段式导入状态机：bytes=已读未验证的文件，result=已验证未应用的库；取消或失败即清零字节。
     var pendingImportBytes by remember { mutableStateOf<ByteArray?>(null) }
     var pendingImportResult by remember { mutableStateOf<AccImportResult?>(null) }
@@ -140,8 +144,7 @@ internal fun BackupScreen(
                 exportError = result.exceptionOrNull()?.message ?: "备份生成失败"
             }
         }
-    }
-    // 刻意不调 refreshFiles()：产物是 .json，而列表只 filter .acc，明文文件本来就不该出现在这里。
+    }    // 刻意不调 refreshFiles()：产物是 .json，而列表只 filter .acc，明文文件本来就不该出现在这里。
     fun exportPlaintext() {
         exportError = ""
         exportSucceeded = false
@@ -187,7 +190,8 @@ internal fun BackupScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     // 两个导出按钮只写一份：文案与行为都不该因 Android 版本而分叉，
                     // 靠复制粘贴保持一致正是上次把「导出备份」改岔的原因。
-                    TextActionButton("导出备份", onClick = ::exportBackup)
+                    // 冷却 = exportError 还在屏上（BACKUP_FEEDBACK_MILLIS 内），期间点击无效防重复导出。
+                    TextActionButton("导出备份", onClick = { if (exportError.isBlank()) showExportConfirm = true })
                     TextActionButton("导出明文", onClick = { showPlainConfirm = true })
                 }
             }
@@ -305,6 +309,23 @@ internal fun BackupScreen(
             TextActionButton("确认恢复", onClick = { onApplyImport(result); showImportConfirmDialog = false; pendingImportResult = null }, textColor = MaterialTheme.colorScheme.primary)
         }, dismissButton = { TextActionButton("取消", onClick = { showImportConfirmDialog = false; pendingImportResult = null }) })
     }
+
+    // 导出反馈 BACKUP_FEEDBACK_MILLIS 后自动消失（成功与失败同轨；明文导出提示同走 exportError，
+    // 行为统一）。反馈在屏期间即冷却期，「导出备份」按钮点击无效；清空后可再次导出。
+    LaunchedEffect(exportError) {
+        if (exportError.isNotBlank()) {
+            delay(BACKUP_FEEDBACK_MILLIS)
+            exportError = ""
+            exportSucceeded = false
+        }
+    }
+    if (showExportConfirm) ExportConfirmDialog(
+        onConfirm = {
+            showExportConfirm = false
+            exportBackup()
+        },
+        onDismiss = { showExportConfirm = false }
+    )
 
     pendingDelete?.let { target ->
         DeleteConfirmDialog(

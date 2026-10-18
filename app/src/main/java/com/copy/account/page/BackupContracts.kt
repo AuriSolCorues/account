@@ -97,3 +97,10 @@ internal data class BackupRowUi(
     val modified: Long,
     val direct: Boolean
 )
+
+/**
+ * 导出反馈的显示时长（毫秒）：提示在这段时间后自动消失。
+ * 反馈在屏期间即冷却期——两处导出入口（设置页一键备份/备份页导出按钮）再点无效；
+ * 反馈清空后才可重新导出。一个时间同时定义「提示保留多久」与「多久内不能重复导出」。
+ */
+internal const val BACKUP_FEEDBACK_MILLIS = 5000L
