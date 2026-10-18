@@ -14,6 +14,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +35,7 @@ import com.copy.account.ui.components.SettingsRow
 import com.copy.account.ui.components.TextActionButton
 import com.copy.account.ui.theme.AccountTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -47,10 +49,13 @@ internal fun SettingsScreen(
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    // 备份动作状态：busy 防重入；message 非空时值位显示反馈（保留到下次点击；错误另起红字行）。
+    // 备份动作状态：busy 防重入；resultMessage 非空时值位显「导出成功/导出失败」、
+    // 行下显示详情小字，4 秒后两者一起消失（LaunchedEffect 定时清场），期间可再次点击导出。
     var busy by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("") }
-    var messageIsError by remember { mutableStateOf(false) }
+    var resultMessage by remember { mutableStateOf("") }
+    var resultIsError by remember { mutableStateOf(false) }
+    // 点击行先弹确认框（防误触 + 主密码警示），确定才真正导出。
+    var showExportConfirm by remember { mutableStateOf(false) }
     // 首次导出（导出密钥未缓存）的主密码弹窗；密码错误留在弹窗内提示。
     var showPasswordDialog by remember { mutableStateOf(false) }
     var exportPassword by remember { mutableStateOf("") }
@@ -58,34 +63,48 @@ internal fun SettingsScreen(
 
     /** 与备份页 exportBackup 同源：调 exporter，密码门禁分支弹主密码框。 */
     fun exportBackup() {
-        message = ""
+        resultMessage = ""
         busy = true
         quickBackup.exportEncrypted { result ->
             busy = false
             val error = result.exceptionOrNull()
             if (result.isSuccess) {
-                message = "已备份：${result.getOrThrow()}"
-                messageIsError = false
+                resultMessage = "已导出 ${result.getOrThrow()}"
+                resultIsError = false
             } else if (error is ExportPasswordRequiredException) {
                 exportPassword = ""
                 passwordError = ""
                 showPasswordDialog = true
             } else {
-                message = error?.message ?: "备份生成失败"
-                messageIsError = true
+                resultMessage = error?.message ?: "备份生成失败"
+                resultIsError = true
             }
         }
     }
 
     AppListScreen("设置", onBack) {
         // 一键备份：设置列表首项（安全设置之上），执行体就是备份页「导出备份」那个 exporter 函数。
+        // 值位只报结果状态（导出成功/导出失败/备份中…）；文件名等详情走行下小字，不挤值位。
         item {
             Column(modifier = Modifier.fillMaxWidth()) {
-                SettingsRow("一键备份", if (busy) "备份中…" else if (message.isBlank()) "备份" else message, onClick = { if (!busy) exportBackup() })
-                if (messageIsError && message.isNotBlank()) {
+                SettingsRow(
+                    "一键备份",
+                    when {
+                        busy -> "备份中…"
+                        resultMessage.isBlank() -> "备份"
+                        else -> if (resultIsError) "导出失败" else "导出成功"
+                    },
+                    onClick = {
+                        if (!busy) {
+                            resultMessage = ""
+                            showExportConfirm = true
+                        }
+                    }
+                )
+                if (resultMessage.isNotBlank()) {
                     Text(
-                        message,
-                        color = MaterialTheme.colorScheme.error,
+                        resultMessage,
+                        color = if (resultIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(start = 16.dp, top = 2.dp)
                     )
@@ -98,6 +117,30 @@ internal fun SettingsScreen(
         // 版本号直接露在中枢上，不用进「关于」页也知道自己是哪一版。
         item { SettingsRow("关于", BuildConfig.VERSION_NAME, onClick = onOpenAbout) }
     }
+    // 反馈 4 秒自动消失：key 挂 resultMessage，新反馈进来重新计时；清空后值位回「备份」。
+    LaunchedEffect(resultMessage) {
+        if (resultMessage.isNotBlank()) {
+            delay(4000)
+            resultMessage = ""
+        }
+    }
+    if (showExportConfirm) AlertDialog(
+        onDismissRequest = { showExportConfirm = false },
+        title = { Text("导出加密备份？") },
+        text = {
+            Text(
+                "将把当前全部账号与分组加密导出到备份文件夹。" +
+                        "备份靠主密码加密，请牢记主密码——遗忘后备份将无法恢复。"
+            )
+        },
+        confirmButton = {
+            TextActionButton("确定导出", onClick = {
+                showExportConfirm = false
+                exportBackup()
+            }, textColor = MaterialTheme.colorScheme.primary)
+        },
+        dismissButton = { TextActionButton("取消", onClick = { showExportConfirm = false }, textColor = MaterialTheme.colorScheme.primary) }
+    )
     if (showPasswordDialog) AlertDialog(onDismissRequest = { showPasswordDialog = false }, title = { Text("完成导出升级") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("首次导出需要验证一次主密码。之后指纹或主密码解锁都可直接导出。", style = MaterialTheme.typography.bodySmall)
