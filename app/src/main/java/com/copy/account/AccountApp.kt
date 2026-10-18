@@ -330,12 +330,12 @@ fun AccountApp(
                                 )
                                 // 命名与 mime 都与 .acc 分开：文件名带 plain 前缀。写完立刻清零字节，
                                 // 尽量缩短明文在堆上的时间。
-                                // 落点刻意与 .acc 分轨：明文写系统「下载」目录，不进 Account/ 同步根——
-                                // 全量账号数据不该被网盘原样同步上云；SAF 轨（API<30）仍写授权目录。
+                                // 落点刻意与 .acc 分轨：明文固定写系统「下载」目录，不进 Account/ 同步根——
+                                // 全量账号数据不该被网盘原样同步上云；SAF 轨（API<30）系统限制写不了
+                                // 公共 Downloads，仍写授权目录（两台真机均 API>=30，不触达此分支）。
                                 try {
-                                    val name = if (directBackup) writeFileBackup(bytes, "Download", ::uniquePlainExportName)
+                                    if (directBackup) writeFileBackup(bytes, "Download", ::uniquePlainExportName)
                                     else writeExportBytes(bytes, ::uniquePlainExportName, "application/json")
-                                    name
                                 } finally {
                                     bytes.fill(0)
                                 }

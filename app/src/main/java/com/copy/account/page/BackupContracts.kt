@@ -34,7 +34,7 @@ internal interface BackupExporter {
     /** 加密导出 .acc；门禁失败/缺密码/IO 错误返回 Result.failure（异常 message 已是用户可读文案）。 */
     fun exportEncrypted(onDone: (Result<String>) -> Unit)
 
-    /** 明文导出 JSON。失败语义同 [exportEncrypted]：message 为用户可读文案。 */
+    /** 明文导出 JSON，固定落系统下载目录（Download）。失败语义同 [exportEncrypted]：message 为用户可读文案。 */
     fun exportPlaintext(onDone: (Result<String>) -> Unit)
 
     /** 首次导出用主密码换导出密钥：密码错返回 failure（"主密码错误"）。 */
@@ -60,7 +60,7 @@ internal interface BackupDirectoryOps {
     /** 备份「位置」前缀（可自选；空 = 内部存储根）。结构固定 <位置>/Account/account。 */
     val backupLocation: String
 
-    /** 备份子文件夹（内部存储或授权目录下的相对路径），由 backupLocation 推导。 */
+    /** 备份子文件夹（<位置>/Account/account，授权目录下的相对路径），由 backupLocation 推导。仅加密备份与 SAF 轨明文经此路径；直写轨明文固定落系统下载目录。 */
     val backupFolder: String
 
     /** 目录相关提示文案（授权结果、改名结果等）；空串表示无提示。 */
