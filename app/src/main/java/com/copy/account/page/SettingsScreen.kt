@@ -22,11 +22,11 @@ internal fun SettingsScreen(
     onBack: () -> Unit
 ) {
     AppListScreen("设置", onBack) {
-        item { SettingsRow("安全设置", "打开", onOpenSecurity) }
-        item { SettingsRow("主题与语言", "打开", onOpenAppearance) }
-        item { SettingsRow("备份与数据", "打开", onOpenBackup) }
+        item { SettingsRow("安全设置", "打开", onClick = onOpenSecurity) }
+        item { SettingsRow("主题与语言", "打开", onClick = onOpenAppearance) }
+        item { SettingsRow("备份与数据", "打开", onClick = onOpenBackup) }
         // 版本号直接露在中枢上，不用进「关于」页也知道自己是哪一版。
-        item { SettingsRow("关于", BuildConfig.VERSION_NAME, onOpenAbout) }
+        item { SettingsRow("关于", BuildConfig.VERSION_NAME, onClick = onOpenAbout) }
     }
 }
 

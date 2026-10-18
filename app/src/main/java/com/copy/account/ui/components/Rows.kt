@@ -36,16 +36,22 @@ internal fun SettingsHeader(text: String) {
  * 布局要点：标题**不带 weight**，因为 Row 先测无 weight 的子节点——若标题带 weight(1f)，
  * 右侧那个无 weight 的长值会先把整行宽度吃光，标题被压成竖排一列（37 字符的 URL 曾真的如此）。
  * 值用 weight(1f) 拿剩余宽度并配 textAlign=End，短值照样靠右、长值在此换行，两头都不破。
+ * valueAlign=Start 供长文案行用（如关于页鸣谢）：值换行后左对齐更易读，右对齐的换行尾巴参差难看。
  */
 @Composable
-internal fun SettingsRow(title: String, value: String, onClick: (() -> Unit)? = null) {
+internal fun SettingsRow(
+    title: String,
+    value: String,
+    valueAlign: TextAlign = TextAlign.End,
+    onClick: (() -> Unit)? = null
+) {
     SurfaceCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(title)
             Text(
                 value,
                 color = MaterialTheme.colorScheme.primary,
-                textAlign = TextAlign.End,
+                textAlign = valueAlign,
                 modifier = Modifier.weight(1f)
             )
         }

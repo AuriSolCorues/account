@@ -99,7 +99,7 @@ internal fun SecuritySettingsScreen(
                 SettingsRow(
                     "填充窗口",
                     if (autofillWindowOpen) "开启中" else "已关闭",
-                    if (autofillWindowOpen) { { onCloseAutofillWindow() } } else null
+                    onClick = if (autofillWindowOpen) { { onCloseAutofillWindow() } } else null
                 )
                 Text(
                     "解锁后自动开启，锁定或退出本应用即关闭。" +
