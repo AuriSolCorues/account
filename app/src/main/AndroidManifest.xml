@@ -58,10 +58,12 @@
                 android:name="android.service.autofill"
                 android:resource="@xml/autofill_service_config" />
         </service>
-        <!-- 自动填充解锁确认页：透明浮层，验证主密码/指纹后 finish 回填充流程。 -->
+        <!-- 自动填充解锁确认页：透明浮层，验证主密码/指纹后 finish 回填充流程。
+             exported=false：本应用经 PendingIntent 以自身身份拉起（不算外部拉起），无 intent-filter，
+             关闭后恶意应用无法直接 startActivity 伪造 extras 戳浮层（HMAC 闸门之外白赚的纵深）。 -->
         <activity
             android:name=".service.AutofillAuthActivity"
-            android:exported="true"
+            android:exported="false"
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:theme="@style/Theme.Account.Transparent" />
@@ -83,16 +85,17 @@
                 android:name="android.credentials.provider"
                 android:resource="@xml/passkey_provider_config" />
         </service>
-        <!-- 通行密钥注册/登录确认页：透明浮层（照 AutofillAuthActivity），由系统凭据流程拉起。 -->
+        <!-- 通行密钥注册/登录确认页：透明浮层（照 AutofillAuthActivity），由系统凭据流程拉起。
+             exported=false：ProviderService 经 PendingIntent 以本应用身份交付给系统，同上纵深收紧。 -->
         <activity
             android:name=".service.PasskeyCreateActivity"
-            android:exported="true"
+            android:exported="false"
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:theme="@style/Theme.Account.Transparent" />
         <activity
             android:name=".service.PasskeyGetActivity"
-            android:exported="true"
+            android:exported="false"
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:theme="@style/Theme.Account.Transparent" />
