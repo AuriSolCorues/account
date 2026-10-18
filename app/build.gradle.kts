@@ -21,7 +21,7 @@ if (keystorePropertiesFile.exists()) {
 // BUILD_ID：构建流水号（纯数字）——版本号不变时靠它区分装的哪一包（关于页「版本」行可见）。
 val appVersionName = providers.gradleProperty("account.versionName").getOrElse("2.0.0")
 val appVersionCode = providers.gradleProperty("account.versionCode").getOrElse("20").toInt()
-val appBuildId = providers.gradleProperty("account.buildId").getOrElse("20").toInt()
+val appBuildId = providers.gradleProperty("account.buildId").getOrElse("21").toInt()
 
 android {
     namespace = "com.copy.account"
