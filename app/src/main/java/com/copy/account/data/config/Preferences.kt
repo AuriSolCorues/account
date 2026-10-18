@@ -44,9 +44,15 @@ internal val ALLOW_SCREENSHOTS_SETTING = booleanPreferencesKey("allow_screenshot
 /** 用户授权的文件树 URI；实际备份目录为该树下的 BACKUP_FOLDER_SETTING 子路径。 */
 internal val BACKUP_TREE_URI_SETTING = stringPreferencesKey("backup_tree_uri")
 /**
- * 备份子路径（相对内部存储根，如 backups/account）。刻意**不**进 AppSettings：
- * 它是设备本地路径，会被 AccCodec 序列化进 .acc 备份，源设备的路径对导入设备无意义。
- * 与 BACKUP_TREE_URI_SETTING 同样的取舍。
+ * 备份「位置」前缀（可自选；结构固定 <位置>/Account/account）：空 = 内部存储根。
+ * 与 BACKUP_FOLDER_SETTING 同样的取舍——设备本地路径，刻意**不**进 AppSettings，
+ * 不会被 AccCodec 序列化进 .acc 备份。
+ */
+internal val BACKUP_LOCATION_SETTING = stringPreferencesKey("backup_location")
+/**
+ * 备份子路径（相对内部存储根，如 Account/account）。SAF 轨授权目录下的相对子路径仍用它。
+ * 刻意**不**进 AppSettings：它是设备本地路径，会被 AccCodec 序列化进 .acc 备份，
+ * 源设备的路径对导入设备无意义。与 BACKUP_TREE_URI_SETTING 同样的取舍。
  */
 internal val BACKUP_FOLDER_SETTING = stringPreferencesKey("backup_folder")
 

@@ -597,8 +597,10 @@ fun AccountApp(
                     override val directBackup get() = backupLocation.directBackup
                     override val storageAccessGranted get() = backupLocation.storageAccessGranted
                     override val backupTreeUri get() = backupLocation.backupTreeUri
+                    override val backupLocation get() = backupLocation.backupLocation
                     override val backupFolder get() = backupLocation.backupFolder
                     override val directoryMessage get() = backupLocation.backupDirectoryMessage
+                    override fun changeBackupLocation(raw: String) = backupLocation.changeBackupLocation(raw)
                     override fun changeBackupFolder(raw: String) = backupLocation.changeBackupFolder(raw)
                     override fun chooseDirectory() = requestBackupDirectory()
                     override fun requestStorageAccess() { backupLocation.requestStorageAccess() }

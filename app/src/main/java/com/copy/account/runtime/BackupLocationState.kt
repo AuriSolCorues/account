@@ -28,10 +28,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.datastore.preferences.core.edit
 import com.copy.account.data.backup.DEFAULT_BACKUP_FOLDER
+import com.copy.account.data.backup.backupFolderPath
 import com.copy.account.data.backup.hasStorageAccess
 import com.copy.account.data.backup.initializeBackupDirectory
 import com.copy.account.data.backup.normalizeBackupFolder
+import com.copy.account.data.backup.normalizeBackupLocation
 import com.copy.account.data.config.BACKUP_FOLDER_SETTING
+import com.copy.account.data.config.BACKUP_LOCATION_SETTING
 import com.copy.account.data.config.BACKUP_TREE_URI_SETTING
 import com.copy.account.data.config.settingsDataStore
 import kotlinx.coroutines.CoroutineScope
@@ -58,7 +61,14 @@ internal class BackupLocationState(
     var backupDirectoryMessage by mutableStateOf("")
         private set
 
-    /** 备份子路径（相对内部存储根）；用户可在备份页手填，非法值由 normalizeBackupFolder 挡掉。 */
+    /**
+     * 备份「位置」前缀（可自选；空 = 内部存储根）：结构固定 `<位置>/Account/account`。
+     * [backupFolder] 由它推导，用户不再直接编辑子路径。
+     */
+    var backupLocation by mutableStateOf("")
+        private set
+
+    /** 备份子路径（相对内部存储根）：由 [backupLocation] 推导的 `<位置>/Account/account`。 */
     var backupFolder by mutableStateOf(DEFAULT_BACKUP_FOLDER)
         private set
 
@@ -78,7 +88,8 @@ internal class BackupLocationState(
     suspend fun loadInitial() {
         val values = context.settingsDataStore.data.first()
         backupTreeUri = values[BACKUP_TREE_URI_SETTING]
-        backupFolder = normalizeBackupFolder(values[BACKUP_FOLDER_SETTING].orEmpty()) ?: DEFAULT_BACKUP_FOLDER
+        backupLocation = normalizeBackupLocation(values[BACKUP_LOCATION_SETTING].orEmpty()) ?: ""
+        backupFolder = backupFolderPath(backupLocation)
     }
 
     /**
@@ -100,7 +111,23 @@ internal class BackupLocationState(
         }
     }
 
-    /** 改备份子路径：normalize 返回 null（绝对路径或含 ..）视为非法，返回 false 供弹窗提示。 */
+    /**
+     * 改备份「位置」前缀：normalize 返回 null（绝对路径或含 ..）视为非法返回 false；
+     * 合法则更新 location 并重推导 [backupFolder]（结构 Account/account 固定不变），
+     * 持久化写的是 location 而非整条路径。
+     */
+    fun changeBackupLocation(raw: String): Boolean {
+        val normalized = normalizeBackupLocation(raw) ?: return false
+        backupLocation = normalized
+        backupFolder = backupFolderPath(normalized)
+        persistLocation(normalized)
+        return true
+    }
+
+    /**
+     * 改备份子路径：normalize 返回 null（绝对路径或含 ..）视为非法，返回 false 供弹窗提示。
+     * 仅限 SAF 轨授权目录下的相对子路径；直写轨的结构由 [changeBackupLocation] 管理。
+     */
     fun changeBackupFolder(raw: String): Boolean {
         val normalized = normalizeBackupFolder(raw) ?: return false
         backupFolder = normalized
@@ -135,7 +162,14 @@ internal class BackupLocationState(
         }
     }
 
-    /** 备份子路径写回 DataStore。 */
+    /** 备份「位置」前缀写回 DataStore（空串也写，表示内部存储根）。 */
+    private fun persistLocation(location: String) {
+        scope.launch {
+            context.settingsDataStore.edit { it[BACKUP_LOCATION_SETTING] = location }
+        }
+    }
+
+    /** 备份子路径写回 DataStore（仅 SAF 轨相对子路径用）。 */
     private fun persistFolder(folder: String) {
         scope.launch {
             context.settingsDataStore.edit { it[BACKUP_FOLDER_SETTING] = folder }

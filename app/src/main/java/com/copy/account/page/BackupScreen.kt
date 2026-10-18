@@ -11,8 +11,6 @@ package com.copy.account.page
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -44,8 +42,10 @@ import com.copy.account.security.ACCOUNTBOX_MAGIC
 import com.copy.account.security.ExportPasswordRequiredException
 import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.isMasterPasswordValid
-import com.copy.account.data.backup.normalizeBackupFolder
+import com.copy.account.data.backup.backupLocationDisplay
+import com.copy.account.data.backup.normalizeBackupLocation
 import com.copy.account.ui.components.AppScreen
+import com.copy.account.ui.components.CollapsibleSection
 import com.copy.account.ui.components.DangerButton
 import com.copy.account.ui.components.DeleteConfirmDialog
 import com.copy.account.ui.components.EmptyState
@@ -61,7 +61,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun BackupScreen(
     fileStore: BackupFileStore,
@@ -88,7 +87,9 @@ internal fun BackupScreen(
     var pendingImportResult by remember { mutableStateOf<AccImportResult?>(null) }
     var backupRows by remember { mutableStateOf<List<BackupRowUi>>(emptyList()) }
     var refreshing by remember { mutableStateOf(false) }
-    var showFolderDialog by remember { mutableStateOf(false) }
+    // 备份目录分组折叠：仅内存态（进页默认展开），不落 DataStore——避免多一个设置项。
+    var directoryExpanded by remember { mutableStateOf(true) }
+    var showLocationDialog by remember { mutableStateOf(false) }
     var showPlainConfirm by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<PendingDelete?>(null) }
     // 列举经 fileStore.refresh：异步与线程切换在实现方，完成后主线程回调归一行数据。
@@ -168,38 +169,33 @@ internal fun BackupScreen(
 
     AppScreen(title = "加密备份", onBack = onBack, actions = { TextActionButton("刷新", onClick = { refreshFiles() }, textColor = LocalAccountThemePalette.current.topBarText) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(start = 20.dp, end = 20.dp, top = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("备份目录", style = MaterialTheme.typography.titleMedium)
-            val description = when {
-                directory.directBackup -> if (directory.storageAccessGranted) "已固定使用 内部存储/${directory.backupFolder} 文件夹。"
-                else "需授予「所有文件访问」权限，备份固定保存于 内部存储/${directory.backupFolder}。"
-                directory.backupTreeUri == null -> "尚未授权。点击下方按钮选择一个可写目录，应用会自动创建 ${directory.backupFolder}。"
-                else -> "已固定使用授权目录下的 ${directory.backupFolder} 文件夹。"
-            }
-            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            SettingsRow("备份文件夹", directory.backupFolder, onClick = { showFolderDialog = true })
-            // 两轨的授权状态在这里收一次：下面的按钮区与 EmptyState 共用同一个判定。
-            val ready = if (directory.directBackup) directory.storageAccessGranted else directory.backupTreeUri != null
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                if (directory.directBackup) {
-                    TextActionButton(if (directory.storageAccessGranted) "授予权限" else "授予文件访问权限", directory::requestStorageAccess)
-                } else {
-                    TextActionButton(if (directory.backupTreeUri == null) "授权并创建目录" else "重新授权目录", directory::chooseDirectory)
-                }
-                // 两个导出按钮只写一份：文案与行为都不该因 Android 版本而分叉，
-                // 靠复制粘贴保持一致正是上次把「导出备份」改岔的原因。
-                if (ready) {
-                    TextActionButton("导出备份", onClick = ::exportBackup)
-                    TextActionButton("导出明文", onClick = { showPlainConfirm = true })
+            CollapsibleSection(title = "备份目录", expanded = directoryExpanded, onToggle = { directoryExpanded = !directoryExpanded }) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // 结构固定 <位置>/Account/account：行值直接展示完整推导路径（0 = 内部存储根），
+                    // 编辑的只有「位置」前缀；不再单列一行说明文字。
+                    SettingsRow("备份位置", backupLocationDisplay(directory.backupLocation), onClick = { showLocationDialog = true })
+                    // 两轨的授权状态在这里收一次：下面的按钮区与 EmptyState 共用同一个判定。
+                    val ready = if (directory.directBackup) directory.storageAccessGranted else directory.backupTreeUri != null
+                    if (directory.directBackup) {
+                        TextActionButton(if (directory.storageAccessGranted) "授予权限" else "授予文件访问权限", directory::requestStorageAccess)
+                    } else {
+                        TextActionButton(if (directory.backupTreeUri == null) "授权并创建目录" else "重新授权目录", directory::chooseDirectory)
+                    }
+                    // 两个导出按钮只写一份：文案与行为都不该因 Android 版本而分叉，
+                    // 靠复制粘贴保持一致正是上次把「导出备份」改岔的原因。
+                    if (ready) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            TextActionButton("导出备份", onClick = ::exportBackup)
+                            TextActionButton("导出明文", onClick = { showPlainConfirm = true })
+                        }
+                    }
+                    if (directory.directoryMessage.isNotBlank()) Text(directory.directoryMessage, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                    if (exportError.isNotBlank()) Text(exportError, color = if (exportSucceeded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             }
-            if (directory.directoryMessage.isNotBlank()) Text(directory.directoryMessage, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
-            if (exportError.isNotBlank()) Text(exportError, color = if (exportSucceeded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
             Text("已保存的备份", style = MaterialTheme.typography.titleMedium)
+            val ready = if (directory.directBackup) directory.storageAccessGranted else directory.backupTreeUri != null
             if (!ready) EmptyState(if (directory.directBackup) "请先授予「所有文件访问」权限" else "请先授权备份目录", Modifier.fillMaxWidth().weight(1f))
             else if (refreshing) EmptyState("正在加载备份…", Modifier.fillMaxWidth().weight(1f))
             else if (backupRows.isEmpty()) EmptyState("暂无 .acc 文件，点击右上角「刷新」", Modifier.fillMaxWidth().weight(1f))
@@ -210,17 +206,17 @@ internal fun BackupScreen(
             }
         }
     }
-    if (showFolderDialog) TextInputDialog(
-        title = "备份文件夹",
-        label = "内部存储下的子路径",
-        initial = directory.backupFolder,
+    if (showLocationDialog) TextInputDialog(
+        title = "备份位置",
+        label = "内部存储下的位置前缀",
+        initial = directory.backupLocation,
         // 同一套校验：非法输入（绝对路径 / ..）时把保存键置灰，用户点不动。
-        validate = { normalizeBackupFolder(it) != null },
-        supportingText = "留空使用默认 backups/account。不要以 / 开头，不支持 ..。例：Download/账本备份",
-        onDismiss = { showFolderDialog = false },
+        validate = { normalizeBackupLocation(it) != null },
+        supportingText = "结构固定为 <位置>/Account/account；0 或留空 = 内部存储根。不要以 / 开头，不支持 ..。例：Download",
+        onDismiss = { showLocationDialog = false },
         onConfirm = { raw ->
             // 校验已保证非 null；这里仍走返回值判断，不写 ?: 兜底掩盖失败。
-            if (directory.changeBackupFolder(raw)) showFolderDialog = false
+            if (directory.changeBackupLocation(raw)) showLocationDialog = false
         }
     )
     if (showExportPasswordDialog) AlertDialog(onDismissRequest = { showExportPasswordDialog = false }, title = { Text("完成导出升级") }, text = {
@@ -377,8 +373,10 @@ private fun BackupScreenPreview() {
                 override val directBackup = true
                 override val storageAccessGranted = true
                 override val backupTreeUri: String? = null
-                override val backupFolder = "backups/account"
+                override val backupLocation = ""
+                override val backupFolder = "Account/account"
                 override val directoryMessage = ""
+                override fun changeBackupLocation(raw: String) = true
                 override fun changeBackupFolder(raw: String) = true
                 override fun chooseDirectory() {}
                 override fun requestStorageAccess() {}
