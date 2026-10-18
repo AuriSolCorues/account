@@ -19,9 +19,9 @@ if (keystorePropertiesFile.exists()) {
 // 版本号：CI 可经 -Paccount.versionName/-Paccount.versionCode 注入，本地不传时用默认值。
 // 同时被 APK 命名复用（见文末 androidComponents），保证 tag、包内版本与文件名三者一致。
 // BUILD_ID：构建流水号（纯数字）——版本号不变时靠它区分装的哪一包（关于页「版本」行可见）。
-val appVersionName = providers.gradleProperty("account.versionName").getOrElse("1.9")
+val appVersionName = providers.gradleProperty("account.versionName").getOrElse("2.0.0")
 val appVersionCode = providers.gradleProperty("account.versionCode").getOrElse("20").toInt()
-val appBuildId = providers.gradleProperty("account.buildId").getOrElse("12").toInt()
+val appBuildId = providers.gradleProperty("account.buildId").getOrElse("20").toInt()
 
 android {
     namespace = "com.copy.account"

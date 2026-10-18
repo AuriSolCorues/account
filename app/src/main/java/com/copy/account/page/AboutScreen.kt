@@ -1,5 +1,5 @@
 /**
- * 职责：关于页——应用版本号（VERSION_NAME + VERSION_CODE）、包名与开源仓库入口。
+ * 职责：关于页——应用版本号（VERSION_NAME + BUILD_ID）、开源仓库入口与鸣谢。
  *       唯一副作用是「开源地址」行点开系统浏览器，不改动任何应用状态。
  *       URL 本身刻意不在界面显示（见该行注释），只作为点击目标存在。
  * 架构位置：AccountApp 的 AppPage.About 分支（由设置中枢进入）；行组件复用 ui/components/Rows.kt。
@@ -11,6 +11,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import com.copy.account.BuildConfig
 import com.copy.account.ui.components.AppListScreen
@@ -24,8 +25,7 @@ private const val PROJECT_URL = "https://github.com/AuriSolCorues/account"
 internal fun AboutScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     AppListScreen("关于", onBack) {
-        item { SettingsRow("版本", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}/b${BuildConfig.BUILD_ID})") }
-        item { SettingsRow("包名", BuildConfig.APPLICATION_ID) }
+        item { SettingsRow("版本", "${BuildConfig.VERSION_NAME}(${BuildConfig.BUILD_ID})") }
         item {
             // 值刻意只写「打开」两字，**不显示 URL**：URL 有 37 字符，塞进设置行的值位会换行成
             // 一长条竖排文字（真发生过，见 Rows.kt 的 SettingsRow 注释）。要展示完整 URL 得改成
@@ -36,6 +36,14 @@ internal fun AboutScreen(onBack: () -> Unit) {
                 // startActivity 本身不受可见性过滤影响；runCatching 兜住没装浏览器的设备。
                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PROJECT_URL))) }
             })
+        }
+        // 鸣谢：图标设计者（昵称，全仓库不出现真名）。长文案左对齐（换行尾巴整齐）。
+        item {
+            SettingsRow(
+                "鸣谢",
+                "感谢我的同学lion的图标设计 这里采用昵称 替换真名",
+                valueAlign = TextAlign.Start
+            )
         }
     }
 }
