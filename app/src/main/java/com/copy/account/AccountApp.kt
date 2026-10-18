@@ -600,6 +600,8 @@ fun AccountApp(
                     override val backupLocation get() = backupLocation.backupLocation
                     override val backupFolder get() = backupLocation.backupFolder
                     override val directoryMessage get() = backupLocation.backupDirectoryMessage
+                    override val directoryExpanded get() = backupLocation.directoryExpanded
+                    override fun toggleDirectoryExpanded() = backupLocation.toggleDirectoryExpanded()
                     override fun changeBackupLocation(raw: String) = backupLocation.changeBackupLocation(raw)
                     override fun changeBackupFolder(raw: String) = backupLocation.changeBackupFolder(raw)
                     override fun chooseDirectory() = requestBackupDirectory()

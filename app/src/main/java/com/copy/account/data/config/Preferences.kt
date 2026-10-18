@@ -49,6 +49,8 @@ internal val BACKUP_TREE_URI_SETTING = stringPreferencesKey("backup_tree_uri")
  * 不会被 AccCodec 序列化进 .acc 备份。
  */
 internal val BACKUP_LOCATION_SETTING = stringPreferencesKey("backup_location")
+/** 备份目录分组的展开状态；缺省 = 收起。纯界面偏好，刻意不进 AppSettings。 */
+internal val BACKUP_DIRECTORY_EXPANDED_SETTING = booleanPreferencesKey("backup_directory_expanded")
 /**
  * 备份子路径（相对内部存储根，如 Account/account）。SAF 轨授权目录下的相对子路径仍用它。
  * 刻意**不**进 AppSettings：它是设备本地路径，会被 AccCodec 序列化进 .acc 备份，

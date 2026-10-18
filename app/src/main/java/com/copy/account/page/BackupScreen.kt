@@ -87,8 +87,7 @@ internal fun BackupScreen(
     var pendingImportResult by remember { mutableStateOf<AccImportResult?>(null) }
     var backupRows by remember { mutableStateOf<List<BackupRowUi>>(emptyList()) }
     var refreshing by remember { mutableStateOf(false) }
-    // 备份目录分组折叠：仅内存态（进页默认展开），不落 DataStore——避免多一个设置项。
-    var directoryExpanded by remember { mutableStateOf(true) }
+    // 备份目录分组折叠：状态与持久化在 BackupLocationState（DataStore），页面只读与翻转。
     var showLocationDialog by remember { mutableStateOf(false) }
     var showPlainConfirm by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<PendingDelete?>(null) }
@@ -169,7 +168,7 @@ internal fun BackupScreen(
 
     AppScreen(title = "加密备份", onBack = onBack, actions = { TextActionButton("刷新", onClick = { refreshFiles() }, textColor = LocalAccountThemePalette.current.topBarText) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(start = 20.dp, end = 20.dp, top = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            CollapsibleSection(title = "备份目录", expanded = directoryExpanded, onToggle = { directoryExpanded = !directoryExpanded }) {
+            CollapsibleSection(title = "备份目录", expanded = directory.directoryExpanded, onToggle = directory::toggleDirectoryExpanded) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     // 结构固定 <位置>/Account/account：行值直接展示完整推导路径（0 = 内部存储根），
                     // 编辑的只有「位置」前缀；不再单列一行说明文字。
@@ -376,6 +375,8 @@ private fun BackupScreenPreview() {
                 override val backupLocation = ""
                 override val backupFolder = "Account/account"
                 override val directoryMessage = ""
+                override val directoryExpanded = true
+                override fun toggleDirectoryExpanded() {}
                 override fun changeBackupLocation(raw: String) = true
                 override fun changeBackupFolder(raw: String) = true
                 override fun chooseDirectory() {}
