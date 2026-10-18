@@ -42,6 +42,26 @@ internal fun DeleteConfirmDialog(title: String, message: String, onConfirm: () -
     )
 }
 
+/**
+ * 导出加密备份确认框：设置页「一键备份」与备份页「导出备份」共用同一份文案与行为——
+ * 防误触 + 主密码警示（备份靠主密码加密，遗忘即无法恢复），确定才真正执行导出。
+ */
+@Composable
+internal fun ExportConfirmDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("导出加密备份？") },
+        text = {
+            Text(
+                "将把当前全部账号与分组加密导出到备份文件夹。" +
+                        "备份靠主密码加密，请牢记主密码——遗忘后备份将无法恢复。"
+            )
+        },
+        confirmButton = { TextActionButton("确定导出", onConfirm, textColor = MaterialTheme.colorScheme.primary) },
+        dismissButton = { TextActionButton("取消", onDismiss) }
+    )
+}
+
 /** 单输入框对话框（改名/新增分组共用）：内部持有文本，保存时经 onConfirm 回传。 */
 @Composable
 internal fun TextInputDialog(
