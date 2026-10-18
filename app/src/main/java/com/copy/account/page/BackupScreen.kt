@@ -151,8 +151,7 @@ internal fun BackupScreen(
         exporter.exportPlaintext { result ->
             exportSucceeded = result.isSuccess
             exportError = if (result.isSuccess) {
-                val where = if (directory.directBackup) "下载目录" else "备份目录"
-                "已导出明文到$where：${result.getOrThrow()}（请自行妥善保管并及时删除）"
+                "已导出明文到下载目录：${result.getOrThrow()}（请自行妥善保管并及时删除）"
             } else {
                 result.exceptionOrNull()?.message ?: "明文导出失败"
             }
@@ -258,7 +257,7 @@ internal fun BackupScreen(
                 buildAnnotatedString {
                     append("将把 $accountCount 个账号、$groupCount 个分组的")
                     withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("全部密码与两步验证密钥") }
-                    append("以账号本子明文格式（ACCOUNTBOX_JSON_13）写入 ${directory.backupFolder}。\n\n")
+                    append("以账号本子明文格式（ACCOUNTBOX_JSON_13）写入系统下载目录（Download）。\n\n")
                     append("该文件没有任何加密，任何人拿到即可登录你的所有账号，且应用内无法删除它。绑定关系（网址/应用）不会随明文导出保留。确认导出？")
                 }
             )
