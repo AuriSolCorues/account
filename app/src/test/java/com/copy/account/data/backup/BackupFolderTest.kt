@@ -13,6 +13,45 @@ class BackupFolderTest {
         assertEquals(DEFAULT_BACKUP_FOLDER, normalizeBackupFolder("."))
     }
 
+    // ===== 位置前缀模型（结构固定 <位置>/Account/account）=====
+
+    @Test
+    fun location_blankAndZero_meanStorageRoot() {
+        assertEquals("", normalizeBackupLocation(""))
+        assertEquals("", normalizeBackupLocation("   "))
+        assertEquals("", normalizeBackupLocation("0"))
+        assertEquals("", normalizeBackupLocation(" 0 "))
+    }
+
+    @Test
+    fun location_trimsSlashesAndDropsDotSegments() {
+        assertEquals("Download", normalizeBackupLocation(" Download/ "))
+        assertEquals("a/b", normalizeBackupLocation("a//b"))
+        assertEquals("a/b", normalizeBackupLocation("./a/./b/./"))
+    }
+
+    @Test
+    fun location_rejectsTraversalAndAbsolute() {
+        assertNull(normalizeBackupLocation("../x"))
+        assertNull(normalizeBackupLocation("a/.."))
+        assertNull(normalizeBackupLocation("/storage/emulated/0/Download"))
+        assertNull(normalizeBackupLocation("/"))
+    }
+
+    @Test
+    fun backupFolder_derivesFixedStructure() {
+        assertEquals("Account/account", backupFolderPath(""))
+        assertEquals("Account/account", backupFolderPath("0"))
+        assertEquals("Download/Account/account", backupFolderPath("Download"))
+        assertEquals("a/b/Account/account", backupFolderPath("a/b"))
+    }
+
+    @Test
+    fun display_prefixBlankShowsZero() {
+        assertEquals("0/Account/account", backupLocationDisplay(""))
+        assertEquals("Download/Account/account", backupLocationDisplay("Download"))
+    }
+
     @Test
     fun trimsSurroundingSlashesAndWhitespace() {
         assertEquals("backups/account", normalizeBackupFolder("  backups/account/  "))

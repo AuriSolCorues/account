@@ -57,13 +57,19 @@ internal interface BackupDirectoryOps {
     /** SAF 轨已授权的目录 uri；未授权为 null。 */
     val backupTreeUri: String?
 
-    /** 备份子文件夹（内部存储或授权目录下的相对路径）。 */
+    /** 备份「位置」前缀（可自选；空 = 内部存储根）。结构固定 <位置>/Account/account。 */
+    val backupLocation: String
+
+    /** 备份子文件夹（内部存储或授权目录下的相对路径），由 backupLocation 推导。 */
     val backupFolder: String
 
     /** 目录相关提示文案（授权结果、改名结果等）；空串表示无提示。 */
     val directoryMessage: String
 
-    /** 修改备份子路径；raw 非法（绝对路径 / ..）或保存失败返回 false。 */
+    /** 修改备份「位置」前缀；raw 非法（绝对路径 / ..）或保存失败返回 false。 */
+    fun changeBackupLocation(raw: String): Boolean
+
+    /** 修改备份子路径（仅 SAF 轨授权目录下的相对子路径用）；非法返回 false。 */
     fun changeBackupFolder(raw: String): Boolean
 
     /** 发起 SAF 目录选择。 */
