@@ -151,7 +151,8 @@ internal fun BackupScreen(
         exporter.exportPlaintext { result ->
             exportSucceeded = result.isSuccess
             exportError = if (result.isSuccess) {
-                "已导出明文：${result.getOrThrow()}（请自行妥善保管并及时删除）"
+                val where = if (directory.directBackup) "下载目录" else "备份目录"
+                "已导出明文到$where：${result.getOrThrow()}（请自行妥善保管并及时删除）"
             } else {
                 result.exceptionOrNull()?.message ?: "明文导出失败"
             }

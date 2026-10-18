@@ -40,6 +40,7 @@ import com.copy.account.data.backup.readFileBackup
 import com.copy.account.data.backup.readSelectedDocument
 import com.copy.account.data.backup.uniqueBackupName
 import com.copy.account.data.backup.uniquePlainExportName
+import com.copy.account.data.backup.writeFileBackup
 import com.copy.account.data.backup.writeBackupFile
 import com.copy.account.data.backup.writeFileBackup
 import com.copy.account.data.model.Account
@@ -327,10 +328,14 @@ fun AccountApp(
                                     ),
                                     System.currentTimeMillis()
                                 )
-                                // 命名与 mime 都与 .acc 分开：文件名带 plain 前缀，SAF 轨用 application/json
-                                // 让文件管理器把扩展名和类型对上。写完立刻清零字节，尽量缩短明文在堆上的时间。
+                                // 命名与 mime 都与 .acc 分开：文件名带 plain 前缀。写完立刻清零字节，
+                                // 尽量缩短明文在堆上的时间。
+                                // 落点刻意与 .acc 分轨：明文写系统「下载」目录，不进 Account/ 同步根——
+                                // 全量账号数据不该被网盘原样同步上云；SAF 轨（API<30）仍写授权目录。
                                 try {
-                                    writeExportBytes(bytes, ::uniquePlainExportName, "application/json")
+                                    val name = if (directBackup) writeFileBackup(bytes, "Download", ::uniquePlainExportName)
+                                    else writeExportBytes(bytes, ::uniquePlainExportName, "application/json")
+                                    name
                                 } finally {
                                     bytes.fill(0)
                                 }
