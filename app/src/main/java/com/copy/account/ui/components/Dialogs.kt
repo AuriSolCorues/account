@@ -144,7 +144,7 @@ internal fun NumberSettingDialog(
 @Preview(showBackground = true)
 @Composable
 private fun DeleteConfirmDialogPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         DeleteConfirmDialog(
             title = "删除账号",
             message = "删除后无法恢复。",
@@ -157,7 +157,7 @@ private fun DeleteConfirmDialogPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun TextInputDialogPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         TextInputDialog(
             title = "新增分组",
             label = "分组名称",
@@ -170,7 +170,7 @@ private fun TextInputDialogPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun ChoiceDialogPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         ChoiceDialog(
             title = "自动锁定",
             options = listOf("1 分钟" to {}, "5 分钟" to {}),
@@ -182,7 +182,7 @@ private fun ChoiceDialogPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun NumberSettingDialogPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         NumberSettingDialog(
             title = "自动锁定",
             unit = "分钟",

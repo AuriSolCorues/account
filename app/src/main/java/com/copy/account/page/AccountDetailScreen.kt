@@ -44,7 +44,16 @@ import com.copy.account.ui.theme.LocalAccountThemePalette
  * @param onHotpAdvance HOTP 验证码复制后触发计数器递增的回调。
  */
 @Composable
-internal fun AccountDetailScreen(account: Account?, clipboardClearSeconds: Int, onBack: () -> Unit, onEdit: () -> Unit, maskChar: Char = '•', onHotpAdvance: (String) -> Unit = {}) {
+internal fun AccountDetailScreen(
+    account: Account?,
+    clipboardClearSeconds: Int,
+    onBack: () -> Unit,
+    onEdit: () -> Unit,
+    maskChar: Char = '•',
+    onHotpAdvance: (String) -> Unit = {},
+    /** 本机是否绑定了通行密钥（AccountApp 查注册表下发；仅展示，详情页无删除入口）。 */
+    hasPasskey: Boolean = false
+) {
     // 动态调整时钟刷新频率：HOTP 码不随时间变化，设为 60 秒长周期空转以节省性能；TOTP 需每秒刷新。
     val nowMillis = rememberClock(if (account?.isHotp == true) 60_000L else 1000L)
     val title = account?.name ?: "账号详情"
@@ -60,6 +69,12 @@ internal fun AccountDetailScreen(account: Account?, clipboardClearSeconds: Int, 
             item { Text("分组：${account.groups.joinToString().ifBlank { "默认" }}", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 12.dp)) }
             item { Text("登录信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
             item { SensitiveValueRow(account.usernameRowLabel, account.username, masked = account.usernameHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
+            if (hasPasskey) {
+                item {
+                    // 灰色提示字（不可点击）：删除入口唯一在编辑页危险区（用户拍板）。
+                    Text("🔑 本机通行密钥已绑定", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             item { SensitiveValueRow(account.passwordRowLabel, account.password, masked = account.passwordHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
             item { Text("两步验证", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
             item {
@@ -74,7 +89,7 @@ internal fun AccountDetailScreen(account: Account?, clipboardClearSeconds: Int, 
 @Preview(showBackground = true)
 @Composable
 private fun AccountDetailScreenPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         AccountDetailScreen(account = initialAccounts.last(), clipboardClearSeconds = 30, onBack = {}, onEdit = {})
     }
 }

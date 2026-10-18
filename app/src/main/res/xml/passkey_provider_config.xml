@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通行密钥提供方声明（Android 14+ 系统凭据管理器读取）：
+     capabilities 声明本提供方支持的凭据类型（仅 public-key 通行密钥）。
+     注意：minSdk 28 < 34，此资源在旧设备上被忽略（manifest 里已隔离）。
+     【根元素必须是 credential-provider（单数）】——1.7 起写成 credentials-provider（复数），
+     系统解析 meta-data 时根标签不匹配直接放弃（logcat 实锤：
+     "Meta-data does not start with credential-provider-service tag"），capabilities 全读不到，
+     弹卡恒失败。1.9/b4 改正。KeePassDX provider.xml 与 OPPO 密码本 nM.xml 均为单数，可对照。 -->
+<credential-provider xmlns:android="http://schemas.android.com/apk/res/android">
+    <capabilities>
+        <!-- 注意：系统按请求 type 字符串精确匹配 capability name。androidx 库构造请求时
+             传给 framework 的 type 就是 "androidx.credentials.TYPE_PUBLIC_KEY_CREDENTIAL"
+             （AAR 字节码常量池实证；OPPO 密码本同款声明可进会话）。勿改成 android. 前缀。 -->
+        <capability name="androidx.credentials.TYPE_PUBLIC_KEY_CREDENTIAL" />
+    </capabilities>
+</credential-provider>

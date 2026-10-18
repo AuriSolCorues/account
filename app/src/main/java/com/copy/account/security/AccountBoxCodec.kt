@@ -24,6 +24,7 @@ package com.copy.account.security
 import com.copy.account.data.model.Account
 import com.copy.account.data.model.AccountField
 import com.copy.account.data.model.DEFAULT_TOTP_ALGORITHM
+import com.copy.account.data.model.newUid
 import com.copy.account.data.model.DEFAULT_TOTP_DIGITS
 import com.copy.account.data.model.DEFAULT_TOTP_PERIOD
 import com.copy.account.data.model.DEFAULT_TOTP_TYPE
@@ -153,6 +154,8 @@ internal fun importAccountBoxJson(bytes: ByteArray): Result<PersistedVault> = ru
         val dynamic = ab.dynamicPassword
         Account(
             id = "ab-${now}-${ab.name.hashCode()}",
+            // 同批导入 now 相同：uid 随机后缀防撞号；内嵌毫秒即导入时间（修改锚）。
+            uid = newUid(now),
             name = ab.name,
             username = username,
             password = password,

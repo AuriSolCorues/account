@@ -112,7 +112,7 @@ private fun GeneratorToggle(label: String, checked: Boolean, onCheckedChange: (B
 @Preview(name = "随机密码生成器面板", widthDp = 411, heightDp = 700, showBackground = true)
 @Composable
 private fun RandomPasswordGeneratorSheetDockPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         SheetPagePreview(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             RandomPasswordGeneratorItems(onFill = {})
         }
@@ -122,7 +122,7 @@ private fun RandomPasswordGeneratorSheetDockPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun GeneratorTogglePreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         GeneratorToggle("大写字母（A-Z）", true, {})
     }
 }

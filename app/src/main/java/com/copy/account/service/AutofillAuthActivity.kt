@@ -2,7 +2,7 @@
  * 职责：自动填充的认证回填页——用户在系统填充气泡里点了「需认证的数据集」后由系统拉起，
  *       验证后回包。三种模式：
  *   Mode A（解锁态逐账号认证）：extras 带 account_id、无 SELF_HEAL → 弹 BiometricPrompt，
- *       通过后经 AutofillBridge.findAccount 从活跃快照取明文，本地重建已回填 Dataset 回系统；
+ *       通过后优先单段解密磁盘库取最新明文（快照兜底），本地重建已回填 Dataset 回系统；
  *   Mode B（锁定态·指纹）：extras 带 SELF_HEAL=true + account_id → 验证挂 CryptoObject
  *       （Keystore 每次使用必认证的密钥），通过后 AutofillSelfHeal.unlockAccount 用
  *       loadAccount **只解密被点选账号的密文段**（vault.bin v2 分段格式），瞬时构建
@@ -35,14 +35,10 @@ import android.content.Intent
 import android.os.Bundle
 import android.service.autofill.Dataset
 import android.service.autofill.FillResponse
-import android.view.Gravity
-import android.view.View
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillManager
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
 import android.widget.Toast
+import androidx.activity.compose.setContent
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -51,6 +47,10 @@ import androidx.fragment.app.FragmentActivity
 import com.copy.account.runtime.AutofillAccount
 import com.copy.account.runtime.AutofillBridge
 import com.copy.account.security.SecureVaultStore
+import com.copy.account.runtime.toAutofillAccount
+import com.copy.account.ui.components.AppBottomSheet
+import com.copy.account.ui.components.AutofillPasswordSheetItems
+import com.copy.account.ui.components.OverlayThemeHost
 import javax.crypto.Cipher
 
 class AutofillAuthActivity : FragmentActivity() {
@@ -134,46 +134,32 @@ class AutofillAuthActivity : FragmentActivity() {
         }
     }
 
-    /** Mode C：锁定态无生物识别时的主密码输入小卡（程序化构建，透明浮层内嵌一块卡）。 */
+    /** Mode C：锁定态无生物识别时的主密码输入弹层（Compose 底部弹层，主界面同款）。 */
     private fun showPasswordEntry() {
-        val density = resources.displayMetrics.density
-        val pad = (16 * density).toInt()
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF202124.toInt())
-            setPadding(pad, pad, pad, pad)
-        }
-        val input = EditText(this).apply {
-            hint = "主密码"
-            transformationMethod = android.text.method.PasswordTransformationMethod.getInstance()
-            setSingleLine(true)
-        }
-        val confirm = Button(this).apply { text = "验证并填充" }
-        val cancel = Button(this).apply { text = "取消" }
-        container.addView(input)
-        container.addView(confirm)
-        container.addView(cancel)
-        setContentView(container, LinearLayout.LayoutParams(
-            (280 * density).toInt(), LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { gravity = Gravity.CENTER })
-        confirm.setOnClickListener {
-            val pwd = input.text.toString()
-            if (pwd.isBlank()) return@setOnClickListener
-            confirm.isEnabled = false
-            Thread {
-                val acc = AutofillSelfHeal.unlockAccountWithPassword(vaultStore, pwd, accountId)
-                runOnUiThread {
-                    if (acc != null) {
-                        replyFilled(listOf(acc))
-                    } else {
-                        Toast.makeText(this, "主密码错误或账号已不存在", Toast.LENGTH_SHORT).show()
-                        confirm.isEnabled = true
-                        input.setText("")
-                    }
+        setContent {
+            OverlayThemeHost {
+                AppBottomSheet(onDismiss = { finishCancel() }) {
+                    AutofillPasswordSheetItems(
+                        onConfirm = { entered ->
+                            // PBKDF2（30 万轮）计算密集：后台线程算（旧 View 卡实现同规矩），
+                            // Toast/finish 回主线程。输错弹层直接取消（下次填充重新拉起重输）。
+                            Thread {
+                                val acc = AutofillSelfHeal.unlockAccountWithPassword(vaultStore, entered, accountId)
+                                runOnUiThread {
+                                    if (acc != null) {
+                                        replyFilled(listOf(acc))
+                                    } else {
+                                        Toast.makeText(this@AutofillAuthActivity, "主密码错误或账号已不存在", Toast.LENGTH_SHORT).show()
+                                        finishCancel()
+                                    }
+                                }
+                            }.start()
+                        },
+                        onCancel = { finishCancel() }
+                    )
                 }
-            }.start()
+            }
         }
-        cancel.setOnClickListener { finishCancel() }
     }
 
     /**
@@ -245,17 +231,25 @@ class AutofillAuthActivity : FragmentActivity() {
     }
 
     /**
-     * Mode A（单卡，解锁态）：认证通过——从桥快照取账号明文并本地重建 Dataset 回给系统。
-     * 快照被清（锁定/关开关）或回填值非法 → 取消；不落地任何明文副本，用完即弃。
+     * Mode A（单卡，解锁态）：认证通过——优先**单段解密磁盘库**取账号明文（vault.bin 是
+     * saveVault 落盘后的最新态，杜绝「改完账号自动填充还是旧值」的快照滞后窗口），
+     * 解密失败（历史版本库格式等）再退桥快照；两者皆空 → 取消。
+     * dek 用桥内现存 DEK 副本，不落地、用完即弃（loadAccount 内部清零自己的拷贝）。
      */
     private fun loadAccountAndReply() {
-        val acc = AutofillBridge.findAccount(accountId)
+        val acc = loadFreshAccount(accountId) ?: AutofillBridge.findAccount(accountId)
         if (acc == null) {
             Toast.makeText(this, "填充会话已失效，请先解锁本应用", Toast.LENGTH_SHORT).show()
             finishCancel()
             return
         }
         replyFilled(listOf(acc))
+    }
+
+    /** 磁盘单段解密：桥 DEK 在手（解锁态必非空）时按 id 现解 vault.bin 对应段；任何失败返回 null。 */
+    private fun loadFreshAccount(accountId: String): AutofillAccount? {
+        val dek = AutofillBridge.dek ?: return null
+        return runCatching { vaultStore.loadAccount(dek, accountId)?.toAutofillAccount() }.getOrNull()
     }
 
     /**

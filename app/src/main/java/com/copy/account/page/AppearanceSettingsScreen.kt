@@ -170,7 +170,7 @@ internal fun AppearanceSettingsScreen(
 @Preview(showBackground = true)
 @Composable
 private fun AppearanceSettingsScreenPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         AppearanceSettingsScreen(
             themeMode = "dark",
             onThemeModeChange = {},

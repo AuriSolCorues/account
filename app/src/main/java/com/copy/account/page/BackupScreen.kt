@@ -354,7 +354,7 @@ internal fun formatBackupTime(time: Long): String = if (time <= 0) "未知时间
 @Preview(showBackground = true)
 @Composable
 private fun BackupScreenPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE != "light") {
+    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         BackupScreen(
             fileStore = object : BackupFileStore {
                 override fun refresh(onResult: (List<BackupRowUi>) -> Unit) {
