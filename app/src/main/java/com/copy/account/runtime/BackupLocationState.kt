@@ -33,6 +33,7 @@ import com.copy.account.data.backup.hasStorageAccess
 import com.copy.account.data.backup.initializeBackupDirectory
 import com.copy.account.data.backup.normalizeBackupFolder
 import com.copy.account.data.backup.normalizeBackupLocation
+import com.copy.account.data.config.BACKUP_DIRECTORY_EXPANDED_SETTING
 import com.copy.account.data.config.BACKUP_FOLDER_SETTING
 import com.copy.account.data.config.BACKUP_LOCATION_SETTING
 import com.copy.account.data.config.BACKUP_TREE_URI_SETTING
@@ -76,6 +77,13 @@ internal class BackupLocationState(
     var storageAccessGranted by mutableStateOf(directBackup && hasStorageAccess())
         private set
 
+    /**
+     * 备份目录分组的展开状态：DataStore 持久记忆，跨重启恢复；缺省收起。
+     * 纯界面偏好，放这里只因它随目录区的其他状态一起读写、经同一契约下发。
+     */
+    var directoryExpanded by mutableStateOf(false)
+        private set
+
     /** 对外清空目录提示：重选目录前调用，等价原 requestBackupDirectory 里的置空。 */
     fun clearMessage() {
         backupDirectoryMessage = ""
@@ -90,6 +98,7 @@ internal class BackupLocationState(
         backupTreeUri = values[BACKUP_TREE_URI_SETTING]
         backupLocation = normalizeBackupLocation(values[BACKUP_LOCATION_SETTING].orEmpty()) ?: ""
         backupFolder = backupFolderPath(backupLocation)
+        directoryExpanded = values[BACKUP_DIRECTORY_EXPANDED_SETTING] ?: false
     }
 
     /**
@@ -138,6 +147,14 @@ internal class BackupLocationState(
     /** 从系统设置授予/撤销「所有文件访问」后返回时刷新（ON_RESUME 调用）。 */
     fun refreshStorageAccess() {
         if (directBackup) storageAccessGranted = hasStorageAccess()
+    }
+
+    /** 翻转备份目录分组展开态并持久化：先改状态保响应，写回 fire-and-forget。 */
+    fun toggleDirectoryExpanded() {
+        directoryExpanded = !directoryExpanded
+        scope.launch {
+            context.settingsDataStore.edit { it[BACKUP_DIRECTORY_EXPANDED_SETTING] = directoryExpanded }
+        }
     }
 
     /**

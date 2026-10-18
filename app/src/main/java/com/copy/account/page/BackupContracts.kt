@@ -66,6 +66,12 @@ internal interface BackupDirectoryOps {
     /** 目录相关提示文案（授权结果、改名结果等）；空串表示无提示。 */
     val directoryMessage: String
 
+    /** 备份目录分组的展开状态（DataStore 持久记忆，缺省收起）。 */
+    val directoryExpanded: Boolean
+
+    /** 翻转并持久化备份目录分组的展开状态。 */
+    fun toggleDirectoryExpanded()
+
     /** 修改备份「位置」前缀；raw 非法（绝对路径 / ..）或保存失败返回 false。 */
     fun changeBackupLocation(raw: String): Boolean
 
