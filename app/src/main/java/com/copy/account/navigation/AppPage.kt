@@ -15,10 +15,12 @@ internal sealed interface AppPage {
     data object Home : AppPage
     data object Groups : AppPage
     data object Settings : AppPage
-    // 设置二级页：设置中枢点进来的三支，返回键统一回 Settings。
+    // 设置二级页：设置中枢点进来的四支，返回键统一回 Settings。
     data object SecuritySettings : AppPage
     data object AppearanceSettings : AppPage
     data object About : AppPage
+    /** 操作日志页（全应用审计：账号增删/导出/崩溃）。 */
+    data object Logs : AppPage
     data object BackupFiles : AppPage
     data class Detail(val accountId: String) : AppPage
     data class Edit(val accountId: String?) : AppPage
