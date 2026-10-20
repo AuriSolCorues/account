@@ -46,6 +46,7 @@ internal fun SettingsScreen(
     onOpenSecurity: () -> Unit,
     onOpenAppearance: () -> Unit,
     onOpenBackup: () -> Unit,
+    onOpenLogs: () -> Unit,
     onOpenAbout: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -115,6 +116,8 @@ internal fun SettingsScreen(
         item { SettingsRow("安全设置", "打开", onClick = onOpenSecurity) }
         item { SettingsRow("主题与语言", "打开", onClick = onOpenAppearance) }
         item { SettingsRow("备份与数据", "打开", onClick = onOpenBackup) }
+        // 操作日志（全应用审计：账号增删/导出/崩溃），入口恒在。
+        item { SettingsRow("操作日志", "打开", onClick = onOpenLogs) }
         // 版本号直接露在中枢上，不用进「关于」页也知道自己是哪一版。
         item { SettingsRow("关于", BuildConfig.VERSION_NAME, onClick = onOpenAbout) }
     }
@@ -172,6 +175,7 @@ private fun SettingsScreenPreview() {
             onOpenSecurity = {},
             onOpenAppearance = {},
             onOpenBackup = {},
+            onOpenLogs = {},
             onOpenAbout = {},
             onBack = {}
         )

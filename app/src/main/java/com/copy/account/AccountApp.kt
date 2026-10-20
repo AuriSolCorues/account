@@ -64,6 +64,8 @@ import com.copy.account.page.BackupFileStore
 import com.copy.account.page.BackupRowUi
 import com.copy.account.runtime.IdleLockHost
 import com.copy.account.runtime.AutofillBridge
+import com.copy.account.runtime.LogEvents
+import com.copy.account.runtime.appendLog
 import com.copy.account.runtime.rememberBackupLocationState
 import com.copy.account.runtime.rememberSettingsContainer
 import com.copy.account.runtime.rememberUnlockSession
@@ -74,6 +76,7 @@ import com.copy.account.page.AppearanceSettingsScreen
 import com.copy.account.page.BackupScreen
 import com.copy.account.page.GroupManageScreen
 import com.copy.account.page.HomeScreen
+import com.copy.account.page.LogScreen
 import com.copy.account.page.SecuritySettingsScreen
 import com.copy.account.page.SettingsScreen
 import com.copy.account.page.UnlockScreen
@@ -187,7 +190,7 @@ fun AccountApp(
     BackHandler(enabled = page != AppPage.Unlock && page != AppPage.Home) {
         page = when (page) {
             AppPage.Settings, AppPage.Groups, is AppPage.Detail, is AppPage.Edit -> AppPage.Home
-            AppPage.SecuritySettings, AppPage.AppearanceSettings, AppPage.About, AppPage.BackupFiles -> AppPage.Settings
+            AppPage.SecuritySettings, AppPage.AppearanceSettings, AppPage.About, AppPage.Logs, AppPage.BackupFiles -> AppPage.Settings
             else -> page
         }
     }
@@ -293,7 +296,9 @@ fun AccountApp(
                                         ), material.key, material.salt, material.iterations
                                     )
                                     try {
-                                        writeExportBytes(bytes, ::uniqueBackupName, "application/octet-stream")
+                                        val name = writeExportBytes(bytes, ::uniqueBackupName, "application/octet-stream")
+                                        appendLog(context, LogEvents.EXPORT, "导出备份成功（${name}）")
+                                        name
                                     } finally {
                                         bytes.fill(0)
                                     }
@@ -330,9 +335,9 @@ fun AccountApp(
                                 )
                                 // 命名与 mime 都与 .acc 分开：文件名带 plain 前缀。写完立刻清零字节，
                                 // 尽量缩短明文在堆上的时间。
-                                // 落点刻意与 .acc 分轨：明文固定写系统「下载」目录，不进 Account/ 同步根——
-                                // 全量账号数据不该被网盘原样同步上云；SAF 轨（API<30）系统限制写不了
-                                // 公共 Downloads，仍写授权目录（两台真机均 API>=30，不触达此分支）。
+                                // 落点刻意与 .acc 分轨：明文固定写系统「下载」目录；SAF 轨（API<30）
+                                // 系统限制写不了公共 Downloads，仍写授权目录（两台真机均 API>=30，
+                                // 不触达此分支）。
                                 try {
                                     if (directBackup) writeFileBackup(bytes, "Download", ::uniquePlainExportName)
                                     else writeExportBytes(bytes, ::uniquePlainExportName, "application/json")
@@ -392,12 +397,16 @@ fun AccountApp(
             onEditAccount = { editTemplate = null; page = AppPage.Edit(it) },
             onTemplateNew = { editTemplate = it; page = AppPage.Edit(null) },
             onDeleteAccount = { id ->
+                val name = accounts.firstOrNull { it.id == id }?.name ?: id
                 session.accounts = session.accounts.filterNot { it.id == id }
                 session.persistVault()
+                appendLog(context, LogEvents.ACCOUNT_DELETE, "删除账号「$name」")
             },
             onDeleteAccounts = { ids ->
+                val names = accounts.filter { it.id in ids }.map { it.name }
                 session.accounts = session.accounts.filterNot { it.id in ids }
                 session.persistVault()
+                appendLog(context, LogEvents.ACCOUNT_DELETE, "删除 ${ids.size} 个账号（${names.take(3).joinToString("、")}）")
             },
             onMoveAccounts = { ids, fromGroupId, toGroupId ->
                 val from = groups.firstOrNull { it.id == fromGroupId }
@@ -455,6 +464,7 @@ fun AccountApp(
             onOpenSecurity = { page = AppPage.SecuritySettings },
             onOpenAppearance = { page = AppPage.AppearanceSettings },
             onOpenBackup = { page = AppPage.BackupFiles },
+            onOpenLogs = { page = AppPage.Logs },
             onOpenAbout = { page = AppPage.About },
             onBack = { page = AppPage.Home }
         )
@@ -556,6 +566,8 @@ fun AccountApp(
         )
 
         AppPage.About -> AboutScreen(onBack = { page = AppPage.Settings })
+
+        AppPage.Logs -> LogScreen(onBack = { page = AppPage.Settings })
 
         AppPage.BackupFiles -> {
             // ===== 备份域接线（P2 收拢）：BackupScreen 只见三接口，IO/加解密/线程全在此实现 =====
@@ -701,22 +713,26 @@ fun AccountApp(
             onBack = { page = AppPage.Home; editTemplate = null },
             onCreateGroup = ::createGroup,
             onSave = { edited ->
-                val nextAccounts = if (accounts.any { it.id == edited.id }) {
+                val isNew = accounts.none { it.id == edited.id }
+                val nextAccounts = if (!isNew) {
                     accounts.map { if (it.id == edited.id) edited else it }
                 } else {
                     accounts + edited
                 }
                 session.saveVault(nextAccounts = nextAccounts).onSuccess {
                     session.accounts = nextAccounts
+                    if (isNew) appendLog(context, LogEvents.ACCOUNT_ADD, "新增账号「${edited.name}」")
                     editTemplate = null
                     page = AppPage.Home
                 }
             },
             onDelete = current.accountId?.let { id ->
                 {
+                    val name = accounts.firstOrNull { it.id == id }?.name ?: id
                     val nextAccounts = accounts.filterNot { it.id == id }
                     session.saveVault(nextAccounts = nextAccounts).onSuccess {
                         session.accounts = nextAccounts
+                        appendLog(context, LogEvents.ACCOUNT_DELETE, "删除账号「$name」")
                         page = AppPage.Home
                     }
                 }

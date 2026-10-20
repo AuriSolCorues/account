@@ -50,6 +50,8 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 崩溃留痕：任何未捕获异常先进操作日志（filesDir）再走系统退出流程
+        com.copy.account.runtime.installCrashLogger(this)
         // 内容延伸到系统栏后方，让顶栏覆盖刘海区域，避免全屏设备出现白色边条。
         enableEdgeToEdge()
         // 高刷新率适配：系统默认可能把 App 锁在 60Hz 省电档；从支持的模式里挑「同分辨率下刷新率最高」的。
