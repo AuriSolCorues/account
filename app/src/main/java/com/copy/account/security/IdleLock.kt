@@ -11,6 +11,7 @@ package com.copy.account.security
 
 import android.os.Handler
 import android.os.Looper
+import com.copy.account.platform.idleExpired
 
 /** 延迟排程的最小抽象：只要求「延迟 delayMs 毫秒后跑一次 task」和「全部撤回」。 */
 internal interface IdleScheduler {
@@ -33,6 +34,8 @@ internal class IdleLock(
     private val onLock: () -> Unit,
     private val scheduler: IdleScheduler,
     private val now: () -> Long,
+    /** start/touch 时刷新共享锚点的出口（生产 = ExtensionPlatformState.idleAnchorMs；测试 null）。 */
+    private val anchorExport: (() -> Unit)? = null,
 ) {
     private var timeoutMs = 0L
     private var lastInteractionAt = 0L
@@ -42,6 +45,7 @@ internal class IdleLock(
      * 开始计时：把「上次交互」锚定在当前时刻并排一个 timeoutMs 后的回调。
      * timeoutMs <= 0 视为关闭（自动锁定未启用），此时不排程、也不去撤旧回调——撤回调交给 stop()。
      * 重复调用即换阈值重排，mainThreadIdleScheduler 会先移除上一次的回调。
+     * 锚点刷新到 anchorExport：扩展侧按同一锚点本地倒计时（两端同秒动作）。
      */
     fun start(timeoutMs: Long) {
         if (timeoutMs <= 0) {
@@ -51,6 +55,7 @@ internal class IdleLock(
         this.timeoutMs = timeoutMs
         lastInteractionAt = now()
         started = true
+        anchorExport?.invoke()
         scheduler.schedule(timeoutMs) { onTimeout() }
     }
 
@@ -59,10 +64,12 @@ internal class IdleLock(
      * 必须排 timeoutMs 而不是「到旧截止点的剩余时间」：语义就是「每次交互后重新等满一段空闲」，
      * 排短了回调会提前到、被 onTimeout 的二次校验拒掉，而 Handler 回调只触发一次、被拒后无人重排，
      * 计时器就地死亡——本周期内再也不会锁（曾致导航去过设置/分组页后前台永不锁定）。
+     * 锚点刷新：本体触摸与扩展上报最终都汇到本方法，单一事实源。
      */
     fun touch() {
         if (!started) return
         lastInteractionAt = now()
+        anchorExport?.invoke()
         scheduler.schedule(timeoutMs) { onTimeout() }
     }
 
@@ -76,7 +83,8 @@ internal class IdleLock(
         // 停用后的残留回调直接丢弃：stop() 之后连 fire 也不该锁。
         if (!started) return
         // 防竞态二次校验：上次交互后 1 秒就触发的回调（重排竞态、时钟跳变）不该锁。
-        if (now() - lastInteractionAt < timeoutMs) return
+        // 判定已收敛进 idleExpired（`>=` 同秒契约见彼处 KDoc），本处只做门槛与一次性锁。
+        if (!idleExpired(now(), lastInteractionAt, timeoutMs)) return
         // 先置未启动再回调，保证一个超时周期内最多锁一次，重复触发不再重复锁。
         started = false
         onLock()

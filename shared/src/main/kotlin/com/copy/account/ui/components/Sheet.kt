@@ -39,7 +39,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
 
@@ -120,7 +119,7 @@ internal fun ActionSheetRow(text: String, muted: Boolean = false, color: Color =
 @Preview(showBackground = true)
 @Composable
 private fun ActionSheetRowPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
+    AccountTheme(darkTheme = false) {
         ActionSheetRow("普通操作") {}
     }
 }

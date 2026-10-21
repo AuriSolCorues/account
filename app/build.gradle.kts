@@ -103,6 +103,13 @@ android {
         compose = true
         buildConfig = true
     }
+
+    // 共享源码集：shared/ 下的 Compose 组件与主题物理一份，本体与可选扩展模块编译期同源。
+    // debug 源集（debug/ 目录的调试工具页）同样要吃到共享组件——variant 源集独立编译。
+    sourceSets.getByName("debug").kotlin.srcDirs(file("../shared/src/main/kotlin"))
+    sourceSets["main"].kotlin.srcDirs(file("../shared/src/main/kotlin"))
+    sourceSets["main"].java.srcDirs(file("../shared/src/main/kotlin"))
+    sourceSets["main"].res.srcDirs(file("../shared/src/main/res"))
     testOptions {
         unitTests {
             // Robolectric 常规要求：本地单测可读取 Android 资源与 manifest。

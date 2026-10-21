@@ -11,6 +11,7 @@
 package com.copy.account.runtime
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.biometric.BiometricPrompt
@@ -74,6 +75,13 @@ internal class UnlockSession(
         private set
 
     val isUnlocked: Boolean get() = dataKey != null
+
+    init {
+        // 归还钩子：扩展页 releaseSession（退后台/被销毁）到达时执行真 lockApp（清 DEK/撤填充桥）。
+        // Wiring 收口：宿主不直接触碰 ExtensionPlatformState，公开/私有两侧以不同实现共存
+        // （公开版直通/空实现），保证 merge 零冲突。
+        ExtensionWiring.registerReleaseHook { lockApp() }
+    }
 
     private val vaultWriteMutex = Mutex()
 
@@ -174,6 +182,10 @@ internal class UnlockSession(
         dataKey = null
         accounts = emptyList()
         lockGeneration++
+        // 锁态同步进平台状态单例（零 IO，ON_STOP 后也即时生效）：扩展下一文件边界查 state 即拒活。
+        // Wiring 收口：宿主不直接触碰 ExtensionPlatformState，公开/私有两侧以不同实现共存
+        // （公开版直通/空实现），保证 merge 零冲突；300ms 延迟二次广播的 Handler 逻辑在 Wiring 内原样平移。
+        ExtensionWiring.onLocked()
         AutofillBridge.onSessionLocked()
         onLocked()
     }
@@ -192,6 +204,10 @@ internal class UnlockSession(
     private fun completeUnlock(key: ByteArray, state: PersistedVault) {
         dataKey?.fill(0)
         dataKey = key
+        // 解锁事实同步进平台状态单例：扩展开工前查 state 拿 locked=false。
+        // Wiring 收口：宿主不直接触碰 ExtensionPlatformState，公开/私有两侧以不同实现共存
+        // （公开版直通/空实现），保证 merge 零冲突。
+        ExtensionWiring.onUnlocked()
         // 旧库账号 uid 为空：读库时惰性补全（仅内存，不立即重写文件；下次保存自然固化）。
         accounts = state.accounts.map { it.withUidFilled() }
         groups = state.groups.ifEmpty { initialGroups }
@@ -272,11 +288,14 @@ internal class UnlockSession(
     }
 
     /**
-     * ON_STOP：进入后台立即锁定 UI 会话，同时撤桥（onSessionLocked）——锁定态填充走
-     * AutofillAuthActivity 的验证瞬时通道（账号卡/占位卡），不依赖驻留快照。
+     * ON_STOP：进入后台锁定——Wiring 收口的让渡判定直通（借出未超时 = 不锁，
+     * 借出超时 = 恢复锁定并清标志）。锁定语义与既有立即锁一致（无延迟档）。
      */
     fun onAppStop() {
-        if (isUnlocked) lockApp()
+        // Wiring 收口：宿主不直接触碰 ExtensionPlatformState，公开/私有两侧以不同实现共存
+        // （公开版直通/空实现），保证 merge 零冲突。
+        if (!isUnlocked || !ExtensionWiring.shouldLockOnStop(SystemClock.uptimeMillis())) return
+        lockApp()
     }
 }
 

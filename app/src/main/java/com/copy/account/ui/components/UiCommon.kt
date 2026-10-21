@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,15 +52,6 @@ internal fun rememberClock(intervalMillis: Long = 1000): Long {
 
     return nowMillis
 }
-
-@Composable
-internal fun accountTopBarColors() = TopAppBarDefaults.topAppBarColors(
-    // 每个页面使用完整的一套色板，切换主题时不混用明暗不同的顶栏和内容区。
-    containerColor = LocalAccountThemePalette.current.topBar,
-    titleContentColor = LocalAccountThemePalette.current.topBarText,
-    navigationIconContentColor = LocalAccountThemePalette.current.topBarText,
-    actionIconContentColor = LocalAccountThemePalette.current.topBarText
-)
 
 @Composable
 internal fun SensitiveValueRow(label: String, value: String, masked: Boolean = false, sensitive: Boolean = masked, clearAfterSeconds: Int = 30, mask: Char = '•', afterCopy: (() -> Unit)? = null) {

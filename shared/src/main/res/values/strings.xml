@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 共享源码集的占位资源：srcDir 双挂要求两侧资源无 ID 冲突，本体主题/组件暂未用到共享字符串，
+         此文件仅保证 res 目录非空；后续共享组件若需字符串资源放这里。 -->
+    <string name="shared_ui_placeholder" translatable="false">shared-ui</string>
+</resources>
