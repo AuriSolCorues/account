@@ -22,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
 
 /** 设置页的分组标题。 */
@@ -116,7 +115,7 @@ internal fun SurfaceCard(
 @Preview(showBackground = true)
 @Composable
 private fun SettingsHeaderPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
+    AccountTheme(darkTheme = false) {
         SettingsHeader("设置行")
     }
 }
@@ -124,7 +123,7 @@ private fun SettingsHeaderPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun SettingsRowPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
+    AccountTheme(darkTheme = false) {
         SettingsRow("自动锁定", "5 分钟")
     }
 }
@@ -132,7 +131,7 @@ private fun SettingsRowPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun SettingsSwitchRowPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
+    AccountTheme(darkTheme = false) {
         SettingsSwitchRow("允许截图", true, {})
     }
 }
@@ -140,7 +139,7 @@ private fun SettingsSwitchRowPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun SwitchRowPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
+    AccountTheme(darkTheme = false) {
         SwitchRow("两步验证", false, {}, subtitle = "已配置 · 自动显示在动态密码分组")
     }
 }
@@ -148,7 +147,7 @@ private fun SwitchRowPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun DangerButtonPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
+    AccountTheme(darkTheme = false) {
         DangerButton("删除账号", onClick = {})
     }
 }
@@ -156,7 +155,7 @@ private fun DangerButtonPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun SurfaceCardPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
+    AccountTheme(darkTheme = false) {
         SurfaceCard {
             Row(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                 Text("surface 卡片", modifier = Modifier.weight(1f))

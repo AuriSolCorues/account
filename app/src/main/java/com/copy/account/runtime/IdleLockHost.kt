@@ -46,14 +46,30 @@ internal fun IdleLockHost(
     val currentAutoLockSeconds by rememberUpdatedState(autoLockSeconds)
     // 生产接线：真实主线程 Handler 排程 + uptimeMillis 时钟（必须与 postDelayed 同基准，
     // 深睡不前进、不受改系统时间影响）。
-    val idleLock = remember { IdleLock(onLock = { currentOnLock() }, scheduler = mainThreadIdleScheduler(), now = { SystemClock.uptimeMillis() }) }
+    val idleLock = remember {
+        IdleLock(
+            onLock = { currentOnLock() },
+            scheduler = mainThreadIdleScheduler(),
+            now = { SystemClock.uptimeMillis() },
+            // start/touch 时把锚点导出给扩展心跳（同时锁定的共享钟面）
+            // Wiring 收口：宿主不直接触碰 ExtensionPlatformState，公开/私有两侧以不同实现共存
+            // （公开版直通/空实现），保证 merge 零冲突。
+            anchorExport = { ExtensionWiring.exportIdleAnchor(SystemClock.uptimeMillis()) },
+        )
+    }
     DisposableEffect(activity) {
         // Activity 上没有「本地 Context 就是 MainActivity」的类型保证（预览/测试会传别的），
         // 拿不到宿主就干脆不挂 sink，onUserInteraction 里的 ?.invoke() 会自然跳过。
         val host = activity as? MainActivity
         host?.userInteractionSink = { idleLock.touch() }
+        // 扩展心跳入口：provider（Binder 线程）收到 touchSession 后 post 回主线程调它——
+        // 扩展页的活动由此计入本体同一把空闲锁（「摸哪儿都算活动」）。
+        // Wiring 收口：宿主不直接触碰 ExtensionPlatformState，公开/私有两侧以不同实现共存
+        // （公开版直通/空实现），保证 merge 零冲突。
+        ExtensionWiring.registerIdleHooks(touchHook = { idleLock.touch() })
         onDispose {
             host?.userInteractionSink = null
+            ExtensionWiring.unregisterIdleHooks()
             idleLock.stop()
         }
     }
@@ -67,6 +83,14 @@ internal fun IdleLockHost(
             // 内部单位已是秒，与 AUTO_LOCK_TEST_SECONDS 同基准，无需换算。
             else -> currentAutoLockSeconds * 1000L
         }
-        if (timeoutMs > 0L) idleLock.start(timeoutMs) else idleLock.stop()
+        if (timeoutMs <= 0L) {
+            idleLock.stop()
+            ExtensionWiring.updateIdleTimeoutSec(0)
+        } else {
+            idleLock.start(timeoutMs)
+            // 导出给扩展 touchSession 心跳：同一锚点+同一超时，扩展本地倒计时到点与
+            // 本体 lockApp 同秒（「同时锁定」——本体无主动推送通道，靠共享锚点达成）。
+            ExtensionWiring.updateIdleTimeoutSec((timeoutMs / 1000L).toInt())
+        }
     }
 }

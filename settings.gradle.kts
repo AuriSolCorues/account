@@ -29,6 +29,6 @@ include(":app")
 
 // 附加模块条件挂载：目录存在才参与构建。仓库本身只发布本体（:app）；
 // 本地放置对应目录后自动接入（如自建扩展模块），CI 与发布构建不受影响。
-if (file("sync").isDirectory) {
-    include(":sync")
+if (file("extension").isDirectory) {
+    include(":extension")
 }

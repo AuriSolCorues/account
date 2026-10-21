@@ -69,6 +69,7 @@ import com.copy.account.runtime.appendLog
 import com.copy.account.runtime.rememberBackupLocationState
 import com.copy.account.runtime.rememberSettingsContainer
 import com.copy.account.runtime.rememberUnlockSession
+import com.copy.account.runtime.ExtensionWiring
 import com.copy.account.page.AboutScreen
 import com.copy.account.page.AccountDetailScreen
 import com.copy.account.page.AccountEditScreen
@@ -127,26 +128,43 @@ fun AccountApp(
 
     // ===== 设置域（P1 抽取）：状态与 DataStore 读写全部收敛在 SettingsContainer =====
     // onThemeApplied：设置生效值变化时把 4 个窗口级主题项回推 MainActivity（原冷启动/reload 的四次回调合一）。
+    // 顺手喂平台状态单例：扩展经桥 state 管道拿同款外观（主题随本体，扩展零配置存储）。
     val settingsContainer = rememberSettingsContainer(
         onThemeApplied = { applied ->
             onThemeModeChange(applied.themeMode)
             onAccentThemeChange(applied.accentTheme)
             onCustomThemeJsonChange(applied.customThemeJson)
             onAllowScreenshotsChange(applied.allowScreenshots)
+            ExtensionWiring.pushTheme(applied.themeMode, applied.accentTheme, applied.customThemeJson)
         }
     )
     val settings = settingsContainer.settings
     val maskChar = settingsContainer.maskChar
 
     // ===== 解锁会话域（P3 抽取）：DEK/账号数据/生物识别收敛在 UnlockSession =====
+    // returnPage：锁定时记住当前页，解锁后恢复（用户在设置/备份页被锁，回来还回原页，
+    // 不再粗暴弹回主页）；仅当锁定前真的解锁过才有意义（AppPage.Unlock 本身无恢复价值）。
+    var returnPage by remember { mutableStateOf<AppPage>(AppPage.Home) }
     val session = rememberUnlockSession(
         store = store,
         biometricEnabled = { settingsContainer.settings.biometricEnabled },
         // autofillEnabled：开关由设置域（autofillEnabled）落地后接入；先以 false 桥闸常闭，功能不激活。
         autofillEnabled = { settingsContainer.settings.autofillEnabled },
         onBiometricEnabledChange = { enabled -> settingsContainer.update { it.copy(biometricEnabled = enabled) } },
-        onUnlocked = { page = AppPage.Home },
-        onLocked = { editTemplate = null; page = AppPage.Unlock }
+        // 解锁后回跳扩展页：扩展锁定时跳本体解锁前置的一次性标记（consumeResumeExtension
+        // 取走即清、2 分钟窗口）。有效 → 借出会话并直接落回扩展页（launchExtensionSettings
+        // 内含 borrow）；无标记/过期/无扩展 → 维持 returnPage 原语义（解锁后回锁定前页面）。
+        onUnlocked = {
+            page = returnPage
+            if (ExtensionWiring.consumeResumeAndLaunch(context)) {
+                // 消费成功：借出会话并落回扩展页（launchExtensionSettings 内含 borrow，已在 Wiring 内执行）
+            }
+        },
+        onLocked = {
+            editTemplate = null
+            if (page != AppPage.Unlock) returnPage = page // Unlock 本身不记（否则解锁永远回 Unlock）
+            page = AppPage.Unlock
+        }
     )
     val accounts = session.accounts
     val groups = session.groups
@@ -157,6 +175,10 @@ fun AccountApp(
     // ===== 备份目录/授权域（P1 抽取）：路径、授权、提示状态收敛在 BackupLocationState =====
     val backupLocation = rememberBackupLocationState()
     val directBackup = backupLocation.directBackup
+
+    // 平台状态广播的 context 注入（一次性；组合期主线程安全）。
+    // 主体在进程早期可能由 provider 先创建——那也无妨，广播发送点都在 UI 事件之后。
+    remember(context) { ExtensionWiring.attachNotifyContext(context.applicationContext) }
 
     /** 当前是否处于前台 RESUME 状态，用于在回到前台时触发一次生物识别。 */
     var resumed by remember { mutableStateOf(false) }
@@ -204,6 +226,9 @@ fun AccountApp(
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
                     resumed = true
+                    // 会话让渡归还：从扩展页回到本体（扩展页 finish/退后台）——标志清零。
+                    // 锁定本身由扩展侧 ON_STOP 回锁负责，这里只清让渡态。
+                    ExtensionWiring.onSessionEnd()
                     // 从系统设置授予/撤销「所有文件访问」后返回时刷新
                     backupLocation.refreshStorageAccess()
                 }
@@ -464,6 +489,14 @@ fun AccountApp(
             onOpenSecurity = { page = AppPage.SecuritySettings },
             onOpenAppearance = { page = AppPage.AppearanceSettings },
             onOpenBackup = { page = AppPage.BackupFiles },
+            // 扩展入口的拉起 Intent：进设置页时现查（不跨页缓存，装/卸扩展后回来即新值）。
+            // 顺手缓存扩展包名：状态变化定向广播的收件人（隐式广播被 ColorOS 丢弃，必须定向）。
+            extensionLaunch = remember(context) {
+                ExtensionWiring.resolveLaunchIntent(context).also { intent ->
+                    ExtensionWiring.setExtensionPackage(intent?.`package`
+                        ?: intent?.component?.packageName)
+                }
+            },
             onOpenLogs = { page = AppPage.Logs },
             onOpenAbout = { page = AppPage.About },
             onBack = { page = AppPage.Home }

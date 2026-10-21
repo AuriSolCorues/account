@@ -27,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
 
 /** 删除确认框：红「删除」+「取消」，删除账号/分组/备份共用。刻意不写调用处数量，加一处就得改注释。 */
@@ -164,7 +163,7 @@ internal fun NumberSettingDialog(
 @Preview(showBackground = true)
 @Composable
 private fun DeleteConfirmDialogPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
+    AccountTheme(darkTheme = false) {
         DeleteConfirmDialog(
             title = "删除账号",
             message = "删除后无法恢复。",
@@ -177,7 +176,7 @@ private fun DeleteConfirmDialogPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun TextInputDialogPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
+    AccountTheme(darkTheme = false) {
         TextInputDialog(
             title = "新增分组",
             label = "分组名称",
@@ -190,7 +189,7 @@ private fun TextInputDialogPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun ChoiceDialogPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
+    AccountTheme(darkTheme = false) {
         ChoiceDialog(
             title = "自动锁定",
             options = listOf("1 分钟" to {}, "5 分钟" to {}),
@@ -202,7 +201,7 @@ private fun ChoiceDialogPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun NumberSettingDialogPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
+    AccountTheme(darkTheme = false) {
         NumberSettingDialog(
             title = "自动锁定",
             unit = "分钟",

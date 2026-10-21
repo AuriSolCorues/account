@@ -244,9 +244,7 @@ internal fun accountInGroup(account: Account, groups: List<Group>, groupId: Stri
 /** 自动锁定时长上限（秒），即 24 小时；超过的设置值一律夹到此处。 */
 internal const val MAX_AUTO_LOCK_SECONDS = 86_400
 
-/** 用户保存的自定义主题（id + 显示名 + 原始 JSONC 文本），供主题列表管理与还原。 */
-@Serializable
-data class SavedTheme(val id: String, val name: String, val json: String)
+/** 用户保存的自定义主题（id + 显示名 + 原始 JSONC 文本）：shared/data/model/SavedTheme.kt（srcDirs 同源单份）。 */
 
 /**
  * 应用全局设置数据模型（内存态或配合特定序列化器使用）。

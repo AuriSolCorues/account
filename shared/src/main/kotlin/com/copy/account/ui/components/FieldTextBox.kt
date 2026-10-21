@@ -29,7 +29,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
 
 /** 文字按钮基座。 */
@@ -44,6 +43,25 @@ internal fun TextActionButton(
 ) {
     TextButton(onClick = onClick, modifier = modifier, enabled = enabled) {
         if (textStyle == null) Text(text, color = textColor) else Text(text, color = textColor, style = textStyle)
+    }
+}
+
+/**
+ * 顶栏文字按钮（AppScreen/AppListScreen 的 actions 槽专用）：自动取主题顶栏文字色。
+ * 存在理由：actions 槽渲染在 palette.topBar 背景（常为深色）上，而 TextActionButton
+ * 默认色走 MaterialTheme（亮色模式下 primary 是深色）——深字落深顶栏 = 「看不见」。
+ * 此坑已咬过四页（本体 Log/GroupManage/Edit/Backup 各自手传 topBarText 补救），
+ * 根治 = 颜色责任收进组件：顶栏按钮一律用本组件，调用点无需（也不允许）再想颜色。
+ */
+@Composable
+internal fun TopBarTextButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    TextButton(onClick = onClick, modifier = modifier, enabled = enabled) {
+        Text(text, color = com.copy.account.ui.theme.LocalAccountThemePalette.current.topBarText)
     }
 }
 
@@ -133,7 +151,7 @@ internal fun FieldTextBox(
 @Preview(showBackground = true)
 @Composable
 private fun TextActionButtonPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
+    AccountTheme(darkTheme = false) {
         TextActionButton("文字操作", onClick = {})
     }
 }
@@ -141,7 +159,7 @@ private fun TextActionButtonPreview() {
 @Preview(showBackground = true)
 @Composable
 private fun FieldTextBoxPreview() {
-    AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
+    AccountTheme(darkTheme = false) {
         FieldTextBox("hunter2", onValueChange = {}, hidden = true)
     }
 }

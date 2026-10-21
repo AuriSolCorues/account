@@ -10,6 +10,12 @@
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
+    <!-- 可选扩展模块的签名级门禁（由本体声明同名权限 + 同 keystore 签名安装后自动授予）：
+         扩展的数据桥与入口拉起均要求调用方/被调方持有此权限；权限定义在本体，扩展使用。 -->
+    <permission
+        android:name="com.copy.account.extension.permission.BRIDGE"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.copy.account.extension.permission.BRIDGE" />
 
     <uses-feature
         android:name="android.hardware.camera.any"
@@ -20,6 +26,12 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <!-- 可选扩展模块：按 action 在装发现（扩展声明同名 intent-filter），
+             包可见性走 intent 匹配，无需也不包含任何具体扩展包名。 -->
+        <intent>
+            <action android:name="com.copy.account.action.SYNC_SETTINGS" />
+            <category android:name="android.intent.category.DEFAULT" />
         </intent>
     </queries>
 
@@ -99,6 +111,16 @@
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:theme="@style/Theme.Account.Transparent" />
+
+        <!-- 本体 ⇆ 扩展模块文件数据桥（可选扩展机制的数据面）：授权目录内备份数据经此供给
+             同签名扩展。门禁 = BRIDGE 签名权限（同 keystore 才进得来）+ 调用方包名白名单。
+             本体自身的数据访问仍走本地文件直访，不经 provider；本类零联网。 -->
+        <provider
+            android:name=".runtime.ExtensionBridgeProvider"
+            android:authorities="com.copy.account.extbridge"
+            android:exported="true"
+            android:grantUriPermissions="false"
+            android:permission="com.copy.account.extension.permission.BRIDGE" />
     </application>
 
 </manifest>

@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.padding
 import com.copy.account.BuildConfig
+import com.copy.account.runtime.launchExtensionSettings
 import com.copy.account.security.ExportPasswordRequiredException
 import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.isMasterPasswordValid
@@ -47,9 +48,12 @@ internal fun SettingsScreen(
     onOpenAppearance: () -> Unit,
     onOpenBackup: () -> Unit,
     onOpenLogs: () -> Unit,
+    /** 扩展模块设置页拉起；null = 无在装扩展（整行不进组合）。 */
+    extensionLaunch: android.content.Intent?,
     onOpenAbout: () -> Unit,
     onBack: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     // 备份动作状态：busy 防执行中重入；resultMessage 非空时值位显「导出成功/导出失败」、
     // 行下显示详情小字，BACKUP_FEEDBACK_MILLIS 后自动清场；反馈在屏期间即冷却期，点击无效。
@@ -116,6 +120,12 @@ internal fun SettingsScreen(
         item { SettingsRow("安全设置", "打开", onClick = onOpenSecurity) }
         item { SettingsRow("主题与语言", "打开", onClick = onOpenAppearance) }
         item { SettingsRow("备份与数据", "打开", onClick = onOpenBackup) }
+        // 扩展模块入口：按 action 在装发现，有才显示（机制行，公开仓库无具体扩展字样）。
+        if (extensionLaunch != null) {
+            item {
+                SettingsRow("扩展", "打开", onClick = { launchExtensionSettings(context) })
+            }
+        }
         // 操作日志（全应用审计：账号增删/导出/崩溃），入口恒在。
         item { SettingsRow("操作日志", "打开", onClick = onOpenLogs) }
         // 版本号直接露在中枢上，不用进「关于」页也知道自己是哪一版。
@@ -175,6 +185,7 @@ private fun SettingsScreenPreview() {
             onOpenSecurity = {},
             onOpenAppearance = {},
             onOpenBackup = {},
+            extensionLaunch = null,
             onOpenLogs = {},
             onOpenAbout = {},
             onBack = {}
