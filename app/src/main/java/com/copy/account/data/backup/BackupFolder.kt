@@ -1,5 +1,5 @@
 /**
- * 职责：备份目录的位置模型——结构固定为 `<位置>/Account/account` 两级（Account=同步根、
+ * 职责：备份目录的位置模型——结构固定为 `<位置>/Account/account` 两级（Account=存储根、
  *       account=备份目录，嵌套不可改，「位置」前缀可自选），提供位置前缀的规范化、
  *       完整子路径推导与展示串。纯函数，无 IO、无 Android 依赖，可直接单测。
  * 架构位置：AccountApp 持久化前与 BackupScreen 弹窗校验时都调它；真正的落盘/遍历在
@@ -8,10 +8,10 @@
  */
 package com.copy.account.data.backup
 
-/** 同步根目录名：备份目录永远挂在它下面（结构固定 <位置>/Account/account）。 */
+/** 顶层容器目录名：备份目录永远挂在它下面（结构固定 <位置>/Account/account）。 */
 internal const val SYNC_ROOT_SEGMENT = "Account"
 
-/** 备份目录名：同步根下的固定子目录，.acc 与 appsettings.json 都在这里。 */
+/** 备份目录名：容器目录下的固定子目录，.acc 与 appsettings.json 都在这里。 */
 internal const val BACKUP_SUBFOLDER = "account"
 
 /** 默认备份子路径（位置为空 = 内部存储根直下）。历史值 backups/account 自 v2.0.0(22) 起废弃。 */
