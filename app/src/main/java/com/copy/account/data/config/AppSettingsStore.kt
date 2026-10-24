@@ -31,14 +31,19 @@ data class AppSettingsOverride(
     val customThemes: List<SavedTheme>? = null,
     val clipboardClearSeconds: Int? = null,
     val allowScreenshots: Boolean? = null,
+    /** PBKDF2 迭代数目标值（appsettings.json 外挂高级项；缺省 = 不覆盖）。 */
+    val kdfIterations: Int? = null,
     val biometricEnabled: Boolean? = null,
     /** 新键：自动锁定秒数。与旧键 [autoLockMinutes] 同时声明是为了兼容旧外挂文件一版。 */
     val autoLockSeconds: Int? = null,
     /** 旧键（分钟）：仅兼容旧 appsettings.json 保留，优先级低于新键；下次大版本删除。 */
-    val autoLockMinutes: Int? = null
+    val autoLockMinutes: Int? = null,
+    /** 新键：切后台锁定延迟秒数（0 = 立即）。 */
+    val backgroundLockSeconds: Int? = null
 )
 
 private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; prettyPrint = true }
+
 
 /** 配置文件名；与 .acc 同级放在备份目录里，用户用文件管理器就能看到并编辑。 */
 internal const val APP_SETTINGS_FILE_NAME = "appsettings.json"
@@ -97,6 +102,9 @@ internal fun applyOverride(base: AppSettings, override: AppSettingsOverride?): A
         allowScreenshots = override.allowScreenshots ?: base.allowScreenshots,
         biometricEnabled = override.biometricEnabled ?: base.biometricEnabled,
         // 新键优先；旧键（分钟）仅兜底旧外挂文件，×60 归一化为秒。两者都缺省保持 base。
-        autoLockSeconds = override.autoLockSeconds ?: (override.autoLockMinutes?.let { it * 60 }) ?: base.autoLockSeconds
+        autoLockSeconds = override.autoLockSeconds ?: (override.autoLockMinutes?.let { it * 60 }) ?: base.autoLockSeconds,
+        backgroundLockSeconds = override.backgroundLockSeconds ?: base.backgroundLockSeconds,
+        // KDF 迭代数支持外挂覆盖（用户配置文件随库分发时带上的高级项）；缺省保持 base。
+        kdfIterations = override.kdfIterations ?: base.kdfIterations
     )
 }

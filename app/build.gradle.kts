@@ -16,12 +16,17 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
-// 版本号：CI 可经 -Paccount.versionName/-Paccount.versionCode 注入，本地不传时用默认值。
+// 版本号：CI 可经 -Paccount.versionName/-Paccount.versionCode 注入，build.sh 从同文件读同值注入——
+// **唯一事实源是根目录 version.properties**（发版只改它一处）。文件缺失时回落 0 占位（显式可见的坏状态，
+// 防止「忘记配置也能静默出 57 这样的假版本」）。
 // 同时被 APK 命名复用（见文末 androidComponents），保证 tag、包内版本与文件名三者一致。
 // BUILD_ID：构建流水号（纯数字）——版本号不变时靠它区分装的哪一包（关于页「版本」行可见）。
-val appVersionName = providers.gradleProperty("account.versionName").getOrElse("2.0.0")
-val appVersionCode = providers.gradleProperty("account.versionCode").getOrElse("20").toInt()
-val appBuildId = providers.gradleProperty("account.buildId").getOrElse("22").toInt()
+val versionProps = Properties().apply {
+    rootProject.file("version.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+val appVersionName = providers.gradleProperty("account.versionName").getOrElse(versionProps.getProperty("versionName", "0.0.0"))
+val appVersionCode = providers.gradleProperty("account.versionCode").getOrElse(versionProps.getProperty("versionCode", "0")).toInt()
+val appBuildId = providers.gradleProperty("account.buildId").getOrElse(versionProps.getProperty("buildId", "0")).toInt()
 
 android {
     namespace = "com.copy.account"
@@ -155,6 +160,7 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.zxing.core)
+    // 本体永久零联网：不保留任何 HTTP 客户端依赖（HTTP 能力属本地放置的可选扩展模块）
     testImplementation(libs.junit)
     // Robolectric：纯 JVM 上跑 SharedPreferences/AtomicFile 单测；
     // androidx-junit 仅为单测提供 ApplicationProvider（传递依赖 androidx.test:core）。

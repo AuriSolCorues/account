@@ -49,6 +49,8 @@ import com.copy.account.data.model.FIXED_GROUP_COUNT
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
 import com.copy.account.data.model.MAX_AUTO_LOCK_SECONDS
+import com.copy.account.security.MAX_PASSWORD_ITERATIONS
+import com.copy.account.security.MIN_PASSWORD_ITERATIONS
 import com.copy.account.data.model.PersistedVault
 import com.copy.account.security.PasskeyRegistry
 import com.copy.account.security.PasskeyVaultAccess
@@ -70,6 +72,7 @@ import com.copy.account.runtime.rememberBackupLocationState
 import com.copy.account.runtime.rememberSettingsContainer
 import com.copy.account.runtime.rememberUnlockSession
 import com.copy.account.runtime.ExtensionWiring
+import com.copy.account.runtime.writeSyncPointer
 import com.copy.account.page.AboutScreen
 import com.copy.account.page.AccountDetailScreen
 import com.copy.account.page.AccountEditScreen
@@ -92,6 +95,7 @@ import com.copy.account.security.importAccountBoxJson
 import com.copy.account.security.importAcc
 import com.copy.account.ui.theme.parseThemeJson
 import java.io.File
+import android.os.Environment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -141,8 +145,8 @@ fun AccountApp(
     val settings = settingsContainer.settings
     val maskChar = settingsContainer.maskChar
 
-    // ===== 解锁会话域（P3 抽取）：DEK/账号数据/生物识别收敛在 UnlockSession =====
-    // returnPage：锁定时记住当前页，解锁后恢复（用户在设置/备份页被锁，回来还回原页，
+    // 解锁会话域（P3 抽取）：DEK/账号数据/生物识别收敛在 UnlockSession。
+    // returnPage：锁定时记住当前页，解锁后恢复（用户在云同步页被锁，回来还回云同步页，
     // 不再粗暴弹回主页）；仅当锁定前真的解锁过才有意义（AppPage.Unlock 本身无恢复价值）。
     var returnPage by remember { mutableStateOf<AppPage>(AppPage.Home) }
     val session = rememberUnlockSession(
@@ -151,6 +155,10 @@ fun AccountApp(
         // autofillEnabled：开关由设置域（autofillEnabled）落地后接入；先以 false 桥闸常闭，功能不激活。
         autofillEnabled = { settingsContainer.settings.autofillEnabled },
         onBiometricEnabledChange = { enabled -> settingsContainer.update { it.copy(biometricEnabled = enabled) } },
+        // 切后台锁定延迟（现读现用，仿 biometricEnabled 模式）：onAppStop 调度 / onAppResume 取消。
+        backgroundLockSeconds = { settingsContainer.settings.backgroundLockSeconds },
+        // KDF 迭代数目标值（现读现用）：密码解锁时透传给 store，库存值不等即透明升级。
+        kdfIterations = { settingsContainer.settings.kdfIterations },
         // 解锁后回跳扩展页：扩展锁定时跳本体解锁前置的一次性标记（consumeResumeExtension
         // 取走即清、2 分钟窗口）。有效 → 借出会话并直接落回扩展页（launchExtensionSettings
         // 内含 borrow）；无标记/过期/无扩展 → 维持 returnPage 原语义（解锁后回锁定前页面）。
@@ -194,11 +202,13 @@ fun AccountApp(
         chooseBackupDirectory.launch(null)
     }
 
-    /** 改密成功后须重缓存导出密钥（改密会废弃旧缓存）；数据本体不动（DEK 不变）。 */
+    /** 改密成功后须重缓存导出密钥（改密会废弃旧缓存）；数据本体不动（DEK 不变）。
+     *  改密同时把 KDF 迭代数对齐到当前设置目标值（重包装零额外输密码，顺手升参）。 */
     suspend fun changeMasterPassword(newPassword: String): Result<Unit> {
         val key = session.dataKey ?: return Result.failure(IllegalStateException("当前未解锁，请重新解锁后重试"))
+        val target = settingsContainer.settings.kdfIterations
         return withContext(Dispatchers.Default) {
-            store.changeMasterPassword(newPassword, key).onSuccess { material ->
+            store.changeMasterPassword(newPassword, key, target).onSuccess { material ->
                 try {
                     store.cacheBackupKey(material, key)
                 } finally {
@@ -212,7 +222,8 @@ fun AccountApp(
     BackHandler(enabled = page != AppPage.Unlock && page != AppPage.Home) {
         page = when (page) {
             AppPage.Settings, AppPage.Groups, is AppPage.Detail, is AppPage.Edit -> AppPage.Home
-            AppPage.SecuritySettings, AppPage.AppearanceSettings, AppPage.About, AppPage.Logs, AppPage.BackupFiles -> AppPage.Settings
+            AppPage.SecuritySettings, AppPage.AppearanceSettings, AppPage.About, AppPage.BackupFiles,
+            AppPage.Logs -> AppPage.Settings
             else -> page
         }
     }
@@ -229,6 +240,8 @@ fun AccountApp(
                     // 会话让渡归还：从扩展页回到本体（扩展页 finish/退后台）——标志清零。
                     // 锁定本身由扩展侧 ON_STOP 回锁负责，这里只清让渡态。
                     ExtensionWiring.onSessionEnd()
+                    // 后台延迟锁取消：X 秒内回前台 = 无缝继续（超时场景锁已触发，此处无操作）。
+                    session.onAppResume()
                     // 从系统设置授予/撤销「所有文件访问」后返回时刷新
                     backupLocation.refreshStorageAccess()
                 }
@@ -297,82 +310,132 @@ fun AccountApp(
         else writeBackupFile(context, tree!!, bytes, backupLocation.backupFolder, nameFactory, mimeType)
     }
 
+    /** 指针文件幂等重写（扩展目录继承唯一写入点）；SAF 轨不写（扩展不支持，口径一致）。 */
+    fun writeSyncPointer() {
+        if (!directBackup) return
+        com.copy.account.runtime.writeSyncPointer(context, backupLocation.backupFolder)
+    }
+
+    /**
+     * 导出防重入锁：双发写盘问题的收口。页面级 busy/冷却只防本页连点，
+     * 防不了系统层把一次触摸投递成两次点击（OEM 幽灵触摸）、确认框按钮双击进事件队列、
+     * 以及设置页/备份页跨页并发——加密/明文两个导出入口共用本实例，原子锁保证
+     * 同一时刻最多一个导出在飞，抢不到锁的第二发直接回失败，不碰写盘。
+     *
+     * 刻意是**文件级单例**而非 remember：remember 挂在组合上，导出中途旋转/重建
+     * Activity 会换一把新锁（旧导出还在飞、新锁却是开的，防重入失效）。
+     * 本 App 单 Activity 单组合实例，文件级 ≈ 进程级。
+     * 取消语义：导出体是纯阻塞代码（无挂起点），协程被取消时工作照常跑完、
+     * finally 必释放锁——旧导出完整落一个文件，期间新导出请求被锁挡下。
+     */
+    val exportInFlight = remember { ExportInFlight }
+
     val exporter = remember {
         object : BackupExporter {
             override fun exportEncrypted(onDone: (Result<String>) -> Unit) {
+                if (!exportInFlight.compareAndSet(false, true)) {
+                    onDone(Result.failure(IllegalStateException("已有导出在进行，请稍候")))
+                    return
+                }
                 scope.launch {
-                    val result = withContext(Dispatchers.Default) {
-                        val gateError = exportGateError()
-                        if (gateError != null) {
-                            Result.failure(IllegalStateException(gateError))
-                        } else {
-                            val vaultKey = currentDataKey!!.copyOf()
-                            runCatching {
-                                val material = store.loadCachedBackupKey(vaultKey) ?: throw ExportPasswordRequiredException()
-                                try {
-                                    val bytes = exportAcc(
-                                        AccExportInput(
-                                            PersistedVault(
-                                                accounts = currentAccounts,
-                                                groups = currentGroups,
-                                                selectedGroupId = currentSelectedGroupId
-                                            ),
-                                            currentSettings
-                                        ), material.key, material.salt, material.iterations
-                                    )
+                    try {
+                        val result: Result<String> = withContext(Dispatchers.Default) {
+                            val gateError = exportGateError()
+                            if (gateError != null) {
+                                Result.failure<String>(IllegalStateException(gateError))
+                            } else {
+                                val vaultKey = currentDataKey!!.copyOf()
+                                // runCatching 的值不接（导出名在内部 appendLog/返回），.also 只做密钥清零副作用。
+                                runCatching {
+                                    val material = store.loadCachedBackupKey(vaultKey)
+                                        ?: throw ExportPasswordRequiredException()
                                     try {
-                                        val name = writeExportBytes(bytes, ::uniqueBackupName, "application/octet-stream")
-                                        appendLog(context, LogEvents.EXPORT, "导出备份成功（${name}）")
-                                        name
+                                        // WebDAV 配置随库备份（换机免重输）：托管区有记录才带；无 = 旧字段缺省 null。
+                                        val webdavRecord = com.copy.account.runtime.WebDavConfigVault.loadForExport(context)
+                                        val bytes = exportAcc(
+                                            AccExportInput(
+                                                PersistedVault(
+                                                    accounts = currentAccounts,
+                                                    groups = currentGroups,
+                                                    selectedGroupId = currentSelectedGroupId,
+                                                    webdavConfig = webdavRecord?.let {
+                                                        com.copy.account.data.model.WebDavConfigBackup(it.url, it.user, it.passwordEnc)
+                                                    }
+                                                ),
+                                                currentSettings
+                                            ), material.key, material.salt, material.iterations
+                                        )
+                                        try {
+                                            // 加密备份命名现读文件名标签：空 = 裸时间戳（时间戳格式 v57 起收紧）。
+                                            val name = writeExportBytes(bytes, { uniqueBackupName(backupLocation.backupNameTag, it) }, "application/octet-stream")
+                                            // 指针文件幂等重写（设计稿 §2 活性保证）：导出成功后刷新，扩展每次同步现读即跟随
+                                            writeSyncPointer()
+                                            appendLog(context, LogEvents.EXPORT, "导出备份成功（${name}）")
+                                            // 导出后自动上传（fire-and-forget）：拉起扩展跳板 ↑ 上传，
+                                            // 结果经扩展 appendLog 落操作日志（成败皆一条「扩展事件」）。
+                                            // 无扩展在装/拉起失败 = 静默跳过（导出主流程不受影响）。
+                                            com.copy.account.runtime.kickExtensionSync(context)
+                                            name
+                                        } finally {
+                                            bytes.fill(0)
+                                        }
                                     } finally {
-                                        bytes.fill(0)
+                                        material.clear()
                                     }
-                                } finally {
-                                    material.clear()
-                                }
-                            }.also { vaultKey.fill(0) }
+                                }.also { vaultKey.fill(0) }
+                            }
                         }
+                        onDone(result)
+                    } finally {
+                        exportInFlight.set(false)
                     }
-                    onDone(result)
                 }
             }
 
             override fun exportPlaintext(onDone: (Result<String>) -> Unit) {
+                if (!exportInFlight.compareAndSet(false, true)) {
+                    onDone(Result.failure(IllegalStateException("已有导出在进行，请稍候")))
+                    return
+                }
                 scope.launch {
-                    val result = withContext(Dispatchers.Default) {
-                        // 门禁与加密导出共用 exportGateError()。明文导出不需要 KEK：账号明文此刻就在
-                        // accounts/groups 里，所以不碰 loadCachedBackupKey，也就不会触发
-                        // ExportPasswordRequiredException 那个「首次导出输密码」的分支。
-                        val gateError = exportGateError()
-                        if (gateError != null) {
-                            Result.failure(IllegalStateException(gateError))
-                        } else {
-                            runCatching {
-                                // 明文轨与「账号本子」App 互导：产 ACCOUNTBOX v13 格式
-                                //（首行魔数 + JSON）。绑定关系（url/包名）无对应概念，不导出。
-                                val bytes = exportAccountBoxJson(
-                                    PersistedVault(
-                                        accounts = currentAccounts,
-                                        groups = currentGroups,
-                                        selectedGroupId = currentSelectedGroupId
-                                    ),
-                                    System.currentTimeMillis()
-                                )
-                                // 命名与 mime 都与 .acc 分开：文件名带 plain 前缀。写完立刻清零字节，
-                                // 尽量缩短明文在堆上的时间。
-                                // 落点刻意与 .acc 分轨：明文固定写系统「下载」目录；SAF 轨（API<30）
-                                // 系统限制写不了公共 Downloads，仍写授权目录（两台真机均 API>=30，
-                                // 不触达此分支）。
-                                try {
-                                    if (directBackup) writeFileBackup(bytes, "Download", ::uniquePlainExportName)
-                                    else writeExportBytes(bytes, ::uniquePlainExportName, "application/json")
-                                } finally {
-                                    bytes.fill(0)
+                    try {
+                        val result = withContext(Dispatchers.Default) {
+                            // 门禁与加密导出共用 exportGateError()。明文导出不需要 KEK：账号明文此刻就在
+                            // accounts/groups 里，所以不碰 loadCachedBackupKey，也就不会触发
+                            // ExportPasswordRequiredException 那个「首次导出输密码」的分支。
+                            val gateError = exportGateError()
+                            if (gateError != null) {
+                                Result.failure(IllegalStateException(gateError))
+                            } else {
+                                runCatching {
+                                    // 明文轨与「账号本子」App 互导：产 ACCOUNTBOX v13 格式
+                                    //（首行魔数 + JSON）。绑定关系（url/包名）无对应概念，不导出。
+                                    val bytes = exportAccountBoxJson(
+                                        PersistedVault(
+                                            accounts = currentAccounts,
+                                            groups = currentGroups,
+                                            selectedGroupId = currentSelectedGroupId
+                                        ),
+                                        System.currentTimeMillis()
+                                    )
+                                    // 命名与 mime 都与 .acc 分开：文件名带 plain 前缀。写完立刻清零字节，
+                                    // 尽量缩短明文在堆上的时间。
+                                    // 落点刻意与 .acc 分轨：明文固定写系统「下载」目录；SAF 轨（API<30）
+                                    // 系统限制写不了公共 Downloads，仍写授权目录（两台真机均 API>=30，
+                                    // 不触达此分支）。命名刻意不走文件名标签：明文轨格式固定不动。
+                                    try {
+                                        if (directBackup) writeFileBackup(bytes, "Download", ::uniquePlainExportName)
+                                        else writeExportBytes(bytes, ::uniquePlainExportName, "application/json")
+                                    } finally {
+                                        bytes.fill(0)
+                                    }
                                 }
                             }
                         }
+                        onDone(result)
+                    } finally {
+                        exportInFlight.set(false)
                     }
-                    onDone(result)
                 }
             }
 
@@ -402,7 +465,7 @@ fun AccountApp(
             resetKey = session.lockGeneration,
             onBiometricUnlock = { session.authenticateBiometric() },
             // PBKDF2 派生 + 文件读写 + 导出密钥缓存在 UnlockSession.unlockWithPassword 内后台线程完成。
-            onUnlock = { password -> session.unlockWithPassword(password) }
+            onUnlock = { password -> session.unlockWithPassword(password, settingsContainer.settings.kdfIterations) }
         )
 
         AppPage.Home -> HomeScreen(
@@ -428,10 +491,10 @@ fun AccountApp(
                 appendLog(context, LogEvents.ACCOUNT_DELETE, "删除账号「$name」")
             },
             onDeleteAccounts = { ids ->
-                val names = accounts.filter { it.id in ids }.map { it.name }
+                val names = accounts.filter { it.id in ids }.joinToString("、") { it.name }
                 session.accounts = session.accounts.filterNot { it.id in ids }
                 session.persistVault()
-                appendLog(context, LogEvents.ACCOUNT_DELETE, "删除 ${ids.size} 个账号（${names.take(3).joinToString("、")}）")
+                appendLog(context, LogEvents.ACCOUNT_DELETE, "删除 ${ids.size} 个账号（$names）")
             },
             onMoveAccounts = { ids, fromGroupId, toGroupId ->
                 val from = groups.firstOrNull { it.id == fromGroupId }
@@ -502,6 +565,9 @@ fun AccountApp(
             onBack = { page = AppPage.Home }
         )
 
+
+        AppPage.Logs -> LogScreen(onBack = { page = AppPage.Settings })
+
         AppPage.SecuritySettings -> SecuritySettingsScreen(
             biometricEnabled = settings.biometricEnabled,
             biometricAvailable = store.biometricAvailable(),
@@ -517,14 +583,28 @@ fun AccountApp(
             },
             // 手动关闭填充窗口：唯一主动撤桥入口，连公开索引一起清（AutofillBridge.clear）。
             onCloseAutofillWindow = { AutofillBridge.clear(context) },
+            // 手动开启填充窗口（会话型开关的开启方向）：开关总闸开着才可达（页面已 gate），此处灌桥。
+            onOpenAutofillWindow = {
+                if (session.isUnlocked) {
+                    AutofillBridge.enable(context, AutofillBridge.toAutofillAccounts(accounts), session.dataKey!!)
+                }
+            },
             autoLockSeconds = settings.autoLockSeconds,
             onAutoLockChange = { seconds ->
                 settingsContainer.update { it.copy(autoLockSeconds = seconds.coerceIn(0, MAX_AUTO_LOCK_SECONDS)) }
+            },
+            backgroundLockSeconds = settings.backgroundLockSeconds,
+            onBackgroundLockChange = { seconds ->
+                settingsContainer.update { it.copy(backgroundLockSeconds = seconds.coerceIn(0, 300)) }
             },
             onBack = { page = AppPage.Settings },
             clipboardClearSeconds = settings.clipboardClearSeconds,
             onClipboardClearChange = { seconds ->
                 settingsContainer.update { it.copy(clipboardClearSeconds = seconds.coerceIn(0, 86_400)) }
+            },
+            kdfIterations = settings.kdfIterations,
+            onKdfIterationsChange = { iterations ->
+                settingsContainer.update { it.copy(kdfIterations = iterations.coerceIn(MIN_PASSWORD_ITERATIONS, MAX_PASSWORD_ITERATIONS)) }
             },
             blockScreenshots = !settings.allowScreenshots,
             onBlockScreenshotsChange = { blocked ->
@@ -600,8 +680,6 @@ fun AccountApp(
 
         AppPage.About -> AboutScreen(onBack = { page = AppPage.Settings })
 
-        AppPage.Logs -> LogScreen(onBack = { page = AppPage.Settings })
-
         AppPage.BackupFiles -> {
             // ===== 备份域接线（P2 收拢）：BackupScreen 只见三接口，IO/加解密/线程全在此实现 =====
             // exporter 与门禁已提升到 when(page) 之前（设置页一键备份共用同一实例）。
@@ -654,15 +732,28 @@ fun AccountApp(
                     override val backupTreeUri get() = backupLocation.backupTreeUri
                     override val backupLocation get() = backupLocation.backupLocation
                     override val backupFolder get() = backupLocation.backupFolder
+                    override val backupNameTag get() = backupLocation.backupNameTag
                     override val directoryMessage get() = backupLocation.backupDirectoryMessage
                     override val directoryExpanded get() = backupLocation.directoryExpanded
                     override fun toggleDirectoryExpanded() = backupLocation.toggleDirectoryExpanded()
-                    override fun changeBackupLocation(raw: String) = backupLocation.changeBackupLocation(raw)
-                    override fun changeBackupFolder(raw: String) = backupLocation.changeBackupFolder(raw)
+                    override fun changeBackupNameTag(raw: String) = backupLocation.changeBackupNameTag(raw)
+                    override fun changeBackupLocation(raw: String): Boolean {
+                        val changed = backupLocation.changeBackupLocation(raw)
+                        // 目录跟随（设计稿 §2）：位置变更成功后重写指针文件，扩展下一次同步即跟随
+                        if (changed) writeSyncPointer()
+                        return changed
+                    }
+                    override fun changeBackupFolder(raw: String): Boolean {
+                        val changed = backupLocation.changeBackupFolder(raw)
+                        if (changed) writeSyncPointer()
+                        return changed
+                    }
                     override fun chooseDirectory() = requestBackupDirectory()
                     override fun requestStorageAccess() { backupLocation.requestStorageAccess() }
                 }
             }
+
+            // 同步功能在可选扩展模块（本地放置才参与构建）：备份页保持纯备份页。
 
                 BackupScreen(
                 fileStore = fileStore,
@@ -692,6 +783,12 @@ fun AccountApp(
                     //（vault 的 Account.passkeys 是唯一权威源；锁定态出卡的 Service 靠 registry 查询）
                     passkeyRegistry.rebuildFromVault(imported.vault.accounts)
                     passkeyRegistryVersion++
+                    // WebDAV 配置随库恢复：写回托管区 + 置待取标记，扩展下次启动经桥取回（免重输）。
+                    imported.vault.webdavConfig?.let {
+                        com.copy.account.runtime.WebDavConfigVault.storeFromImport(
+                            context, com.copy.account.runtime.WebDavConfigRecord(it.url, it.user, it.passwordEnc)
+                        )
+                    }
                     // 生物识别包装密钥属于当前设备，备份不携带它；保留本机开关，使已启用的指纹解锁在导入后仍可用。
                     val importedSettings = imported.settings.copy(biometricEnabled = settingsContainer.baseSettings.biometricEnabled)
                     settingsContainer.update { importedSettings }
@@ -746,7 +843,7 @@ fun AccountApp(
             onBack = { page = AppPage.Home; editTemplate = null },
             onCreateGroup = ::createGroup,
             onSave = { edited ->
-                val isNew = accounts.none { it.id == edited.id }
+                val isNew = !accounts.any { it.id == edited.id }
                 val nextAccounts = if (!isNew) {
                     accounts.map { if (it.id == edited.id) edited else it }
                 } else {
@@ -801,3 +898,9 @@ fun AccountApp(
         )
     }
 }
+
+/**
+ * 导出防重入锁的进程级存储：文件级单例（顶层 val，类加载即初始化，进程存活期常驻）。
+ * AccountApp 的 remember 只是把这把锁接进组合——旋转/重组换组合实例，锁不换。
+ */
+private val ExportInFlight = java.util.concurrent.atomic.AtomicBoolean(false)

@@ -65,6 +65,71 @@ class VaultStoreTest {
         assertTrue(unlock.dataKey.any { it != 0.toByte() })
     }
 
+    // ==================== E. KDF 迭代数透明升级（双向/幂等/数据不重加密）====================
+
+    /** 建库后读 prefs 里的当前迭代数（测试断言用；store 私有键经解锁返回值核对）。 */
+    private fun currentIterations() = store.unlockWithPassword("测试密码123")!!.backupKey.iterations
+
+    @Test
+    fun iterationUpgrade_lowToHigh_samePasswordStillUnlocks_andDataIntact() {
+        store.createInitial("测试密码123", initialState)
+        val dekBefore = store.unlockWithPassword("测试密码123")!!.dataKey.copyOf()
+        // 300k 库 + 目标 600k：解锁验证通过后应透明升级（返回的 backupKey 已是新参数）。
+        val upgraded = store.unlockWithPassword("测试密码123", targetIterations = 600_000)
+        assertNotNull(upgraded)
+        upgraded!!
+        assertEquals(600_000, upgraded.backupKey.iterations)
+        // DEK 不变（KEK/DEK 模型：只换包装不重加密），数据照常解出。
+        assertArrayEquals(dekBefore, upgraded.dataKey)
+        assertEquals(initialState.accounts, upgraded.state.accounts)
+        // 升级后常规解锁（不带目标）也成功，且读到的已是新迭代数。
+        val after = store.unlockWithPassword("测试密码123")
+        assertNotNull(after)
+        assertEquals(600_000, after!!.backupKey.iterations)
+    }
+
+    @Test
+    fun iterationUpgrade_highToLow_downgradeSamePath() {
+        store.createInitial("测试密码123", initialState)
+        val upgraded = store.unlockWithPassword("测试密码123", targetIterations = 600_000)!!
+        assertEquals(600_000, upgraded.backupKey.iterations)
+        // 反向：600k 库 + 目标 300k，同一条路降回来。
+        val downgraded = store.unlockWithPassword("测试密码123", targetIterations = 300_000)
+        assertNotNull(downgraded)
+        assertEquals(300_000, downgraded!!.backupKey.iterations)
+    }
+
+    @Test
+    fun iterationUpgrade_sameValue_isIdempotent() {
+        store.createInitial("测试密码123", initialState)
+        val first = store.unlockWithPassword("测试密码123", targetIterations = 600_000)!!
+        // 目标 == 库存：不触发重包装，backupKey 携带的迭代数即库存值。
+        val second = store.unlockWithPassword("测试密码123", targetIterations = 600_000)!!
+        assertEquals(first.backupKey.iterations, second.backupKey.iterations)
+        assertArrayEquals(first.dataKey, second.dataKey)
+    }
+
+    @Test
+    fun iterationUpgrade_wrongPassword_stillRejected() {
+        store.createInitial("测试密码123", initialState)
+        // 升级路径绝不绕过密码验证：错密码 + 目标迭代数 = null。
+        assertNull(store.unlockWithPassword("错密码", targetIterations = 600_000))
+    }
+
+    @Test
+    fun changeMasterPassword_withTargetIterations_appliesImmediately() {
+        store.createInitial("测试密码123", initialState)
+        val dek = store.unlockWithPassword("测试密码123")!!.dataKey
+        // 已解锁改密 + 指定目标迭代数：一次重包装同时完成换密与升参。
+        val result = store.changeMasterPassword("新密码456", dek, targetIterations = 500_000)
+        assertTrue(result.isSuccess)
+        val unlock = store.unlockWithPassword("新密码456")
+        assertNotNull(unlock)
+        assertEquals(500_000, unlock!!.backupKey.iterations)
+        // 旧密码已失效。
+        assertNull(store.unlockWithPassword("测试密码123"))
+    }
+
     @Test
     fun unlockWithPassword_wrongPassword_returnsNull() {
         store.createInitial("测试密码123", initialState)

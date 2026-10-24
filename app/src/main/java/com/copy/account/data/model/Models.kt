@@ -11,6 +11,7 @@
 package com.copy.account.data.model
 
 import com.copy.account.BuildConfig
+import com.copy.account.security.DEFAULT_PASSWORD_ITERATIONS
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -244,7 +245,8 @@ internal fun accountInGroup(account: Account, groups: List<Group>, groupId: Stri
 /** 自动锁定时长上限（秒），即 24 小时；超过的设置值一律夹到此处。 */
 internal const val MAX_AUTO_LOCK_SECONDS = 86_400
 
-/** 用户保存的自定义主题（id + 显示名 + 原始 JSONC 文本）：shared/data/model/SavedTheme.kt（srcDirs 同源单份）。 */
+/** 用户保存的自定义主题（id + 显示名 + 原始 JSONC 文本），供主题列表管理与还原。 */
+@Serializable
 
 /**
  * 应用全局设置数据模型（内存态或配合特定序列化器使用）。
@@ -253,8 +255,10 @@ internal data class AppSettings(
     val biometricEnabled: Boolean = false,
     /** 自动填充开关：解锁时灌 AutofillBridge、锁定撤桥的总闸；锁定态下桥必不活跃。 */
     val autofillEnabled: Boolean = false,
-    /** 自动锁定时长：内部单位为秒（0 = 关闭，1..[MAX_AUTO_LOCK_SECONDS]）；UI 显示与编辑仍以分钟呈现，边界处换算。 */
-    val autoLockSeconds: Int = 300,
+    /** 自动锁定时长：内部单位为秒（0 = 关闭，1..[MAX_AUTO_LOCK_SECONDS]）；v58 起 UI 编辑与显示同为秒级直传，无换算边界。 */
+    val autoLockSeconds: Int = 60,
+    /** 切后台锁定延迟（秒）：0 = 立即；默认 5 秒缓冲（防切出去看一眼就锁）。UI 预设 5s/10s/15s/30s。 */
+    val backgroundLockSeconds: Int = 5,
     val themeMode: String = BuildConfig.DEFAULT_THEME_MODE,
     val accentTheme: String = "green",
     val languageTag: String = "zh-CN",
@@ -262,6 +266,8 @@ internal data class AppSettings(
     val customThemes: List<SavedTheme> = emptyList(),
     val clipboardClearSeconds: Int = 30,
     val allowScreenshots: Boolean = false,
+    /** PBKDF2 迭代数目标值：新建库/改密直接用；已有库在下次密码解锁时透明升级（双向）。 */
+    val kdfIterations: Int = DEFAULT_PASSWORD_ITERATIONS,
     /** 隐藏内容的掩码字符，可被 appsettings.json 外挂覆盖。 */
     val maskChar: String = "•"
 )
@@ -275,12 +281,32 @@ internal data class AppSettings(
  * @param groups 分组列表
  * @param selectedGroupId 当前选中的分组 ID
  */
+/**
+ * 扩展 WebDAV 配置的备份载荷（.acc 内层随密码库一起被备份密码加密）：换机免重输。
+ */
+@Serializable
+internal data class WebDavConfigBackup(
+    val url: String,
+    val user: String,
+    /** 扩展侧 Keystore 密文（原样透传备份；只有装着同签名扩展的那台设备能解）。 */
+    val passwordEnc: String
+)
+
+/**
+ * 持久化密码库的整体数据结构。
+ * @param version 数据版本号，用于后续平滑升级迁移
+ * @param accounts 账号列表
+ * @param groups 分组列表
+ * @param selectedGroupId 当前选中的分组 ID
+ * @param webdavConfig WebDAV 连接配置（null = 旧备份/未配置）；恢复后由本体转交扩展托管区（免重输）
+ */
 @Serializable
 internal data class PersistedVault(
     val version: Int = 1,
     val accounts: List<Account>,
     val groups: List<Group>,
-    val selectedGroupId: String = "default"
+    val selectedGroupId: String = "default",
+    val webdavConfig: WebDavConfigBackup? = null
 )
 
 /** 全库共用的宽松 JSON 配置：vault.bin 与 .acc 内层数据的序列化都用它。 */

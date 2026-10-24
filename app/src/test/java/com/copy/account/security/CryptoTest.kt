@@ -82,4 +82,22 @@ class CryptoTest {
         assertFalse(isMasterPasswordValid("123456789012345678901")) // 21
         assertFalse(isMasterPasswordValid(""))
     }
+
+    @Test
+    fun needsIterationUpgrade_bothDirections_andIdempotent() {
+        assertTrue(needsIterationUpgrade(300_000, 600_000)) // 升
+        assertTrue(needsIterationUpgrade(600_000, 300_000)) // 降
+        assertFalse(needsIterationUpgrade(600_000, 600_000)) // 相等 = 幂等跳过
+    }
+
+    @Test
+    fun passwordHash_matchesPasswordKeyMaterialWrappingKey() {
+        // 升级一致性的根基：同一密码/盐/迭代数下，passwordHash 与 passwordKeyMaterial 的
+        // wrappingKey 是同一密钥（旧库 KEK=passwordHash 直存格式，迁移后包装密钥同源）。
+        val salt = ByteArray(16) { it.toByte() }
+        val hash = passwordHash("测试密码123", salt, 50_000)
+        val material = passwordKeyMaterial("测试密码123", salt, 50_000)
+        assertArrayEquals(hash, material.wrappingKey)
+        material.clear()
+    }
 }

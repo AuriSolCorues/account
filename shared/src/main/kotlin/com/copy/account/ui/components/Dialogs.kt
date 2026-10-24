@@ -155,7 +155,7 @@ internal fun NumberSettingDialog(
                 if (showError) Text("请输入 $minValue-$maxValue 之间的整数", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
         },
-        confirmButton = { TextActionButton("确定", onClick = { parsed?.let(onConfirm) }, enabled = valid) },
+        confirmButton = { TextActionButton("确定", onClick = { parsed?.let(onConfirm); onDismiss() }, enabled = valid) },
         dismissButton = { TextActionButton("取消", onDismiss) }
     )
 }

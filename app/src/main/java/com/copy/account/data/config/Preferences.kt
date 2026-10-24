@@ -23,8 +23,12 @@ internal val Context.settingsDataStore by preferencesDataStore(name = "app_setti
 internal val BIOMETRIC_SETTING = booleanPreferencesKey("biometric_enabled")
 // 自动填充总开关（解锁时灌 AutofillBridge、锁定撤桥）
 internal val AUTOFILL_SETTING = booleanPreferencesKey("autofill_enabled")
+// PBKDF2 迭代数目标值（新建库/改密直接用；已有库下次密码解锁透明升级，双向）
+internal val KDF_ITERATIONS_SETTING = intPreferencesKey("kdf_iterations")
 // 自动锁定时间（单位：秒，0 = 关闭自动锁定，正常范围 1..86400）
 internal val AUTO_LOCK_SETTING = intPreferencesKey("auto_lock_seconds")
+/** 切后台锁定延迟（秒，0 = 立即）。 */
+internal val BACKGROUND_LOCK_SETTING = intPreferencesKey("background_lock_seconds")
 // 旧键（单位：分钟）。仅迁移期读取一次；写路径不再使用，残值无害。
 internal val LEGACY_AUTO_LOCK_MINUTES_SETTING = intPreferencesKey("auto_lock_minutes")
 // 主题模式（如浅色、深色、跟随系统）
@@ -57,6 +61,12 @@ internal val BACKUP_DIRECTORY_EXPANDED_SETTING = booleanPreferencesKey("backup_d
  * 源设备的路径对导入设备无意义。与 BACKUP_TREE_URI_SETTING 同样的取舍。
  */
 internal val BACKUP_FOLDER_SETTING = stringPreferencesKey("backup_folder")
+/**
+ * 加密备份文件名标签（`时间戳-标签.acc` 中用户可输的那段）：空 = 无标签（裸时间戳）。
+ * 设备本地偏好，刻意**不**进 AppSettings——标签只对本设备的导出文件有意义，
+ * 不该被 AccCodec 序列化进备份随库漂移。
+ */
+internal val BACKUP_NAME_TAG_SETTING = stringPreferencesKey("backup_name_tag")
 
 /**
  * 将 JSON 字符串解析为自定义主题列表。

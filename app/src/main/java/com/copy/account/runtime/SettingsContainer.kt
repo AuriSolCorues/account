@@ -30,6 +30,7 @@ import com.copy.account.BuildConfig
 import com.copy.account.data.config.ACCENT_THEME_SETTING
 import com.copy.account.data.config.ALLOW_SCREENSHOTS_SETTING
 import com.copy.account.data.config.AUTO_LOCK_SETTING
+import com.copy.account.data.config.BACKGROUND_LOCK_SETTING
 import com.copy.account.data.config.LEGACY_AUTO_LOCK_MINUTES_SETTING
 import com.copy.account.data.config.AppSettingsOverride
 import com.copy.account.data.config.BIOMETRIC_SETTING
@@ -37,6 +38,7 @@ import com.copy.account.data.config.AUTOFILL_SETTING
 import com.copy.account.data.config.CLIPBOARD_CLEAR_SETTING
 import com.copy.account.data.config.CUSTOM_THEME_JSON_SETTING
 import com.copy.account.data.config.CUSTOM_THEMES_SETTING
+import com.copy.account.data.config.KDF_ITERATIONS_SETTING
 import com.copy.account.data.config.LANGUAGE_TAG_SETTING
 import com.copy.account.data.config.THEME_MODE_SETTING
 import com.copy.account.data.config.applyOverride
@@ -47,6 +49,9 @@ import com.copy.account.data.config.loadSafAppSettingsOverride
 import com.copy.account.data.config.settingsDataStore
 import com.copy.account.data.model.AppSettings
 import com.copy.account.data.model.MAX_AUTO_LOCK_SECONDS
+import com.copy.account.security.DEFAULT_PASSWORD_ITERATIONS
+import com.copy.account.security.MAX_PASSWORD_ITERATIONS
+import com.copy.account.security.MIN_PASSWORD_ITERATIONS
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -86,15 +91,18 @@ internal class SettingsContainer(
             biometricEnabled = values[BIOMETRIC_SETTING] ?: false,
             autofillEnabled = values[AUTOFILL_SETTING] ?: false,
             autoLockSeconds = values[AUTO_LOCK_SETTING]
-                // 迁移：旧键存分钟（×60 转秒）；两键都缺省 300（= 原 5 分钟）。
-                ?: ((values[LEGACY_AUTO_LOCK_MINUTES_SETTING] ?: 5) * 60).coerceIn(0, MAX_AUTO_LOCK_SECONDS),
+                // 迁移：旧键存分钟（×60 转秒）；两键都缺省 60（= v59 起的应用默认，1 分钟）。
+                ?: ((values[LEGACY_AUTO_LOCK_MINUTES_SETTING] ?: 1) * 60).coerceIn(0, MAX_AUTO_LOCK_SECONDS),
+            backgroundLockSeconds = (values[BACKGROUND_LOCK_SETTING] ?: 5).coerceIn(0, 300),
             themeMode = values[THEME_MODE_SETTING] ?: BuildConfig.DEFAULT_THEME_MODE,
             accentTheme = values[ACCENT_THEME_SETTING] ?: "green",
             languageTag = values[LANGUAGE_TAG_SETTING] ?: "zh-CN",
             customThemeJson = values[CUSTOM_THEME_JSON_SETTING] ?: "",
             customThemes = decodeSavedThemes(values[CUSTOM_THEMES_SETTING].orEmpty()),
             clipboardClearSeconds = (values[CLIPBOARD_CLEAR_SETTING] ?: 30).coerceIn(0, 86_400),
-            allowScreenshots = values[ALLOW_SCREENSHOTS_SETTING] ?: false
+            allowScreenshots = values[ALLOW_SCREENSHOTS_SETTING] ?: false,
+            kdfIterations = (values[KDF_ITERATIONS_SETTING] ?: DEFAULT_PASSWORD_ITERATIONS)
+                .coerceIn(MIN_PASSWORD_ITERATIONS, MAX_PASSWORD_ITERATIONS)
         )
         baseSettings = loadedSettings
         // 主题/强调色/自定义主题/截图开关四项回调原为 AccountApp 里四次单独下发，这里合并为
@@ -118,6 +126,7 @@ internal class SettingsContainer(
                 it[BIOMETRIC_SETTING] = value.biometricEnabled
                 it[AUTOFILL_SETTING] = value.autofillEnabled
                 it[AUTO_LOCK_SETTING] = value.autoLockSeconds
+                it[BACKGROUND_LOCK_SETTING] = value.backgroundLockSeconds
                 it[THEME_MODE_SETTING] = value.themeMode
                 it[ACCENT_THEME_SETTING] = value.accentTheme
                 it[LANGUAGE_TAG_SETTING] = value.languageTag
@@ -125,6 +134,7 @@ internal class SettingsContainer(
                 it[CUSTOM_THEMES_SETTING] = encodeSavedThemes(value.customThemes)
                 it[CLIPBOARD_CLEAR_SETTING] = value.clipboardClearSeconds.coerceIn(0, 86_400)
                 it[ALLOW_SCREENSHOTS_SETTING] = value.allowScreenshots
+                it[KDF_ITERATIONS_SETTING] = value.kdfIterations.coerceIn(MIN_PASSWORD_ITERATIONS, MAX_PASSWORD_ITERATIONS)
             }
         }
     }

@@ -103,7 +103,7 @@ internal fun writeBackupFile(
     treeUri: Uri,
     bytes: ByteArray,
     folder: String,
-    nameFactory: BackupNameFactory = ::uniqueBackupName,
+    nameFactory: BackupNameFactory = { uniqueBackupName("", it) },
     mimeType: String = "application/octet-stream"
 ): String = runCatching {
     val directory = backupAccountDirectory(context, treeUri, folder).getOrThrow()
@@ -123,9 +123,14 @@ internal fun deleteBackupFile(context: Context, uri: Uri): Result<Unit> = runCat
     require(DocumentFile.fromSingleUri(context, uri)?.delete() == true) { "删除备份失败" }
 }
 
-/** 备份文件名：account-时间戳；重名追加 -1/-2 序号。SAF 与直写两轨共用，命名保持一致。 */
-internal fun uniqueBackupName(exists: (String) -> Boolean): String {
-    val base = "account-${SimpleDateFormat("yyyy-MM-dd-HHmmss", Locale.US).format(Date())}"
+/**
+ * 加密备份文件名：`时间戳[-标签]`；时间戳格式 yyyyMMdd-HHmmss（v57 起日期段去连字符，
+ * 更短且排序不变），带标签时追加 `-标签` 段（标签经 normalizeBackupNameTag 规范化，
+ * 不含文件系统保留字符）。重名追加 -1/-2 序号。明文轨（uniquePlainExportName）不走此函数。
+ */
+internal fun uniqueBackupName(tag: String, exists: (String) -> Boolean): String {
+    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+    val base = if (tag.isBlank()) stamp else "$stamp-$tag"
     var filename = "$base.acc"
     var index = 1
     while (exists(filename)) filename = "$base-${index++}.acc"
@@ -178,7 +183,7 @@ internal fun readFileBackup(file: File): Result<ByteArray> = runCatching { file.
 internal fun writeFileBackup(
     bytes: ByteArray,
     folder: String,
-    nameFactory: BackupNameFactory = ::uniqueBackupName
+    nameFactory: BackupNameFactory = { uniqueBackupName("", it) }
 ): String = runCatching {
     val directory = ensureBackupDirectory(folder).getOrThrow()
     // 同 writeBackupFile：直写轨是普通 File IO，没有 MIME 概念，故只接受命名器。

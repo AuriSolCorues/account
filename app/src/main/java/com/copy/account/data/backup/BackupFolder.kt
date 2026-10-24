@@ -61,3 +61,23 @@ internal fun normalizeBackupFolder(raw: String): String? {
     val folder = segments.joinToString("/")
     return folder.ifEmpty { DEFAULT_BACKUP_FOLDER }
 }
+
+/**
+ * 规范化加密备份文件名标签（`时间戳-标签.acc` 中用户可输的那段）：空 = 清除标签（合法）。
+ * 去首尾空白 → 空白序列折叠为 `-`（中文输入法的空格也能安全落进文件名）→
+ * 剔除文件系统保留字符 `/ \ : * ? " < > |` → 连续 `-` 折叠 → 限长 24 字符。
+ * 全部字符被剔除后视为非法（null，弹提示），与「留空=清除」区分开。
+ * 纯函数：校验在输入框保存键与 AccountApp 持久化前各跑一次，同输入同输出。
+ */
+internal fun normalizeBackupNameTag(raw: String): String? {
+    val cleaned = raw.trim()
+        .replace(Regex("\\s+"), "-")
+        .replace(Regex("[/\\\\:*?\"<>|]"), "")
+        .replace(Regex("-+"), "-")
+        .trim('-')
+    return when {
+        cleaned.isEmpty() && raw.isBlank() -> ""   // 留空 = 清除标签
+        cleaned.isEmpty() -> null                  // 输入全是非法字符 = 拒绝
+        else -> cleaned.take(24)
+    }
+}

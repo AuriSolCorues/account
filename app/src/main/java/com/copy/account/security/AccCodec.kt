@@ -33,8 +33,8 @@ private data class AccSettings(
     val languageTag: String = "zh-CN",
     val customThemeJson: String = "",
     val customThemes: List<SavedTheme> = emptyList(),
-    /** 真正的秒（默认 300 = 5 分钟）。名字里的 "Seconds" 名副其实，别被 AppSettings 的分钟单位误导。 */
-    val autoLockSeconds: Int = 300,
+    /** 真正的秒（缺字段老备份的兜底值，与 AppSettings 默认值保持一致）。 */
+    val autoLockSeconds: Int = 60,
     val clipboardClearSeconds: Int = 30,
     val allowScreenshots: Boolean = false
 )

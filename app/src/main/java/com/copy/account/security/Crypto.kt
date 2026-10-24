@@ -16,8 +16,21 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
-/** 新建密码库时的 PBKDF2 迭代次数；每个库会在 prefs 里单独记录，改这里只影响新建的库。 */
-internal const val DEFAULT_PASSWORD_ITERATIONS = 300_000
+/**
+ * PBKDF2 迭代数默认值（新建库/改密/透明升级的目标值）：600k 对齐 OWASP 2023+ 推荐。
+ * 已有库经解锁路径的透明升级机制（见 [targetIterationsReached]）收敛到此值，改这里不影响旧库直读。
+ */
+internal const val DEFAULT_PASSWORD_ITERATIONS = 600_000
+
+/** 可配置迭代数的合法区间：下限 50k 挡「手滑调太低」（爆破成本骤降），上限 2M 挡 DoS 自己（解锁 2s+）。 */
+internal const val MIN_PASSWORD_ITERATIONS = 50_000
+internal const val MAX_PASSWORD_ITERATIONS = 2_000_000
+
+/**
+ * KDF 迭代数透明升级判定：解锁验证通过后比较库存值与目标值，不等即触发重包装（双向）。
+ */
+internal fun needsIterationUpgrade(storedIterations: Int, targetIterations: Int): Boolean =
+    storedIterations != targetIterations
 
 // codePointCount 而非 length：Java/Kotlin 的 String 按 UTF-16 存储，一个增补平面字符占 2 个 char；
 // 按码点数才等于用户直觉的「字符数」（≈ Python 里 len(str) 的语义）。

@@ -54,7 +54,7 @@ internal fun rememberClock(intervalMillis: Long = 1000): Long {
 }
 
 @Composable
-internal fun SensitiveValueRow(label: String, value: String, masked: Boolean = false, sensitive: Boolean = masked, clearAfterSeconds: Int = 30, mask: Char = '•', afterCopy: (() -> Unit)? = null) {
+internal fun SensitiveValueRow(label: String, value: String, masked: Boolean = false, sensitive: Boolean = masked, clearAfterSeconds: Int = 30, mask: Char = '•', afterCopy: (() -> Unit)? = null, copyTransform: (String) -> String = { it }) {
     val context = LocalContext.current
     var revealed by remember(value, masked) { mutableStateOf(!masked) }
     val displayed = if (masked && !revealed) mask.toString().repeat(8) else value
@@ -66,20 +66,21 @@ internal fun SensitiveValueRow(label: String, value: String, masked: Boolean = f
                 if (masked && !revealed) {
                     revealed = true
                 } else {
-                    copyToClipboard(context, value, sensitive, clearAfterSeconds)
+                    copyToClipboard(context, copyTransform(value), sensitive, clearAfterSeconds)
                     afterCopy?.invoke()
                 }
             },
             fontWeight = if (masked && !revealed) FontWeight.Normal else FontWeight.Medium
         )
         TextActionButton("复制", onClick = {
-            copyToClipboard(context, value, sensitive, clearAfterSeconds)
+            copyToClipboard(context, copyTransform(value), sensitive, clearAfterSeconds)
             afterCopy?.invoke()
         })
     }
 }
 
-/** 动态密码行（详情/速览共用）：HOTP 复制即 +1 进位。 */
+/** 动态密码行（详情/速览共用）：HOTP 复制即 +1 进位。显示保持分组空格，复制去空格
+ *  （验证码输入框不吃空格，用户拍板 2026-10-23）。 */
 @Composable
 internal fun AccountTotpRow(account: Account, nowMillis: Long, clipboardClearSeconds: Int, onHotpAdvance: () -> Unit) {
     SensitiveValueRow(
@@ -87,7 +88,8 @@ internal fun AccountTotpRow(account: Account, nowMillis: Long, clipboardClearSec
         totpCode(account, nowMillis),
         sensitive = true,
         clearAfterSeconds = clipboardClearSeconds,
-        afterCopy = if (account.isHotp) onHotpAdvance else null
+        afterCopy = if (account.isHotp) onHotpAdvance else null,
+        copyTransform = { it.replace(" ", "") }
     )
 }
 

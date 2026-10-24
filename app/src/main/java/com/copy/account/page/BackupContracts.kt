@@ -63,6 +63,12 @@ internal interface BackupDirectoryOps {
     /** 备份子文件夹（<位置>/Account/account，授权目录下的相对路径），由 backupLocation 推导。仅加密备份与 SAF 轨明文经此路径；直写轨明文固定落系统下载目录。 */
     val backupFolder: String
 
+    /** 加密备份文件名标签（时间戳-标签.acc 的标签段）；空 = 无标签。 */
+    val backupNameTag: String
+
+    /** 改加密备份文件名标签；非法（全是文件系统保留字符）返回 false。空串 = 清除。 */
+    fun changeBackupNameTag(raw: String): Boolean
+
     /** 目录相关提示文案（授权结果、改名结果等）；空串表示无提示。 */
     val directoryMessage: String
 

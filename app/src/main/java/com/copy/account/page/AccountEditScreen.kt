@@ -94,6 +94,7 @@ import com.copy.account.ui.components.ScanQrOverlay
 import com.copy.account.ui.components.SurfaceCard
 import com.copy.account.ui.components.SwitchRow
 import com.copy.account.ui.components.TextActionButton
+import com.copy.account.ui.components.TopBarTextButton
 import com.copy.account.ui.components.TextInputDialog
 import com.copy.account.ui.components.rememberClock
 import com.copy.account.ui.components.ReorderCardStyle
@@ -289,7 +290,7 @@ internal fun AccountEditScreen(
     AppListScreen(
         if (account == null) "新建账号" else "编辑账号",
         onBack,
-        actions = { TextActionButton(if (saving) "保存中" else "保存", ::saveAccount, enabled = !saving, textColor = LocalAccountThemePalette.current.topBarText) },
+        actions = { TopBarTextButton(if (saving) "保存中" else "保存", ::saveAccount, enabled = !saving) },
         spacing = 12.dp
     ) {
         item {
