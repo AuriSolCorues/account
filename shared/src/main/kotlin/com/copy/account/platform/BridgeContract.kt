@@ -45,6 +45,16 @@ object BridgeContract {
     const val METHOD_PUSH_WEBDAV_CONFIG = "pushWebdavConfig"
     const val METHOD_FETCH_WEBDAV_CONFIG = "fetchWebdavConfig"
 
+    // 扩展日志上投管道（v1 加法扩展）：扩展把自身事件写进本体操作日志（审计收编一处）。
+    //   extras: KEY_LOG_TYPE / KEY_LOG_SUMMARY / KEY_LOG_DETAILS（string array，可缺省）。
+    //   契约注释约定：type 建议传 "sync"；本体侧未知 type 白名单化为 "extension" 展示标签，
+    //   summary/details 原样落盘（长度不裁剪——展示层负责省略，JsonlLog 轮转兜底存储）。
+    //   老本体不认识 → call() 折异常，扩展静默降级（本地日志照写）。
+    const val METHOD_APPEND_LOG = "appendLog"
+    const val KEY_LOG_TYPE = "logType"
+    const val KEY_LOG_SUMMARY = "logSummary"
+    const val KEY_LOG_DETAILS = "logDetails"
+
     // state 管道的 Bundle 键（v1 全集）
     const val KEY_V = "v"                   // int，契约版本
     const val KEY_LOCKED = "locked"         // boolean，fail-closed 缺省 true

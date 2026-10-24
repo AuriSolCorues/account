@@ -41,6 +41,7 @@ import com.copy.account.ui.components.DragHandleGlyph
 import com.copy.account.ui.components.TextInputDialog
 import com.copy.account.ui.components.SheetTitleRow
 import com.copy.account.ui.components.TextActionButton
+import com.copy.account.ui.components.TopBarTextButton
 import com.copy.account.ui.components.ReorderCardStyle
 import com.copy.account.ui.components.SheetPagePreview
 import com.copy.account.BuildConfig
@@ -61,7 +62,7 @@ internal fun GroupManageScreen(
     var deleteConfirmGroup by remember { mutableStateOf<Group?>(null) }
     var dialogText by remember { mutableStateOf("") }
     var showAddSheet by remember { mutableStateOf(false) }
-    AppListScreen("分组管理", onBack, actions = { TextActionButton("＋ 新增", onClick = { showAddSheet = true; dialogText = "" }, textColor = LocalAccountThemePalette.current.topBarText) }) {
+    AppListScreen("分组管理", onBack, actions = { TopBarTextButton("＋ 新增", onClick = { showAddSheet = true; dialogText = "" }) }) {
         item { Text("固定分组（可改名）", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         // 隐式约定：groups 前 2 个是固定分组（默认/动态密码），其余为自定义；分区渲染，仅自定义可拖动。
         items(groups.take(FIXED_GROUP_COUNT), key = { it.id }) { group ->

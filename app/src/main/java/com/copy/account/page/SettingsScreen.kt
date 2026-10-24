@@ -8,6 +8,9 @@
  */
 package com.copy.account.page
 
+import android.content.Intent
+import android.os.SystemClock
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
@@ -49,7 +52,7 @@ internal fun SettingsScreen(
     onOpenBackup: () -> Unit,
     onOpenLogs: () -> Unit,
     /** 扩展模块设置页拉起；null = 无在装扩展（整行不进组合）。 */
-    extensionLaunch: android.content.Intent?,
+    extensionLaunch: Intent?,
     onOpenAbout: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -126,7 +129,7 @@ internal fun SettingsScreen(
                 SettingsRow("扩展", "打开", onClick = { launchExtensionSettings(context) })
             }
         }
-        // 操作日志（全应用审计：账号增删/导出/崩溃），入口恒在。
+        // 操作日志（全应用审计：同步/账号增删/崩溃/导出），入口恒在。
         item { SettingsRow("操作日志", "打开", onClick = onOpenLogs) }
         // 版本号直接露在中枢上，不用进「关于」页也知道自己是哪一版。
         item { SettingsRow("关于", BuildConfig.VERSION_NAME, onClick = onOpenAbout) }

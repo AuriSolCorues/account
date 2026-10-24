@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +45,7 @@ import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.isMasterPasswordValid
 import com.copy.account.data.backup.backupLocationDisplay
 import com.copy.account.data.backup.normalizeBackupLocation
+import com.copy.account.data.backup.normalizeBackupNameTag
 import com.copy.account.ui.components.AppScreen
 import com.copy.account.ui.components.CollapsibleSection
 import com.copy.account.ui.components.DangerButton
@@ -54,6 +56,7 @@ import com.copy.account.ui.components.PasswordField
 import com.copy.account.ui.components.SettingsRow
 import com.copy.account.ui.components.SurfaceCard
 import com.copy.account.ui.components.TextActionButton
+import com.copy.account.ui.components.TopBarTextButton
 import com.copy.account.ui.components.TextInputDialog
 import com.copy.account.BuildConfig
 import com.copy.account.ui.theme.AccountTheme
@@ -96,6 +99,14 @@ internal fun BackupScreen(
     var showPlainConfirm by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<PendingDelete?>(null) }
     // 列举经 fileStore.refresh：异步与线程切换在实现方，完成后主线程回调归一行数据。
+    // 文件名标签输入行的编辑态：预填当前持久化值；目录状态对象变化（读档完成）时跟随。
+    var nameTagInput by remember(directory.backupNameTag) { mutableStateOf(directory.backupNameTag) }
+    // 输入实时规范化：null = 全是文件系统保留字符（保存键置灰并提示），空串 = 清除标签。
+    val nameTagNormalized = normalizeBackupNameTag(nameTagInput)
+    fun saveNameTag() {
+        val normalized = nameTagNormalized ?: return
+        if (directory.changeBackupNameTag(normalized)) nameTagInput = normalized
+    }
     fun refreshFiles() {
         refreshing = true
         fileStore.refresh { rows ->
@@ -169,13 +180,35 @@ internal fun BackupScreen(
     // backupFolder 等目录状态变化时靠 key 触发一次重新列举，否则列表还停在旧目录。
     LaunchedEffect(directory.directBackup, directory.storageAccessGranted, directory.backupTreeUri, directory.backupFolder) { refreshFiles() }
 
-    AppScreen(title = "加密备份", onBack = onBack, actions = { TextActionButton("刷新", onClick = { refreshFiles() }, textColor = LocalAccountThemePalette.current.topBarText) }) { padding ->
+    AppScreen(title = "加密备份", onBack = onBack, actions = { TopBarTextButton("刷新", onClick = { refreshFiles() }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(start = 20.dp, end = 20.dp, top = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            CollapsibleSection(title = "备份目录", expanded = directory.directoryExpanded, onToggle = directory::toggleDirectoryExpanded) {
+            CollapsibleSection(title = "备份设置", expanded = directory.directoryExpanded, onToggle = directory::toggleDirectoryExpanded) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     // 结构固定 <位置>/Account/account：行值直接展示完整推导路径（0 = 内部存储根），
                     // 编辑的只有「位置」前缀；不再单列一行说明文字。
                     SettingsRow("备份位置", backupLocationDisplay(directory.backupLocation), onClick = { showLocationDialog = true })
+                    // 文件名标签（内联编辑，无弹窗）：决定加密备份文件名 时间戳-标签.acc 的标签段，
+                    // 不同设备的导出文件靠它区分。保存后持久化，之后每次导出自动带上；清空保存 = 裸时间戳。
+                    val nameTagInvalid = nameTagNormalized == null
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = nameTagInput,
+                                onValueChange = { nameTagInput = it },
+                                label = { Text("文件名标签（可选）") },
+                                singleLine = true,
+                                isError = nameTagInvalid,
+                                supportingText = if (nameTagInvalid) {
+                                    { Text("含无法用于文件名的字符，改一下再存", color = MaterialTheme.colorScheme.error) }
+                                } else {
+                                    // 常驻示例：让「留空 = 裸时间戳、有值 = 追加」一眼可懂。
+                                    { Text("例：pixel8 → 20261022-101530-pixel8.acc；留空 = 20261022-101530.acc") }
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextActionButton("保存", enabled = !nameTagInvalid, onClick = ::saveNameTag)
+                        }
+                    }
                     if (directory.directBackup) {
                         TextActionButton(if (directory.storageAccessGranted) "授予权限" else "授予文件访问权限", directory::requestStorageAccess)
                     } else {
@@ -375,8 +408,8 @@ private fun BackupScreenPreview() {
                 override fun refresh(onResult: (List<BackupRowUi>) -> Unit) {
                     onResult(
                         listOf(
-                            BackupRowUi("preview/direct.acc", "account-2026-09-30.acc", 2048, System.currentTimeMillis(), direct = true),
-                            BackupRowUi("content://preview/saf.acc", "account-2026-09-29.acc", 1024, System.currentTimeMillis(), direct = false)
+                            BackupRowUi("preview/direct.acc", "20261022-101530-pixel8.acc", 2048, System.currentTimeMillis(), direct = true),
+                            BackupRowUi("content://preview/saf.acc", "20261021-220001.acc", 1024, System.currentTimeMillis(), direct = false)
                         )
                     )
                 }
@@ -384,7 +417,7 @@ private fun BackupScreenPreview() {
                 override fun delete(row: BackupRowUi, onDone: (Boolean) -> Unit) = onDone(true)
             },
             exporter = object : BackupExporter {
-                override fun exportEncrypted(onDone: (Result<String>) -> Unit) = onDone(Result.success("account-2026-09-30.acc"))
+                override fun exportEncrypted(onDone: (Result<String>) -> Unit) = onDone(Result.success("20261022-101530-pixel8.acc"))
                 override fun exportPlaintext(onDone: (Result<String>) -> Unit) = onDone(Result.success("account-plain-preview.json"))
                 override fun prepareExport(password: String) = Result.success(Unit)
             },
@@ -394,9 +427,11 @@ private fun BackupScreenPreview() {
                 override val backupTreeUri: String? = null
                 override val backupLocation = ""
                 override val backupFolder = "Account/account"
+                override val backupNameTag = ""
                 override val directoryMessage = ""
                 override val directoryExpanded = true
                 override fun toggleDirectoryExpanded() {}
+                override fun changeBackupNameTag(raw: String) = true
                 override fun changeBackupLocation(raw: String) = true
                 override fun changeBackupFolder(raw: String) = true
                 override fun chooseDirectory() {}

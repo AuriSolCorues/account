@@ -47,10 +47,12 @@ import java.util.Locale
 
 /** 事件类型的展示名。 */
 private fun typeLabel(type: String): String = when (type) {
+    LogEvents.SYNC -> "扩展事件"
     LogEvents.ACCOUNT_ADD -> "新增账号"
     LogEvents.ACCOUNT_DELETE -> "删除账号"
     LogEvents.CRASH -> "软件崩溃"
     LogEvents.EXPORT -> "导出备份"
+    LogEvents.EXTENSION -> "扩展"
     else -> type
 }
 

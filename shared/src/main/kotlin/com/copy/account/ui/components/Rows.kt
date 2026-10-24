@@ -13,12 +13,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -28,6 +30,24 @@ import com.copy.account.ui.theme.AccountTheme
 @Composable
 internal fun SettingsHeader(text: String) {
     Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp))
+}
+
+/**
+ * 图标位：有 ImageVector 画矢量，没有就用文字符号顶替（项目当前零 Material Icons 依赖，
+ * 与 CollapsibleSection 的 ▾/▸ 同一决策）。后续图标设计落地后，调用点只补 icon 参数，
+ * 替身路径自动退役，签名不破坏。
+ */
+@Composable
+internal fun IconSlot(
+    icon: ImageVector? = null,
+    fallback: String,
+    modifier: Modifier = Modifier
+) {
+    if (icon != null) {
+        Icon(icon, contentDescription = fallback, modifier = modifier)
+    } else {
+        Text(fallback, style = MaterialTheme.typography.titleMedium, modifier = modifier)
+    }
 }
 
 /**

@@ -33,9 +33,11 @@ import com.copy.account.data.backup.hasStorageAccess
 import com.copy.account.data.backup.initializeBackupDirectory
 import com.copy.account.data.backup.normalizeBackupFolder
 import com.copy.account.data.backup.normalizeBackupLocation
+import com.copy.account.data.backup.normalizeBackupNameTag
 import com.copy.account.data.config.BACKUP_DIRECTORY_EXPANDED_SETTING
 import com.copy.account.data.config.BACKUP_FOLDER_SETTING
 import com.copy.account.data.config.BACKUP_LOCATION_SETTING
+import com.copy.account.data.config.BACKUP_NAME_TAG_SETTING
 import com.copy.account.data.config.BACKUP_TREE_URI_SETTING
 import com.copy.account.data.config.settingsDataStore
 import kotlinx.coroutines.CoroutineScope
@@ -73,6 +75,13 @@ internal class BackupLocationState(
     var backupFolder by mutableStateOf(DEFAULT_BACKUP_FOLDER)
         private set
 
+    /**
+     * 加密备份文件名标签（`时间戳-标签.acc` 中的标签段）：空 = 无标签（裸时间戳）。
+     * 只经 normalizeBackupNameTag 规范化后的值落状态与 DataStore；导出命名时现读。
+     */
+    var backupNameTag by mutableStateOf("")
+        private set
+
     /** 直写轨是否已授予「所有文件访问」；SAF 轨恒为 false。 */
     var storageAccessGranted by mutableStateOf(directBackup && hasStorageAccess())
         private set
@@ -98,6 +107,7 @@ internal class BackupLocationState(
         backupTreeUri = values[BACKUP_TREE_URI_SETTING]
         backupLocation = normalizeBackupLocation(values[BACKUP_LOCATION_SETTING].orEmpty()) ?: ""
         backupFolder = backupFolderPath(backupLocation)
+        backupNameTag = normalizeBackupNameTag(values[BACKUP_NAME_TAG_SETTING].orEmpty()) ?: ""
         directoryExpanded = values[BACKUP_DIRECTORY_EXPANDED_SETTING] ?: false
     }
 
@@ -141,6 +151,17 @@ internal class BackupLocationState(
         val normalized = normalizeBackupFolder(raw) ?: return false
         backupFolder = normalized
         persistFolder(normalized)
+        return true
+    }
+
+    /**
+     * 改加密备份文件名标签：normalize 返回 null（全是非法字符）返回 false 供弹窗提示；
+     * 合法（含空串 = 清除）则更新状态并持久化。导出命名时现读 [backupNameTag]。
+     */
+    fun changeBackupNameTag(raw: String): Boolean {
+        val normalized = normalizeBackupNameTag(raw) ?: return false
+        backupNameTag = normalized
+        persistNameTag(normalized)
         return true
     }
 
@@ -190,6 +211,13 @@ internal class BackupLocationState(
     private fun persistFolder(folder: String) {
         scope.launch {
             context.settingsDataStore.edit { it[BACKUP_FOLDER_SETTING] = folder }
+        }
+    }
+
+    /** 文件名标签写回 DataStore（空串也写，表示无标签）。 */
+    private fun persistNameTag(tag: String) {
+        scope.launch {
+            context.settingsDataStore.edit { it[BACKUP_NAME_TAG_SETTING] = tag }
         }
     }
 }

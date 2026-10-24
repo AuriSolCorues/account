@@ -53,11 +53,38 @@ jobs:
       - name: 切换 Gradle 发行源为官方
         run: sed -i 's|mirrors\.cloud\.tencent\.com/gradle|services.gradle.org/distributions|' gradle/wrapper/gradle-wrapper.properties
       - uses: gradle/actions/setup-gradle@v4
-      - name: 单元测试
-        run: ./gradlew :app:testDebugUnitTest --console=plain
+      - name: 单元测试（本体；可选扩展模块目录存在时一并加测纯 JVM 用例）
+        run: |
+          if [ -d extension ]; then
+            ./gradlew :app:testDebugUnitTest :extension:testDebugUnitTest --console=plain
+          else
+            ./gradlew :app:testDebugUnitTest --console=plain
+          fi
       # release 在此无签名文件，AGP 自动回退未签名，仅用于验证 R8/资源收缩能过。
-      - name: 构建 debug + release
+      - name: 构建 debug + release（本体；扩展模块经 settings 条件挂载自动参与）
         run: ./gradlew :app:assembleDebug :app:assembleRelease --console=plain
+      # 零联网红线断言：本体合并后的 Manifest 不得出现 INTERNET；
+      # 扩展模块（本地放置才参与构建，见 settings.gradle.kts）无 LAUNCHER 桌面入口、
+      # 无存储权限（本地数据走本体 ExtensionBridgeProvider 数据桥）。
+      - name: 红线断言：本体零联网
+        run: |
+          APP_MANIFEST="$(find app/build/intermediates/merged_manifests -name AndroidManifest.xml | head -1)"
+          if grep -q "android.permission.INTERNET" "$APP_MANIFEST"; then
+            echo "::error::本体 merged manifest 出现 INTERNET，违反零联网红线"; exit 1
+          fi
+          echo "红线通过：本体零 INTERNET"
+          if [ -d extension ]; then
+            SYNC_MANIFEST="$(find extension/build/intermediates/merged_manifests -name AndroidManifest.xml | head -1)"
+            if [ -n "$SYNC_MANIFEST" ]; then
+              if grep -q "android.intent.category.LAUNCHER" "$SYNC_MANIFEST"; then
+                echo "::error::扩展模块不得有桌面入口"; exit 1
+              fi
+              if grep -q "MANAGE_EXTERNAL_STORAGE" "$SYNC_MANIFEST"; then
+                echo "::error::扩展模块不得持有存储权限（本地数据走本体数据桥）"; exit 1
+              fi
+              echo "扩展模块红线通过：无桌面入口、零存储权限"
+            fi
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: debug-apk

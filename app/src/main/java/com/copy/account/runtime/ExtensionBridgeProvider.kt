@@ -39,6 +39,8 @@ class ExtensionBridgeProvider : ContentProvider() {
 
     private companion object {
         // （历史）ACTION_RELEASE 广播常量随广播通道废弃而删除；回锁走 METHOD_RELEASE_SESSION。
+        /** 扩展推来未白名单 type 的兜底标签（handleAppendLog 白名单化用）。 */
+        private const val EXTENSION_LOG_TYPE = "extension"
     }
 
     override fun onCreate(): Boolean {
@@ -103,6 +105,9 @@ class ExtensionBridgeProvider : ContentProvider() {
             }
             // 敏感配置托管管道（METHOD_PUSH_WEBDAV_CONFIG / METHOD_FETCH_WEBDAV_CONFIG）：
             // 契约常量保留（键名协议不能改）；本体侧实现属扩展敏感配置托管，宿主暂不启用。
+            BridgeContract.METHOD_PUSH_WEBDAV_CONFIG -> { handlePushWebdavConfig(extras); Bundle.EMPTY }
+            BridgeContract.METHOD_FETCH_WEBDAV_CONFIG -> handleFetchWebdavConfig()
+            BridgeContract.METHOD_APPEND_LOG -> { handleAppendLog(extras); Bundle.EMPTY }
             BridgeContract.METHOD_STAT -> bundle { putBoolean(BridgeContract.KEY_IS_DIR, resolveRel(extras).isDirectory) }
             BridgeContract.METHOD_SIZE_OF -> bundle { putLong(BridgeContract.KEY_SIZE, resolveRel(extras).let { if (it.isFile) it.length() else 0L }) }
             BridgeContract.METHOD_DELETE_LOCAL -> { resolveRel(extras).delete(); Bundle.EMPTY }
@@ -144,6 +149,58 @@ class ExtensionBridgeProvider : ContentProvider() {
         ) { "调用方签名不符：$pkg" }
         verifiedCaller = pkg
     }
+
+    // ===== 扩展敏感配置托管（pushConfig / fetchConfig）=====
+
+    /** 扩展保存配置时推密文副本：原样进托管区（双层密文在 vault 内部完成）。 */
+    private fun handlePushWebdavConfig(extras: Bundle?) {
+        val b = requireNotNull(extras) { "缺少 extras" }
+        val url = requireNotNull(b.getString(BridgeContract.KEY_WEBDAV_URL)) { "缺少 url" }
+        val user = requireNotNull(b.getString(BridgeContract.KEY_WEBDAV_USER)) { "缺少 user" }
+        val passwordEnc = requireNotNull(b.getString(BridgeContract.KEY_WEBDAV_PASSWORD_ENC)) { "缺少 passwordEnc" }
+        com.copy.account.runtime.WebDavConfigVault.store(context!!, url, user, passwordEnc)
+    }
+
+    /** 扩展取回待取副本（.acc 恢复后置标的那份）；无待取回 null。 */
+    private fun handleFetchWebdavConfig(): Bundle = bundle {
+        com.copy.account.runtime.WebDavConfigVault.fetchPending(context!!)?.let { rec ->
+            putString(BridgeContract.KEY_WEBDAV_URL, rec.url)
+            putString(BridgeContract.KEY_WEBDAV_USER, rec.user)
+            putString(BridgeContract.KEY_WEBDAV_PASSWORD_ENC, rec.passwordEnc)
+        }
+    }
+
+    // ===== 扩展日志上投（appendLog：存储动作，本体零同步语义——只代写审计条目） =====
+
+    /** 本体操作日志认识的 type 白名单；扩展侧未知类型统一落 EXTENSION，标签列不被写花。 */
+    private val knownLogTypes = setOf(
+        LogEvents.SYNC,
+        LogEvents.ACCOUNT_ADD,
+        LogEvents.ACCOUNT_DELETE,
+        LogEvents.CRASH,
+        LogEvents.EXPORT
+    )
+
+    /**
+     * 扩展推来的日志条目落本体操作日志。summary/details 原样收（长度不裁剪——
+     * 展示层负责省略，JsonlLog 轮转兜底）；type 白名单外 → "extension"。
+     * 红线边界：与 WebDAV 配置托管同构的「存而不用」——本体只是日志收发室，
+     * 不产生、不解析、不响应任何同步语义。
+     */
+    private fun handleAppendLog(extras: Bundle?) {
+        val b = requireNotNull(extras) { "缺少 extras" }
+        val type = b.getString(BridgeContract.KEY_LOG_TYPE).orEmpty()
+        val summary = requireNotNull(b.getString(BridgeContract.KEY_LOG_SUMMARY)) { "缺少 summary" }
+        if (summary.isBlank()) return // 空条目无审计价值，静默丢弃
+        val details = b.getStringArrayList(BridgeContract.KEY_LOG_DETAILS) ?: arrayListOf()
+        appendLog(
+            context!!,
+            if (type in knownLogTypes) type else EXTENSION_LOG_TYPE,
+            summary,
+            details
+        )
+    }
+
 
     /** Bundle 构建小助手（call 各分支共用）。 */
     private inline fun bundle(fill: android.os.Bundle.() -> Unit): Bundle = Bundle().apply(fill)

@@ -52,6 +52,10 @@ internal class UnlockSession(
     private val autofillEnabled: () -> Boolean,
     /** 启用/关闭生物识别后回写设置真值。 */
     private val onBiometricEnabledChange: (Boolean) -> Unit,
+    /** 现读现用的切后台锁定延迟（秒，0 = 立即）；onAppStop 的 Handler 调度用。 */
+    private val backgroundLockSeconds: () -> Int,
+    /** 现读现用的 KDF 迭代数目标值（设置项）：密码解锁时透传给 store 触发透明升级。 */
+    private val kdfIterations: () -> Int,
     /** 解锁完成（密码/生物识别）：AccountApp 跳 Home。 */
     private val onUnlocked: () -> Unit,
     /** 锁定完成：AccountApp 清 editTemplate 并回解锁页。 */
@@ -77,10 +81,14 @@ internal class UnlockSession(
     val isUnlocked: Boolean get() = dataKey != null
 
     init {
-        // 归还钩子：扩展页 releaseSession（退后台/被销毁）到达时执行真 lockApp（清 DEK/撤填充桥）。
-        // Wiring 收口：宿主不直接触碰 ExtensionPlatformState，公开/私有两侧以不同实现共存
-        // （公开版直通/空实现），保证 merge 零冲突。
-        ExtensionWiring.registerReleaseHook { lockApp() }
+        // 归还钩子：扩展页 releaseSession（退后台/被销毁）到达时执行——语义与本体页
+        // onAppStop 完全一致：按后台锁定配置调度（0=立即，>0 延迟缓冲，回前台取消）。
+        // 曾经硬编码 lockApp() → 扩展退后台无视延迟档位瞬间锁，而本体页守档位，两页
+        // 语义分裂；统一收口进 scheduleBackgroundLock()（锁定时本人会话有效，直接引用；
+        // 会话销毁后钩子随单例残留引用旧容器——旧容器 lockApp/调度依旧幂等安全，且新
+        // 会话会重注册覆盖）。Wiring 收口：宿主不直接触碰 ExtensionPlatformState，
+        // 公开/私有两侧以不同实现共存（公开版直通/空实现），保证 merge 零冲突。
+        ExtensionWiring.registerReleaseHook { scheduleBackgroundLock() }
     }
 
     private val vaultWriteMutex = Mutex()
@@ -148,15 +156,17 @@ internal class UnlockSession(
     /**
      * 主密码解锁（含首装建库）：PBKDF2 派生 + 文件读写放后台线程；成功即缓存导出密钥
      * （backupKey 用后即清）并进入解锁态。返回是否成功（UnlockScreen 据此清输入/报错）。
+     * targetIterations = 设置里的 KDF 迭代目标值：与库存值不等时解锁链路内透明升级
+     * （双向、单次原子提交；本次解锁多付一次派生时间）。生物识别路径不经过这里，天然不触发。
      */
-    suspend fun unlockWithPassword(password: String): Boolean {
+    suspend fun unlockWithPassword(password: String, targetIterations: Int): Boolean {
         val firstRun = !passwordConfigured
         val unlocked = withContext(Dispatchers.Default) {
             if (firstRun) {
                 val initialState = PersistedVault(accounts = initialAccounts, groups = initialGroups)
                 store.createInitial(password, initialState)
             } else {
-                store.unlockWithPassword(password)
+                store.unlockWithPassword(password, targetIterations)
             }
         }
         if (unlocked == null) return false
@@ -288,16 +298,76 @@ internal class UnlockSession(
     }
 
     /**
-     * ON_STOP：进入后台锁定——Wiring 收口的让渡判定直通（借出未超时 = 不锁，
-     * 借出超时 = 恢复锁定并清标志）。锁定语义与既有立即锁一致（无延迟档）。
+     * ON_RESUME：回到前台——取消未触发的后台延迟锁（用户 X 秒内回来 = 无缝继续，
+     * 不断链不解锁页）。超时场景锁已触发（onAppStop 的 postDelayed 已跑），此处无操作。
+     */
+    fun onAppResume() {
+        backgroundLockHandler.removeCallbacks(backgroundLockRunnable)
+    }
+
+    /**
+     * ON_STOP：切后台锁定（可配延迟）。延迟 = 0 立即锁；>0 经 Handler 调度，
+     * 延迟期内回前台由 [onAppResume] 取消。延迟期间 UI 仍显示内容——这是配置本身
+     * 的语义（银行 App 同款），敏感场景用户应保持默认立即。
+     * 例外：本体主动拉起扩展页（会话让渡 borrow）且未超时——此时 ON_STOP 是「让渡」
+     * 不是「离开」，不锁。
      */
     fun onAppStop() {
         // Wiring 收口：宿主不直接触碰 ExtensionPlatformState，公开/私有两侧以不同实现共存
         // （公开版直通/空实现），保证 merge 零冲突。
         if (!isUnlocked || !ExtensionWiring.shouldLockOnStop(SystemClock.uptimeMillis())) return
-        lockApp()
+        scheduleBackgroundLock()
+    }
+
+    /**
+     * 按后台锁定配置调度锁定（本体 onAppStop 与扩展 releaseSession 共用的唯一入口）：
+     * 锚点与档位在「决定要锁的那一刻」捕获——判定只看「锚点 + 捕获的档位」，防止
+     * 后台期间改设置导致回调触发时判定漂移（与 IdleLock 的 now/timeoutMs 快照同款思路）。
+     * delay = 0 立即锁；>0 经 Handler 调度，延迟期内回前台由 [onAppResume] 取消。
+     * 语义统一：本体页退后台和扩展页退后台走同一条路——扩展 releaseSession 的
+     * releaseHook 也接这里（否则扩展退后台无视延迟档位瞬间锁，本体页却守档位）。
+     */
+    private fun scheduleBackgroundLock() {
+        backgroundedAtMs = SystemClock.uptimeMillis()
+        backgroundDelaySec = backgroundLockSeconds().coerceIn(0, 300)
+        if (backgroundDelaySec <= 0) {
+            lockApp()
+        } else {
+            backgroundLockHandler.postDelayed(backgroundLockRunnable, backgroundDelaySec * 1000L)
+        }
+    }
+
+    /** 切后台锚点（uptimeMillis）：onAppStop 捕获，二次校验据此算真实已过时长。 */
+    private var backgroundedAtMs = 0L
+    /** 切后台那一刻捕获的延迟档位（秒）：后台期间改设置不影响本次判定。 */
+    private var backgroundDelaySec = 0
+
+    /** 后台延迟锁的调度器与任务（会话级，随会话生灭；lockApp 幂等，迟到触发无害）。 */
+    private val backgroundLockHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /**
+     * 延迟锁回调：与 IdleLock.onTimeout 同款的防竞态二次校验——Handler 回调可能因
+     * 主线程繁忙迟到，也可能在 borrow 让渡/锁态变化后残留触发；触发时用真实时钟
+     * 重算「真在后台待满 delaySec 了吗」，语义：后台必须真待满才锁（`>=` 同秒边界，
+     * 契约与 idleExpired 一致）。早到的（时钟未走满/极端重排竞态）直接拒锁。
+     * 幂等性：lockApp 幂等，迟到/重复触发无害；扩展页返回键回本体（非 release 路径）
+     * 场景延迟期内落回本体前台 → onAppResume removeCallbacks 取消，无缝继续。
+     */
+    private val backgroundLockRunnable = Runnable {
+        if (isUnlocked && backgroundLockDue(SystemClock.uptimeMillis() - backgroundedAtMs, backgroundDelaySec)) lockApp()
     }
 }
+
+/**
+ * 后台延迟锁到期判定（消费方：[UnlockSession.backgroundLockRunnable] 触发时的二次校验）。
+ * 档位语义：delaySec = 0 是「立即锁」档——不经 Handler，onAppStop 现场就锁，故任何
+ * elapsed 都算到期；>0 时与空闲锁的 idleExpired 同一契约：`>=`（真待满 delaySec*1000
+ * 的那一刻必须锁，差 1ms 不算），时钟同源 uptimeMillis。
+ * delaySec 本身不在此裁剪——coerceIn(0, 300) 已由调用方（SettingsContainer/AccountApp
+ * 的 backgroundLockSeconds 入口）完成，本函数透传。
+ */
+internal fun backgroundLockDue(elapsedMs: Long, delaySec: Int): Boolean =
+    delaySec <= 0 || elapsedMs >= delaySec * 1000L
 
 /**
  * 组装工厂：容器只建一次；回调经 rememberUpdatedState 转发防闭包陈旧（同 IdleLock 教训）。
@@ -310,12 +380,16 @@ internal fun rememberUnlockSession(
     biometricEnabled: () -> Boolean,
     autofillEnabled: () -> Boolean,
     onBiometricEnabledChange: (Boolean) -> Unit,
+    backgroundLockSeconds: () -> Int,
+    kdfIterations: () -> Int,
     onUnlocked: () -> Unit,
     onLocked: () -> Unit,
 ): UnlockSession {
     val currentBiometricEnabled by rememberUpdatedState(biometricEnabled)
     val currentAutofillEnabled by rememberUpdatedState(autofillEnabled)
     val currentOnBiometricEnabledChange by rememberUpdatedState(onBiometricEnabledChange)
+    val currentBackgroundLockSeconds by rememberUpdatedState(backgroundLockSeconds)
+    val currentKdfIterations by rememberUpdatedState(kdfIterations)
     val currentOnUnlocked by rememberUpdatedState(onUnlocked)
     val currentOnLocked by rememberUpdatedState(onLocked)
     val context = LocalContext.current
@@ -329,6 +403,8 @@ internal fun rememberUnlockSession(
             biometricEnabled = { currentBiometricEnabled() },
             autofillEnabled = { currentAutofillEnabled() },
             onBiometricEnabledChange = { currentOnBiometricEnabledChange(it) },
+            backgroundLockSeconds = { currentBackgroundLockSeconds() },
+            kdfIterations = { currentKdfIterations() },
             onUnlocked = { currentOnUnlocked() },
             onLocked = { currentOnLocked() }
         )

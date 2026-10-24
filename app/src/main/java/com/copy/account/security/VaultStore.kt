@@ -107,11 +107,26 @@ internal class SecureVaultStore(private val context: Context) {
     fun hasMasterPassword(): Boolean = prefs.contains(PASSWORD_VERIFIER) || prefs.contains(LEGACY_PASSWORD_HASH)
 
     /** 已解锁时使用当前 DEK 重新包装，直接替换主密码的 KEK 元数据。 */
-    fun changeMasterPassword(newPassword: String, dek: ByteArray): Result<BackupKeyMaterial> = runCatching {
+    fun changeMasterPassword(newPassword: String, dek: ByteArray): Result<BackupKeyMaterial> =
+        changeMasterPassword(newPassword, dek, null)
+
+    /** 改密并指定 KDF 迭代数（设置页改密时传当前设置值：一次重包装同时完成换密与升参）。 */
+    fun changeMasterPassword(newPassword: String, dek: ByteArray, targetIterations: Int): Result<BackupKeyMaterial> =
+        changeMasterPassword(newPassword, dek, targetIterations as Int?)
+
+    /**
+     * 重包装实现（改密与 KDF 迭代升级共用唯一入口）：新盐 + 指定迭代数重派生 KEK →
+     * 重包装 DEK → 单次 commit 原子提交（salt/verifier/wrapped/iv 一批，并清 legacy hash
+     * 与导出密钥缓存）。targetIterations null = 沿用库存值。
+     * 双向语义：迭代数升降同路，KEK/DEK 模型只换包装不重加密数据。
+     */
+    private fun changeMasterPassword(newPassword: String, dek: ByteArray, targetIterations: Int?): Result<BackupKeyMaterial> = runCatching {
         require(isMasterPasswordValid(newPassword)) { MASTER_PASSWORD_RULE_HINT }
         require(dek.size == 32) { "当前密码库密钥无效，请重新解锁" }
+        val iterations = (targetIterations ?: prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS))
+            .coerceIn(MIN_PASSWORD_ITERATIONS, MAX_PASSWORD_ITERATIONS)
         val newSalt = ByteArray(16).also { SecureRandom().nextBytes(it) }
-        val material = passwordKeyMaterial(newPassword, newSalt, prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS))
+        val material = passwordKeyMaterial(newPassword, newSalt, iterations)
         val wrapped = encryptBytes(material.wrappingKey, dek)
         try {
             val committed = prefs.edit()
@@ -120,12 +135,13 @@ internal class SecureVaultStore(private val context: Context) {
                 .remove(LEGACY_PASSWORD_HASH)
                 .putString(PASSWORD_WRAPPED_DEK, Base64.encodeToString(wrapped.ciphertext, Base64.NO_WRAP))
                 .putString(PASSWORD_WRAP_IV, Base64.encodeToString(wrapped.iv, Base64.NO_WRAP))
+                .putInt(PASSWORD_ITERATIONS_KEY, iterations)
                 // 新缓存需由新的主密码派生密钥生成；本次提交先原子废弃旧缓存。
                 .remove(BACKUP_KEY_CACHE)
                 .remove(BACKUP_KEY_CACHE_IV)
                 .commit()
             require(committed) { "主密码保存失败，请重试" }
-            BackupKeyMaterial(material.wrappingKey, newSalt, prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS))
+            BackupKeyMaterial(material.wrappingKey, newSalt, iterations)
         } catch (error: Throwable) {
             newSalt.fill(0)
             material.wrappingKey.fill(0)
@@ -165,7 +181,15 @@ internal class SecureVaultStore(private val context: Context) {
         }
     }
 
-    fun unlockWithPassword(password: String): VaultUnlock? {
+    /**
+     * 主密码解锁（含 KDF 迭代数透明升级）：验证通过后比较库存迭代数与目标值（现读设置），
+     * 不等则用**同一密码 + 新盐 + 目标迭代数**重派生 KEK 重包装 DEK（双向：升降同路），
+     * 单次 commit 原子落盘——中途被杀最坏=旧值原样保留，下次解锁重试，永不锁死。
+     * 生物识别路径无密码，永不触发升级（锁定在旧值直到下次密码解锁）。
+     * 升级后重建导出密钥缓存（.acc 的 KDF 参数随之跟进）；缓存失败不影响解锁。
+     * targetIterations 传 nullable：null = 不升级（保持库存值），供不接设置的调用方使用。
+     */
+    fun unlockWithPassword(password: String, targetIterations: Int? = null): VaultUnlock? {
         val salt = prefs.getString(PASSWORD_SALT, null)?.let { Base64.decode(it, Base64.DEFAULT) } ?: return null
         val iterations = prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS)
         val verifier = prefs.getString(PASSWORD_VERIFIER, null)?.let { Base64.decode(it, Base64.DEFAULT) }
@@ -193,8 +217,14 @@ internal class SecureVaultStore(private val context: Context) {
             val key = wrappingKey ?: return null
             val dek = runCatching { decryptBytes(key, iv, wrapped) }.getOrNull() ?: return null
             val state = load(dek) ?: return null
-            val backupKey = if (verifier == null) migrateLegacyPassword(password, dek)
-            else BackupKeyMaterial(key.copyOf(), salt.copyOf(), iterations)
+            val needsUpgrade = targetIterations != null && needsIterationUpgrade(iterations, targetIterations)
+            val backupKey = when {
+                // 旧版 KEK 直存格式：迁移到 verifier+包装制式，迭代数维持当前值——
+                // 迁移本身该用当前参数完成，迭代数变化交给下次解锁的统一升级路径。
+                verifier == null -> migrateLegacyPassword(password, dek, iterations)
+                needsUpgrade -> upgradeIterations(password, dek, targetIterations!!)
+                else -> BackupKeyMaterial(key.copyOf(), salt.copyOf(), iterations)
+            }
             VaultUnlock(dek, state, backupKey)
         } finally {
             salt.fill(0)
@@ -204,8 +234,17 @@ internal class SecureVaultStore(private val context: Context) {
         }
     }
 
-    private fun migrateLegacyPassword(password: String, dek: ByteArray): BackupKeyMaterial =
-        changeMasterPassword(password, dek).getOrThrow()
+    /**
+     * KDF 迭代数透明升级：同密码新盐按目标迭代数重派生 KEK → 重包装 DEK。
+     * changeMasterPassword(newPassword, dek, targetIterations) 是唯一的重包装实现——
+     * 它内部自己生成新盐/派生/包装/原子提交，这里只需透传密码与目标值。
+     */
+    private fun upgradeIterations(password: String, dek: ByteArray, targetIterations: Int): BackupKeyMaterial =
+        changeMasterPassword(password, dek, targetIterations).getOrThrow()
+
+    /** 旧版 KEK 直存 → verifier+包装制式迁移（迭代数维持当前值）。 */
+    private fun migrateLegacyPassword(password: String, dek: ByteArray, iterations: Int): BackupKeyMaterial =
+        changeMasterPassword(password, dek, iterations).getOrThrow()
 
     /**
      * 导出密钥缓存始终由当前 DEK 加密；缓存丢失或损坏只影响免输入导出，不影响 vault.bin。
