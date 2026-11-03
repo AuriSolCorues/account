@@ -1,0 +1,122 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号（如 1.3）'
+        default: '1.3'
+      versionCode:
+        description: 'versionCode（留空则用 run number）'
+      publish:
+        description: '创建 tag 与 GitHub Release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: 单测 + 构建
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.publish) }}
+    concurrency:
+      group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: 准备 Android SDK
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          SDKMGR="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          echo "sdkmanager=$SDKMGR"
+      - name: 切换 Gradle 发行源为官方
+        run: sed -i 's|mirrors\.cloud\.tencent\.com/gradle|services.gradle.org/distributions|' gradle/wrapper/gradle-wrapper.properties
+      - uses: gradle/actions/setup-gradle@v4
+      - name: 单元测试
+        run: ./gradlew :app:testDebugUnitTest --console=plain
+      - name: 构建 debug + release
+        run: ./gradlew :app:assembleDebug :app:assembleRelease --console=plain
+      - name: 红线断言：应用零联网
+        run: |
+          APP_MANIFEST="$(find app/build/intermediates/merged_manifests -name AndroidManifest.xml | head -1)"
+          if grep -q "android.permission.INTERNET" "$APP_MANIFEST"; then
+            echo "::error::merged manifest 出现 INTERNET，违反零联网红线"; exit 1
+          fi
+          echo "红线通过：零 INTERNET"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-unsigned-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: ignore
+
+  publish:
+    name: 签名 release 并发布
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: 准备 Android SDK
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          SDKMGR="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          echo "sdkmanager=$SDKMGR"
+      - name: 切换 Gradle 发行源为官方
+        run: sed -i 's|mirrors\.cloud\.tencent\.com/gradle|services.gradle.org/distributions|' gradle/wrapper/gradle-wrapper.properties
+      - uses: gradle/actions/setup-gradle@v4
+      - name: 校验版本号非空
+        run: test -n "${{ inputs.version }}" || { echo "::error::publish 需要填 version"; exit 1; }
+      - name: 还原签名文件
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > release.jks
+          printf 'storeFile=release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
+      - name: 构建签名 release
+        run: |
+          ./gradlew :app:assembleRelease --console=plain \
+            -Paccount.versionName="${{ inputs.version }}" \
+            -Paccount.versionCode="${{ inputs.versionCode || github.run_number }}"
+      - name: 确认确实已签名
+        run: |
+          APKSIGNER="$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner | sort -V | tail -1)"
+          for f in app/build/outputs/apk/release/account-*.apk; do
+            echo "验证 $f"
+            "$APKSIGNER" verify --print-certs "$f"
+          done
+      - name: 创建 tag 与 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
+          generate_release_notes: true
+          files: app/build/outputs/apk/release/account-*.apk

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <uses-permission android:name="com.copy.account.extension.permission.BRIDGE" />
+
+    <queries>
+        <package android:name="com.copy.account" />
+    </queries>
+
+    <application
+        android:label="account-sync"
+        android:icon="@mipmap/ic_launcher">
+
+        <activity
+            android:name=".SyncHomeActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.Sync"
+            android:permission="com.copy.account.extension.permission.BRIDGE">
+            <intent-filter>
+                <action android:name="com.copy.account.action.SYNC_SETTINGS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".SyncKickActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:permission="com.copy.account.extension.permission.BRIDGE">
+            <intent-filter>
+                <action android:name="com.copy.account.action.SYNC_KICK" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".SyncService"
+            android:exported="true"
+            android:permission="com.copy.account.extension.permission.BRIDGE" />
+    </application>
+</manifest>

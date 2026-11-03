@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <permission
+        android:name="com.copy.account.extension.permission.BRIDGE"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.copy.account.extension.permission.BRIDGE" />
+
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="com.copy.account.action.SYNC_SETTINGS" />
+            <category android:name="android.intent.category.DEFAULT" />
+        </intent>
+        <intent>
+            <action android:name="com.copy.account.action.SYNC_KICK" />
+            <category android:name="android.intent.category.DEFAULT" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Account">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.Account"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service
+            android:name=".service.AppAutofillService"
+            android:exported="true"
+            android:label="@string/autofill_service_label"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.autofill"
+                android:resource="@xml/autofill_service_config" />
+        </service>
+        <activity
+            android:name=".service.AutofillAuthActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.Account.Transparent" />
+
+        <service
+            android:name=".service.PasskeyProviderService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="@string/passkey_service_label"
+            android:permission="android.permission.BIND_CREDENTIAL_PROVIDER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.credentials.CredentialProviderService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.credentials.provider"
+                android:resource="@xml/passkey_provider_config" />
+        </service>
+        <activity
+            android:name=".service.PasskeyCreateActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.Account.Transparent" />
+        <activity
+            android:name=".service.PasskeyGetActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.Account.Transparent" />
+
+        <provider
+            android:name=".runtime.ExtensionBridgeProvider"
+            android:authorities="com.copy.account.extbridge"
+            android:exported="true"
+            android:grantUriPermissions="false"
+            android:permission="com.copy.account.extension.permission.BRIDGE" />
+    </application>
+
+</manifest>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Sync" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/sync_background</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+
+    <color name="sync_background">#FF101217</color>
+</resources>
