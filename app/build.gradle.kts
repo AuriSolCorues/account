@@ -77,7 +77,9 @@ android {
         abi {
             isEnable = true
             reset()
-            include("arm64-v8a", "armeabi-v7a")
+            val requested = (providers.gradleProperty("account.abis").getOrElse("arm64-v8a,armeabi-v7a"))
+                .split(',').map { it.trim() }.filter { it.isNotEmpty() }
+            include(*requested.toTypedArray())
             isUniversalApk = false
         }
     }
