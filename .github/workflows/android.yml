@@ -44,10 +44,15 @@ jobs:
       - name: 切换 Gradle 发行源为官方
         run: sed -i 's|mirrors\.cloud\.tencent\.com/gradle|services.gradle.org/distributions|' gradle/wrapper/gradle-wrapper.properties
       - uses: gradle/actions/setup-gradle@v4
+      - name: 缓存 Robolectric android-all
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-android-all-15-robolectric-12650502-i7
       - name: 单元测试
         run: ./gradlew :app:testDebugUnitTest --console=plain
-      - name: 构建 debug + release
-        run: ./gradlew :app:assembleDebug :app:assembleRelease --console=plain
+      - name: 构建 release
+        run: ./gradlew :app:assembleRelease --console=plain
       - name: 红线断言：应用零联网
         run: |
           APP_MANIFEST="$(find app/build/intermediates/merged_manifests -name AndroidManifest.xml | head -1)"
@@ -55,10 +60,6 @@ jobs:
             echo "::error::merged manifest 出现 INTERNET，违反零联网红线"; exit 1
           fi
           echo "红线通过：零 INTERNET"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: debug-apk
-          path: app/build/outputs/apk/debug/*.apk
       - uses: actions/upload-artifact@v4
         with:
           name: release-unsigned-apk

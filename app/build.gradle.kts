@@ -102,6 +102,7 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+            all { it.systemProperty("robolectric.dependency.repo.url", "https://mirrors.cloud.tencent.com/nexus/repository/maven-central") }
         }
     }
 }
