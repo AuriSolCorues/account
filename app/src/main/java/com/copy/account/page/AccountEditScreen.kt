@@ -76,7 +76,6 @@ import com.copy.account.ui.components.ActionSheetRow
 import com.copy.account.ui.components.AnimatedReorderCard
 import com.copy.account.ui.components.AppBottomSheet
 import com.copy.account.ui.components.DangerButton
-import com.copy.account.page.PasskeyDisplayEntry
 import com.copy.account.ui.components.DeleteConfirmDialog
 import com.copy.account.ui.components.DragHandleGlyph
 import com.copy.account.ui.components.FieldTextBox
@@ -152,9 +151,7 @@ internal fun AccountEditScreen(
     onBack: () -> Unit,
     onCreateGroup: (String) -> String,
     onSave: suspend (Account) -> Result<Unit>,
-    onDelete: (suspend () -> Result<Unit>)? = null,
-    passkeyInfo: PasskeyDisplayEntry? = null,
-    onDeletePasskey: ((String) -> Unit)? = null
+    onDelete: (suspend () -> Result<Unit>)? = null
 ) {
     val source = account ?: template
     var name by remember(source?.id) { mutableStateOf(source?.name.orEmpty()) }
@@ -186,7 +183,6 @@ internal fun AccountEditScreen(
     var addGroupDialog by remember { mutableStateOf(false) }
     var showMissingName by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf(false) }
-    var passkeyDeleteConfirm by remember { mutableStateOf(false) }
     var showPasswordGenerator by remember { mutableStateOf(false) }
     var showScan by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf("") }
@@ -546,16 +542,6 @@ internal fun AccountEditScreen(
             if (totpError.isNotBlank()) item { Text(totpError, color = MaterialTheme.colorScheme.error) }
         }
         if (saveError.isNotBlank()) item { Text(saveError, color = MaterialTheme.colorScheme.error) }
-        if (passkeyInfo != null && onDeletePasskey != null) {
-            item { DangerButton("删除本机通行密钥（${passkeyInfo.rpId}）", onClick = { passkeyDeleteConfirm = true }) }
-            item {
-                Text(
-                    "删除后本机不再能以此通行密钥登录 ${passkeyInfo.rpId}；网站侧需自行到账号设置移除。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
         if (account != null && onDelete != null) item { DangerButton("删除账号", onClick = { deleteConfirm = true }) }
     }
 
@@ -619,17 +605,6 @@ internal fun AccountEditScreen(
             confirmButton = { TextActionButton("确定", onClick = { showMissingName = false }) }
         )
     }
-    if (passkeyDeleteConfirm && passkeyInfo != null) AlertDialog(
-        onDismissRequest = { passkeyDeleteConfirm = false },
-        title = { Text("删除本机通行密钥") },
-        text = { Text("删除后本机将无法再用指纹登录 ${passkeyInfo.rpId}（网站侧不受影响，需自行到网站设置移除通行密钥）。此操作不可恢复。") },
-        confirmButton = {
-            TextActionButton("删除", { passkeyDeleteConfirm = false; onDeletePasskey?.invoke(passkeyInfo.credentialId) }, textColor = MaterialTheme.colorScheme.error)
-        },
-        dismissButton = {
-            TextActionButton("取消", { passkeyDeleteConfirm = false })
-        }
-    )
     if (deleteConfirm) {
         DeleteConfirmDialog(
             title = "删除账号",

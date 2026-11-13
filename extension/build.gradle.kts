@@ -21,9 +21,9 @@ android {
         applicationId = "com.copy.account.sync"
         minSdk = 28
         targetSdk = 37
-        versionCode = 21
+        versionCode = 22
         versionName = "2.2.0"
-        buildConfigField("int", "BUILD_ID", "13")
+        buildConfigField("int", "BUILD_ID", "22")
     }
 
     signingConfigs {

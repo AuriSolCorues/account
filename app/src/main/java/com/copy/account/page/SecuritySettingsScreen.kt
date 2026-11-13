@@ -64,9 +64,6 @@ internal fun SecuritySettingsScreen(
     onKdfIterationsChange: (Int) -> Unit,
     blockScreenshots: Boolean,
     onBlockScreenshotsChange: (Boolean) -> Unit,
-    passkeyEntries: List<PasskeyDisplayEntry>,
-    onDeletePasskey: (String) -> Unit,
-    passkeySupported: Boolean,
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -77,7 +74,6 @@ internal fun SecuritySettingsScreen(
     var autofillHelpExpanded by remember { mutableStateOf(false) }
     var windowHelpExpanded by remember { mutableStateOf(false) }
     var showChangePasswordDialog by remember { mutableStateOf(false) }
-    var showDeletePasskeyFor by remember { mutableStateOf<String?>(null) }
     var newPassword by remember { mutableStateOf("") }
     var confirmNewPassword by remember { mutableStateOf("") }
     var changePasswordError by remember { mutableStateOf("") }
@@ -165,45 +161,6 @@ internal fun SecuritySettingsScreen(
             }
         }
         item { AutofillJumpRow() }
-        if (passkeySupported) {
-            item { SettingsHeader("通行密钥") }
-            if (passkeyEntries.isEmpty()) {
-                item {
-                    Text(
-                        "本机还没有通行密钥。在 GitHub/Google 等网站注册通行密钥时选择「账号本子」即可保存到这里。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                items(passkeyEntries, key = { it.credentialId }) { entry ->
-                    Column {
-                        SettingsRow(
-                            entry.rpId,
-                            buildString {
-                                append("添加于 ")
-                                append(java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date(entry.createdAt)))
-                                if (entry.accountName.isNotBlank()) append(" · ").append(entry.accountName)
-                            }
-                        ) { showDeletePasskeyFor = entry.credentialId }
-                    }
-                }
-            }
-        }
-    }
-    showDeletePasskeyFor?.let { credentialId ->
-        val entry = passkeyEntries.firstOrNull { it.credentialId == credentialId }
-        AlertDialog(
-            onDismissRequest = { showDeletePasskeyFor = null },
-            title = { Text("删除通行密钥") },
-            text = { Text("删除后本机将无法再登录 ${entry?.rpId.orEmpty()} 的该账号（网站侧的通行密钥需自行到网站设置里移除）。此操作不可恢复。") },
-            confirmButton = {
-                TextActionButton("删除", { onDeletePasskey(credentialId); showDeletePasskeyFor = null }, textColor = MaterialTheme.colorScheme.error)
-            },
-            dismissButton = {
-                TextActionButton("取消", { showDeletePasskeyFor = null })
-            }
-        )
     }
     if (showChangePasswordDialog) AlertDialog(
         onDismissRequest = { showChangePasswordDialog = false },
@@ -359,17 +316,7 @@ private fun SecuritySettingsScreenPreview() {
             onKdfIterationsChange = {},
             blockScreenshots = false,
             onBlockScreenshotsChange = {},
-            passkeyEntries = emptyList(),
-            onDeletePasskey = {},
-            passkeySupported = true,
             onBack = {}
         )
     }
 }
-
-internal data class PasskeyDisplayEntry(
-    val credentialId: String,
-    val rpId: String,
-    val accountName: String,
-    val createdAt: Long
-)

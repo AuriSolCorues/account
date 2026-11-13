@@ -188,6 +188,10 @@ val local = bridge.list(BridgeClient.Scope.BACKUP).associateBy { it.rel }
                             error("$name 下载不完整（得 $got / 应 $expected）")
                         }
                         bridge.move(partRel, "account/$name")
+                        runCatching {
+                            val ts = parseBackupNameTime(name) ?: (remote[name]?.mtimeSec?.times(1000) ?: 0L)
+                            if (ts > 0) bridge.touchLocal("account/$name", ts)
+                        }
                     } finally {
                         bridge.deleteLocal(partRel)
 }
@@ -266,6 +270,10 @@ val local = bridge.list(BridgeClient.Scope.BACKUP).associateBy { it.rel }
                 val got = bridge.sizeOf(partRel)
                 if (expected > 0L && got != expected) error("$name 下载不完整（得 $got / 应 $expected）")
                 bridge.move(partRel, "account/$name")
+                runCatching {
+                    val ts = parseBackupNameTime(name) ?: (remote[name]?.mtimeSec?.times(1000) ?: 0L)
+                    if (ts > 0) bridge.touchLocal("account/$name", ts)
+                }
             } finally {
                         bridge.deleteLocal(partRel)
 }
@@ -319,6 +327,10 @@ mode = SyncMode.MirrorToLocal,
                 val got = bridge.sizeOf(partRel)
                 if (expected > 0L && got != expected) error("$name 下载不完整（得 $got / 应 $expected）")
                 bridge.move(partRel, "account/$name")
+                runCatching {
+                    val ts = parseBackupNameTime(name) ?: (remote[name]?.mtimeSec?.times(1000) ?: 0L)
+                    if (ts > 0) bridge.touchLocal("account/$name", ts)
+                }
             } finally {
                 bridge.deleteLocal(partRel)
             }

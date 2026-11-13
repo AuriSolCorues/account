@@ -89,34 +89,6 @@ internal class UnlockSession(
         scope.launch { saveVault() }
     }
 
-    suspend fun deletePasskey(credentialId: String): Boolean {
-        val key = dataKey?.copyOf() ?: return false
-        try {
-            var removed = false
-            val nextAccounts = accounts.map { acc ->
-                if (acc.passkeys.none { it.credentialId == credentialId }) {
-                    acc
-                } else {
-                    removed = true
-                    acc.copy(passkeys = acc.passkeys.filterNot { it.credentialId == credentialId })
-                }
-            }
-            if (!removed) return false
-            val snapshot = PersistedVault(
-                accounts = nextAccounts,
-                groups = groups,
-                selectedGroupId = selectedGroupId
-            )
-            val ok = vaultWriteMutex.withLock {
-                withContext(Dispatchers.IO) { runCatching { store.save(snapshot, key) }.isSuccess }
-            }
-            if (ok) accounts = nextAccounts
-            return ok
-        } finally {
-            key.fill(0)
-        }
-    }
-
     suspend fun unlockWithPassword(password: String, targetIterations: Int): Boolean {
         val firstRun = !passwordConfigured
         val unlocked = withContext(Dispatchers.Default) {

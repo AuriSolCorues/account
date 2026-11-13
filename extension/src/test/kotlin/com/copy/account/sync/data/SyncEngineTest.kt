@@ -136,4 +136,33 @@ class SyncEngineTest {
         assertEquals(listOf("cloud.acc"), plan.transfer)
         assertTrue(plan.delete.isEmpty())
     }
+
+    @Test
+    fun parseBackupNameTime_standardName() {
+        val ts = parseBackupNameTime("account-20261113-143025.acc")
+        assertEquals(1794580225000L, ts)
+    }
+
+    @Test
+    fun parseBackupNameTime_indexSuffix() {
+        val ts = parseBackupNameTime("account-20261113-143025-1.acc")
+        assertEquals(parseBackupNameTime("account-20261113-143025.acc"), ts)
+    }
+
+    @Test
+    fun parseBackupNameTime_tagSuffix() {
+        val ts = parseBackupNameTime("account-20261113-143025-标签.acc")
+        assertEquals(parseBackupNameTime("account-20261113-143025.acc"), ts)
+    }
+
+    @Test
+    fun parseBackupNameTime_noStamp_returnsNull() {
+        assertEquals(null, parseBackupNameTime("backup.acc"))
+        assertEquals(null, parseBackupNameTime("account-plain-2026-11-13.json"))
+    }
+
+    @Test
+    fun parseBackupNameTime_invalidDate_returnsNull() {
+        assertEquals(null, parseBackupNameTime("account-20261399-999999.acc"))
+    }
 }
