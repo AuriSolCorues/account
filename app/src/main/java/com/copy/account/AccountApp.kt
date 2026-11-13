@@ -42,10 +42,7 @@ import com.copy.account.data.model.MAX_AUTO_LOCK_SECONDS
 import com.copy.account.security.MAX_PASSWORD_ITERATIONS
 import com.copy.account.security.MIN_PASSWORD_ITERATIONS
 import com.copy.account.data.model.PersistedVault
-import com.copy.account.security.PasskeyRegistry
-import com.copy.account.security.PasskeyVaultAccess
 import com.copy.account.security.parseImportPayload
-import com.copy.account.page.PasskeyDisplayEntry
 import com.copy.account.data.model.SavedTheme
 import com.copy.account.data.model.accountInGroup
 import com.copy.account.data.model.initialGroups
@@ -108,8 +105,6 @@ fun AccountApp(
     val store = remember { SecureVaultStore(context) }
     val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf<AppPage>(AppPage.Unlock) }
-    val passkeyRegistry = remember { PasskeyRegistry(context) }
-    var passkeyRegistryVersion by remember { mutableStateOf(0) }
     var scanImportOpen by remember { mutableStateOf(false) }
     var previewAccountId by rememberSaveable { mutableStateOf<String?>(null) }
     var editTemplate by remember { mutableStateOf<Account?>(null) }
@@ -385,9 +380,6 @@ fun AccountApp(
             selectedGroupId = selectedGroupId,
             clipboardClearSeconds = settings.clipboardClearSeconds,
             maskChar = maskChar,
-            passkeyAccountIds = remember(passkeyRegistryVersion, accounts) {
-                passkeyRegistry.load().mapNotNull { e -> e.accountId.takeIf { it.isNotBlank() } }.toSet()
-            },
             onScanImport = { scanImportOpen = true },
             previewAccountId = previewAccountId,
             onPreviewAccountIdChange = { previewAccountId = it },
@@ -513,25 +505,7 @@ fun AccountApp(
                 val allow = !blocked
                 settingsContainer.update { it.copy(allowScreenshots = allow) }
                 onAllowScreenshotsChange(allow)
-            },
-            passkeyEntries = remember(passkeyRegistryVersion) {
-                passkeyRegistry.load().map { entry ->
-                    PasskeyDisplayEntry(
-                        credentialId = entry.credentialId,
-                        rpId = entry.rpId,
-                        accountName = accounts.firstOrNull { it.id == entry.accountId }?.name.orEmpty(),
-                        createdAt = entry.createdAt
-                    )
-                }
-            },
-            onDeletePasskey = { credentialId ->
-                scope.launch {
-                    val deleted = session.deletePasskey(credentialId)
-                    passkeyRegistry.remove(credentialId)
-                    if (deleted) passkeyRegistryVersion++
-                }
-            },
-            passkeySupported = Build.VERSION.SDK_INT >= 34
+            }
         )
 
         AppPage.AppearanceSettings -> AppearanceSettingsScreen(
@@ -672,8 +646,6 @@ fun AccountApp(
                     session.accounts = imported.vault.accounts
                     session.groups = imported.vault.groups.ifEmpty { initialGroups }
                     session.selectedGroupId = imported.vault.selectedGroupId.ifBlank { "default" }
-                    passkeyRegistry.rebuildFromVault(imported.vault.accounts)
-                    passkeyRegistryVersion++
                     imported.vault.webdavConfig?.let {
                         com.copy.account.runtime.WebDavConfigVault.storeFromImport(
                             context, com.copy.account.runtime.WebDavConfigRecord(it.url, it.user, it.passwordEnc)
@@ -694,14 +666,12 @@ fun AccountApp(
 
         is AppPage.Detail -> AccountDetailScreen(
             account = accounts.firstOrNull { it.id == current.accountId },
+            groups = groups,
             clipboardClearSeconds = settings.clipboardClearSeconds,
             maskChar = maskChar,
             onBack = { page = AppPage.Home },
             onEdit = { page = AppPage.Edit(current.accountId) },
-            onHotpAdvance = session::advanceHotp,
-            hasPasskey = remember(passkeyRegistryVersion) {
-                passkeyRegistry.byAccountId(current.accountId).isNotEmpty()
-            }
+            onHotpAdvance = session::advanceHotp
         )
 
         is AppPage.Edit -> AccountEditScreen(
@@ -711,23 +681,6 @@ fun AccountApp(
             initialGroupId = selectedGroupId,
             clipboardClearSeconds = settings.clipboardClearSeconds,
             maskChar = maskChar,
-            passkeyInfo = remember(passkeyRegistryVersion, current.accountId) {
-                passkeyRegistry.byAccountId(current.accountId.orEmpty()).firstOrNull()?.let { entry ->
-                    PasskeyDisplayEntry(
-                        credentialId = entry.credentialId,
-                        rpId = entry.rpId,
-                        accountName = "",
-                        createdAt = entry.createdAt
-                    )
-                }
-            },
-            onDeletePasskey = { credentialId ->
-                scope.launch {
-                    val deleted = session.deletePasskey(credentialId)
-                    passkeyRegistry.remove(credentialId)
-                    if (deleted) passkeyRegistryVersion++
-                }
-            },
             onBack = { page = AppPage.Home; editTemplate = null },
             onCreateGroup = ::createGroup,
             onSave = { edited ->

@@ -17,7 +17,7 @@ private const val PROJECT_URL = "https://github.com/AuriSolCorues/account"
 internal fun AboutScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     AppListScreen("关于", onBack) {
-        item { SettingsRow("版本", "${BuildConfig.VERSION_NAME}(${BuildConfig.BUILD_ID})") }
+        item { SettingsRow("版本", "${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})") }
         item {
             SettingsRow("开源地址", "打开", onClick = {
                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PROJECT_URL))) }

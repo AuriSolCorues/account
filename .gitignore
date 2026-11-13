@@ -43,3 +43,5 @@ CLAUDE.md
 
 build.sh
 test.sh
+release/
+*.idsig

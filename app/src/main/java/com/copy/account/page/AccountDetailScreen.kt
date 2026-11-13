@@ -13,7 +13,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.security.isHotp
 import com.copy.account.data.model.Account
+import com.copy.account.data.model.Group
 import com.copy.account.data.model.initialAccounts
+import com.copy.account.data.model.initialGroups
 import com.copy.account.data.model.passwordRowLabel
 import com.copy.account.data.model.usernameRowLabel
 import com.copy.account.ui.components.AppListScreen
@@ -30,15 +32,19 @@ import com.copy.account.ui.theme.LocalAccountThemePalette
 @Composable
 internal fun AccountDetailScreen(
     account: Account?,
+    groups: List<Group>,
     clipboardClearSeconds: Int,
     onBack: () -> Unit,
     onEdit: () -> Unit,
     maskChar: Char = '•',
-    onHotpAdvance: (String) -> Unit = {},
-    hasPasskey: Boolean = false
+    onHotpAdvance: (String) -> Unit = {}
 ) {
     val nowMillis = rememberClock(if (account?.isHotp == true) 60_000L else 1000L)
     val title = account?.name ?: "账号详情"
+    val groupNames = account?.groups
+        ?.mapNotNull { id -> groups.firstOrNull { it.id == id }?.name }
+        ?.filter { it.isNotBlank() }
+        .orEmpty()
     val topBarActions: @Composable RowScope.() -> Unit = { TextActionButton("编辑", onEdit, textColor = LocalAccountThemePalette.current.topBarText) }
     if (account == null) {
         AppScreen(title = title, onBack = onBack, actions = topBarActions) { padding ->
@@ -46,14 +52,9 @@ internal fun AccountDetailScreen(
         }
     } else {
         AppListScreen(title, onBack, actions = topBarActions, spacing = 4.dp) {
-            item { Text("分组：${account.groups.joinToString().ifBlank { "默认" }}", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 12.dp)) }
+            item { Text("分组：${groupNames.joinToString().ifBlank { "默认" }}", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 12.dp)) }
             item { Text("登录信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
             item { SensitiveValueRow(account.usernameRowLabel, account.username, masked = account.usernameHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
-            if (hasPasskey) {
-                item {
-                    Text("🔑 本机通行密钥已绑定", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
             item { SensitiveValueRow(account.passwordRowLabel, account.password, masked = account.passwordHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
             item { Text("两步验证", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
             item {
@@ -69,6 +70,6 @@ internal fun AccountDetailScreen(
 @Composable
 private fun AccountDetailScreenPreview() {
     AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
-        AccountDetailScreen(account = initialAccounts.last(), clipboardClearSeconds = 30, onBack = {}, onEdit = {})
+        AccountDetailScreen(account = initialAccounts.last(), groups = initialGroups, clipboardClearSeconds = 30, onBack = {}, onEdit = {})
     }
 }

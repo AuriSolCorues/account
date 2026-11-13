@@ -61,21 +61,6 @@ internal data class Account(
     val totpType: String = DEFAULT_TOTP_TYPE,
 
     val uid: String = "",
-
-    val passkeys: List<AccountPasskey> = emptyList(),
-)
-
-@Serializable
-internal data class AccountPasskey(
-    val credentialId: String,
-    val rpId: String,
-    val userName: String,
-    val userHandle: String,
-    val privateKeyPkcs8: String,
-    val publicKeyXY: String,
-    val publicKeyDer: String = "",
-    val signCount: Long = 0,
-    val createdAt: Long
 )
 
 private const val UID_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"

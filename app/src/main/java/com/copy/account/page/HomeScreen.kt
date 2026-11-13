@@ -92,7 +92,6 @@ internal fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenDetail: (String) -> Unit,
     onHotpAdvance: (String) -> Unit = {},
-    passkeyAccountIds: Set<String> = emptySet(),
     onScanImport: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -241,8 +240,7 @@ internal fun HomeScreen(
                                             batchSelectedIds = if (account.id in batchSelectedIds) batchSelectedIds - account.id else batchSelectedIds + account.id
                                         } else onPreviewAccountIdChange(account.id)
                                     },
-                                    onLongClick = { if (batchSourceGroup == null) menuAccount = account },
-                                    hasPasskey = account.id in passkeyAccountIds
+                                    onLongClick = { if (batchSourceGroup == null) menuAccount = account }
                                 )
                             }
                         }
@@ -356,8 +354,7 @@ internal fun AccountCard(
     nowMillis: Long,
     selected: Boolean = false,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    hasPasskey: Boolean = false
+    onLongClick: () -> Unit
 ) {
     SurfaceCard(modifier = Modifier
         .fillMaxWidth()
@@ -388,7 +385,6 @@ internal fun AccountCard(
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(account.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (hasPasskey) Text("🔑", style = MaterialTheme.typography.titleSmall)
                 }
                 val subtitle = when {
                     !(showTotp && account.hasTotp) -> account.username

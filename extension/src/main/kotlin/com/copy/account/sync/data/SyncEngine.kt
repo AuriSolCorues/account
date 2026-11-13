@@ -1,6 +1,20 @@
 package com.copy.account.sync.data
 
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
+
+internal const val BACKUP_NAME_STAMP_PATTERN = "(\\d{8}-\\d{6})"
+
+internal fun parseBackupNameTime(name: String): Long? {
+    val match = BACKUP_NAME_STAMP_PATTERN.toRegex().find(name) ?: return null
+    return runCatching {
+        SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US)
+            .apply { isLenient = false }
+            .parse(match.groupValues[1])
+            ?.time
+    }.getOrNull()
+}
 
 internal enum class SyncMode {
     Upload,
