@@ -43,6 +43,8 @@ jobs:
           echo "sdkmanager=$SDKMGR"
       - name: 切换 Gradle 发行源为官方
         run: sed -i 's|mirrors\.cloud\.tencent\.com/gradle|services.gradle.org/distributions|' gradle/wrapper/gradle-wrapper.properties
+      - name: 切换 Robolectric 源为官方
+        run: sed -i 's|https://mirrors\.cloud\.tencent\.com/nexus/repository/maven-central|https://repo1.maven.org/maven2|' app/build.gradle.kts
       - uses: gradle/actions/setup-gradle@v4
       - name: 缓存 Robolectric android-all
         uses: actions/cache@v4
