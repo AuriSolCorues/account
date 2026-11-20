@@ -55,7 +55,7 @@ private fun OverriddenDialogPreview() {
 private fun PopupThemeSimulator(state: PopupPreviewState) {
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("账号本子", style = MaterialTheme.typography.headlineSmall)
+            Text("account", style = MaterialTheme.typography.headlineSmall)
             Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(16.dp)) {
                 Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                     Text("示例账号", style = MaterialTheme.typography.titleMedium)

@@ -636,7 +636,7 @@ fun AccountApp(
                         if (imported.isSuccess) {
                             Result.success(AccImportResult(vault = imported.getOrThrow(), settings = settingsContainer.baseSettings))
                         } else {
-                            Result.failure(imported.exceptionOrNull() ?: IllegalStateException("账号本子文件解析失败"))
+                            Result.failure(imported.exceptionOrNull() ?: IllegalStateException("account 文件解析失败"))
                         }
                     } else {
                         importAcc(bytes, password)
@@ -730,7 +730,7 @@ fun AccountApp(
                     )
                     page = AppPage.Edit(null)
                 } else {
-                    android.widget.Toast.makeText(context, "二维码不是账号本子导入格式", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(context, "二维码不是 account 导入格式", android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
         )

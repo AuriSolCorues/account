@@ -104,7 +104,7 @@ internal fun exportAccountBoxJson(vault: PersistedVault, exportedAtMs: Long): By
 internal fun importAccountBoxJson(bytes: ByteArray): Result<PersistedVault> = runCatching {
     val text = bytes.toString(Charsets.UTF_8)
     val firstLine = text.lineSequence().firstOrNull()?.trim().orEmpty()
-    require(firstLine == ACCOUNTBOX_MAGIC) { "不是账号本子明文格式（缺少 ACCOUNTBOX_JSON_13 标识）" }
+    require(firstLine == ACCOUNTBOX_MAGIC) { "不是 account 明文格式（缺少 ACCOUNTBOX_JSON_13 标识）" }
     val document = abJson.decodeFromString(AbDocument.serializer(), text.substringAfter('\n'))
     val customGroups = document.tagList.distinctBy { it.tagName }.map { Group("ab-${it.tagName}", it.tagName, GroupKind.CUSTOM) }
     val tagNameToId = customGroups.associate { it.name to it.id }

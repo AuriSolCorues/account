@@ -160,7 +160,7 @@ internal fun HomeScreen(
                             ),
                             modifier = Modifier.fillMaxWidth().focusRequester(searchFocus)
                         )
-                    } else Text("账号本子", color = LocalAccountThemePalette.current.topBarText, fontWeight = FontWeight.Bold)
+                    } else Text("account", color = LocalAccountThemePalette.current.topBarText, fontWeight = FontWeight.Bold)
                 },
                 actions = {
                     IconButton(onClick = onNewAccount) { Text("＋", color = LocalAccountThemePalette.current.topBarText, fontSize = 24.sp) }

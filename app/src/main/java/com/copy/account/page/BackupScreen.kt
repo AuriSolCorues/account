@@ -111,7 +111,7 @@ internal fun BackupScreen(
                 val bytes = pendingImportBytes ?: return@launch
                 val result = withContext(Dispatchers.Default) { onImport(bytes, "") }
                 if (result == null || result.isFailure) {
-                    importError = result?.exceptionOrNull()?.message ?: "账号本子文件解析失败"
+                    importError = result?.exceptionOrNull()?.message ?: "account 文件解析失败"
                     bytes.fill(0); pendingImportBytes = null
                 } else {
                     bytes.fill(0); pendingImportBytes = null
@@ -255,7 +255,7 @@ internal fun BackupScreen(
                 buildAnnotatedString {
                     append("将把 $accountCount 个账号、$groupCount 个分组的")
                     withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("全部密码与两步验证密钥") }
-                    append("以账号本子明文格式（ACCOUNTBOX_JSON_13）写入系统下载目录（Download）。\n\n")
+                    append("以 account 明文格式（ACCOUNTBOX_JSON_13）写入系统下载目录（Download）。\n\n")
                     append("该文件没有任何加密，任何人拿到即可登录你的所有账号，且应用内无法删除它。绑定关系（网址/应用）不会随明文导出保留。确认导出？")
                 }
             )
