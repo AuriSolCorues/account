@@ -52,7 +52,7 @@ internal fun UnlockScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("账号本子", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("account", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text(if (firstUse) "首次使用 · 设置主密码" else "输入主密码以解锁", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
         Spacer(Modifier.height(42.dp))
         if (showPassword) PasswordField("主密码", password, { password = it }, Modifier.fillMaxWidth())

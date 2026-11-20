@@ -79,7 +79,7 @@ class AutofillAuthActivity : FragmentActivity() {
             lockedModeUsesBiometric() -> {
                 val cipher = beginSelfHealCipher()
                 if (cipher == null) {
-                    Toast.makeText(this, "无法解封数据，请先打开账号本子解锁一次", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "无法解封数据，请先打开 account 解锁一次", Toast.LENGTH_SHORT).show()
                     finishCancel()
                     return
                 }
@@ -139,14 +139,14 @@ class AutofillAuthActivity : FragmentActivity() {
             }
         )
         val combined = BiometricPrompt.PromptInfo.Builder()
-            .setTitle(if (selfHeal) "解锁账号本子" else "解锁自动填充")
+            .setTitle(if (selfHeal) "解锁 account" else "解锁自动填充")
             .setSubtitle(if (selfHeal) "验证后填充所选账号" else "验证指纹或锁屏密码以填充账号")
             .setAllowedAuthenticators(
                 BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
             )
             .build()
         val strongOnly = BiometricPrompt.PromptInfo.Builder()
-            .setTitle(if (selfHeal) "解锁账号本子" else "解锁自动填充")
+            .setTitle(if (selfHeal) "解锁 account" else "解锁自动填充")
             .setSubtitle(if (selfHeal) "验证后填充所选账号" else "验证指纹以填充账号")
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
             .setNegativeButtonText("取消")

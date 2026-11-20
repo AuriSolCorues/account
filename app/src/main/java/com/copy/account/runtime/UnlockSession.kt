@@ -172,7 +172,7 @@ internal class UnlockSession(
         })
         prompt.authenticate(
             BiometricPrompt.PromptInfo.Builder()
-                .setTitle("解锁账号本子")
+                .setTitle("解锁 account")
                 .setSubtitle("使用指纹或面容解锁")
                 .setNegativeButtonText("使用主密码")
                 .build(),
