@@ -41,6 +41,11 @@ jobs:
           SDKMGR="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
           yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
           echo "sdkmanager=$SDKMGR"
+      - name: 安装 Rust（rust/kdf 交叉编译）
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-linux-android
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: 切换 Gradle 发行源为官方
         run: sed -i 's|mirrors\.cloud\.tencent\.com/gradle|services.gradle.org/distributions|' gradle/wrapper/gradle-wrapper.properties
       - name: 切换 Robolectric 源为官方
@@ -89,6 +94,11 @@ jobs:
           SDKMGR="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
           yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
           echo "sdkmanager=$SDKMGR"
+      - name: 安装 Rust（rust/kdf 交叉编译）
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-linux-android
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: 切换 Gradle 发行源为官方
         run: sed -i 's|mirrors\.cloud\.tencent\.com/gradle|services.gradle.org/distributions|' gradle/wrapper/gradle-wrapper.properties
       - uses: gradle/actions/setup-gradle@v4

@@ -1,0 +1,15 @@
+[package]
+name = "account_kdf"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+name = "account_kdf"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pbkdf2 = { version = "0.12", default-features = false }
+hmac = "0.12"
+sha2 = "0.10"
+zeroize = "1"
+jni = "0.21"

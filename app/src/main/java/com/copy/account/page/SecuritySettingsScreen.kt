@@ -248,10 +248,10 @@ internal fun SecuritySettingsScreen(
         minValue = MIN_PASSWORD_ITERATIONS,
         maxValue = MAX_PASSWORD_ITERATIONS,
         presets = listOf(
-            "600,000（推荐）" to { onKdfIterationsChange(600_000) },
+            "1,000,000（推荐）" to { onKdfIterationsChange(1_000_000) },
+            "600,000" to { onKdfIterationsChange(600_000) },
             "500,000" to { onKdfIterationsChange(500_000) },
-            "300,000" to { onKdfIterationsChange(300_000) },
-            "1,000,000" to { onKdfIterationsChange(1_000_000) }
+            "300,000" to { onKdfIterationsChange(300_000) }
         ),
         onConfirm = { iterations -> onKdfIterationsChange(iterations.coerceIn(MIN_PASSWORD_ITERATIONS, MAX_PASSWORD_ITERATIONS)) },
         onDismiss = { showKdfDialog = false }
