@@ -69,7 +69,8 @@ internal fun AccountDetailScreen(
 @Preview(showBackground = true)
 @Composable
 private fun AccountDetailScreenPreview() {
+    val previewContext = androidx.compose.ui.platform.LocalContext.current
     AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
-        AccountDetailScreen(account = initialAccounts.last(), groups = initialGroups, clipboardClearSeconds = 30, onBack = {}, onEdit = {})
+        AccountDetailScreen(account = initialAccounts(previewContext).last(), groups = initialGroups(previewContext), clipboardClearSeconds = 30, onBack = {}, onEdit = {})
     }
 }

@@ -54,9 +54,10 @@ private fun AccountPreviewContent(
 @Preview(name = "账号速览面板", widthDp = 411, heightDp = 700, showBackground = true)
 @Composable
 private fun AccountPreviewSheetPagePreview() {
+    val previewContext = androidx.compose.ui.platform.LocalContext.current
     AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         SheetPagePreview {
-            AccountPreviewContent(initialAccounts[1], clipboardClearSeconds = 30, maskChar = '•', onEdit = {}, onDetail = {})
+            AccountPreviewContent(initialAccounts(previewContext)[1], clipboardClearSeconds = 30, maskChar = '•', onEdit = {}, onDetail = {})
         }
     }
 }

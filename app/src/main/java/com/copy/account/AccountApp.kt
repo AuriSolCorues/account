@@ -644,7 +644,7 @@ fun AccountApp(
                 },
                 onApplyImport = { imported ->
                     session.accounts = imported.vault.accounts
-                    session.groups = imported.vault.groups.ifEmpty { initialGroups }
+                    session.groups = imported.vault.groups.ifEmpty { initialGroups(context) }
                     session.selectedGroupId = imported.vault.selectedGroupId.ifBlank { "default" }
                     imported.vault.webdavConfig?.let {
                         com.copy.account.runtime.WebDavConfigVault.storeFromImport(

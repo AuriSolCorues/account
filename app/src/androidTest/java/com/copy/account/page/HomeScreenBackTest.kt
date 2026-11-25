@@ -61,10 +61,11 @@ class HomeScreenBackTest {
 
     @androidx.compose.runtime.Composable
     private fun HomeScreenUnderTest() {
+        val context = androidx.compose.ui.platform.LocalContext.current
         AccountTheme {
             HomeScreen(
-                accounts = initialAccounts,
-                groups = initialGroups,
+                accounts = initialAccounts(context),
+                groups = initialGroups(context),
                 selectedGroupId = "default",
                 clipboardClearSeconds = 30,
                 onGroupSelected = {},

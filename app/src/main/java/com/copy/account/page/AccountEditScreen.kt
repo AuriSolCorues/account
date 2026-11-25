@@ -913,11 +913,12 @@ private fun RowScope.LabelInputField(
 @Preview(showBackground = true)
 @Composable
 private fun AccountEditScreenPreview() {
+    val previewContext = androidx.compose.ui.platform.LocalContext.current
     AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         AccountEditScreen(
-            account = initialAccounts.first(),
+            account = initialAccounts(previewContext).first(),
             template = null,
-            groups = initialGroups,
+            groups = initialGroups(previewContext),
             initialGroupId = "default",
             clipboardClearSeconds = 30,
             onBack = {},
