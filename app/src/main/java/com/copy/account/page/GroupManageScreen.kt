@@ -185,9 +185,10 @@ private fun RenameGroupSheetPagePreview() {
 @Preview(showBackground = true)
 @Composable
 private fun GroupManageScreenPreview() {
+    val previewContext = androidx.compose.ui.platform.LocalContext.current
     AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         GroupManageScreen(
-            groups = initialGroups,
+            groups = initialGroups(previewContext),
             onBack = {},
             onAddGroup = { "custom-preview" },
             onRenameGroup = { _, _ -> },

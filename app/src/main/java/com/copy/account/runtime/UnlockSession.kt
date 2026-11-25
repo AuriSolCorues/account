@@ -48,7 +48,7 @@ internal class UnlockSession(
     var dataKey by mutableStateOf<ByteArray?>(null)
         private set
     var accounts by mutableStateOf(emptyList<Account>())
-    var groups by mutableStateOf(initialGroups)
+    var groups by mutableStateOf(initialGroups(context))
     var selectedGroupId by mutableStateOf("default")
 
     var lockGeneration by mutableIntStateOf(0)
@@ -94,7 +94,7 @@ internal class UnlockSession(
         val firstRun = !passwordConfigured
         val unlocked = withContext(Dispatchers.Default) {
             if (firstRun) {
-                val initialState = PersistedVault(accounts = initialAccounts, groups = initialGroups)
+                val initialState = PersistedVault(accounts = initialAccounts(context), groups = initialGroups(context))
                 store.createInitial(password, initialState)
             } else {
                 store.unlockWithPassword(password, targetIterations)
@@ -137,7 +137,7 @@ internal class UnlockSession(
         dataKey = key
         ExtensionWiring.onUnlocked()
         accounts = state.accounts.map { it.withUidFilled() }
-        groups = state.groups.ifEmpty { initialGroups }
+        groups = state.groups.ifEmpty { initialGroups(context) }
         selectedGroupId = state.selectedGroupId.ifBlank { "default" }
         onUnlocked()
         if (autofillEnabled()) {

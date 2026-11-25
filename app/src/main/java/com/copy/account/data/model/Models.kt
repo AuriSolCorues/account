@@ -1,6 +1,7 @@
 package com.copy.account.data.model
 
 import com.copy.account.BuildConfig
+import com.copy.account.R
 import com.copy.account.security.DEFAULT_PASSWORD_ITERATIONS
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -133,37 +134,37 @@ internal data class PersistedVault(
 
 internal val vaultJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
-internal val initialGroups = listOf(
-    Group("default", "默认", GroupKind.DEFAULT),
-    Group("dynamic", "动态密码", GroupKind.DYNAMIC),
-    Group("social", "社交媒体", GroupKind.CUSTOM),
-    Group("games", "游戏娱乐", GroupKind.CUSTOM),
-    Group("bank", "银行卡", GroupKind.CUSTOM),
-    Group("work", "工作", GroupKind.CUSTOM)
+internal fun initialGroups(context: android.content.Context): List<Group> = listOf(
+    Group("default", context.getString(R.string.seed_group_default), GroupKind.DEFAULT),
+    Group("dynamic", context.getString(R.string.seed_group_dynamic), GroupKind.DYNAMIC),
+    Group("social", context.getString(R.string.seed_group_social), GroupKind.CUSTOM),
+    Group("games", context.getString(R.string.seed_group_games), GroupKind.CUSTOM),
+    Group("bank", context.getString(R.string.seed_group_bank), GroupKind.CUSTOM),
+    Group("work", context.getString(R.string.seed_group_work), GroupKind.CUSTOM)
 )
 
-internal val initialAccounts = listOf(
+internal fun initialAccounts(context: android.content.Context): List<Account> = listOf(
     Account(
         id = "demo-login",
-        name = "示例 · 普通账号",
+        name = context.getString(R.string.seed_account_plain_name),
         username = "hello@example.com",
         password = "demo-password",
         url = "https://github.com",
         customFields = listOf(
-            AccountField("demo-url", "网址", "https://example.com"),
-            AccountField("demo-recovery", "恢复码", "demo-recovery-code", hidden = true),
-            AccountField("demo-note", "备注", "点密码的圆点可看明文、再点复制；长按账号可编辑/删除/模板新建；右上角＋可新增账号。")
+            AccountField("demo-url", context.getString(R.string.seed_field_url), "https://example.com"),
+            AccountField("demo-recovery", context.getString(R.string.seed_field_recovery), "demo-recovery-code", hidden = true),
+            AccountField("demo-note", context.getString(R.string.seed_field_note), context.getString(R.string.seed_note_plain))
         )
     ),
     Account(
         id = "demo-totp",
-        name = "示例 · 动态密码",
+        name = context.getString(R.string.seed_account_totp_name),
         username = "user@example.com",
         password = "demo-password",
         hasTotp = true,
         totpSecret = "JBSWY3DPEHPK3PXP",
         customFields = listOf(
-            AccountField("demo-note", "备注", "动态密码每 30 秒更新一次，点验证码即可复制；在「动态密码」分组可看倒计时。")
+            AccountField("demo-note", context.getString(R.string.seed_field_note), context.getString(R.string.seed_note_totp, context.getString(R.string.seed_group_dynamic)))
         )
     )
 )

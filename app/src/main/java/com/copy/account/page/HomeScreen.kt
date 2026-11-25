@@ -425,10 +425,11 @@ internal fun accountCopyableText(account: Account, context: android.content.Cont
 @Preview(showBackground = true)
 @Composable
 private fun HomeScreenPreview() {
+    val previewContext = androidx.compose.ui.platform.LocalContext.current
     AccountTheme(darkTheme = BuildConfig.DEFAULT_THEME_MODE == "system") {
         HomeScreen(
-            accounts = initialAccounts,
-            groups = initialGroups,
+            accounts = initialAccounts(previewContext),
+            groups = initialGroups(previewContext),
             selectedGroupId = "default",
             clipboardClearSeconds = 30,
             onGroupSelected = {},

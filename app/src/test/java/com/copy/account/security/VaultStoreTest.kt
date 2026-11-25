@@ -24,7 +24,8 @@ import org.robolectric.annotation.Config
 class VaultStoreTest {
 
     private lateinit var store: SecureVaultStore
-    private val initialState = PersistedVault(accounts = initialAccounts, groups = initialGroups)
+    private val context: Context = ApplicationProvider.getApplicationContext()
+    private val initialState = PersistedVault(accounts = initialAccounts(context), groups = initialGroups(context))
 
     @Before
     fun setUp() {
