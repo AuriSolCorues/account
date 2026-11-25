@@ -11,8 +11,6 @@ import com.copy.account.R
 import androidx.compose.ui.res.stringResource
 import com.copy.account.data.model.Account
 import com.copy.account.data.model.initialAccounts
-import com.copy.account.data.model.passwordRowLabel
-import com.copy.account.data.model.usernameRowLabel
 import com.copy.account.security.isHotp
 import com.copy.account.ui.theme.AccountTheme
 
@@ -46,8 +44,8 @@ private fun AccountPreviewContent(
         TextActionButton(stringResource(R.string.action_edit), onEdit)
     }
     Spacer(Modifier.height(12.dp))
-    SensitiveValueRow(account.usernameRowLabel, account.username, masked = account.usernameHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar)
-    SensitiveValueRow(account.passwordRowLabel, account.password, masked = account.passwordHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar)
+    SensitiveValueRow(account.usernameLabel?.ifBlank { stringResource(R.string.edit_username_label) } ?: stringResource(R.string.edit_username_label), account.username, masked = account.usernameHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar)
+    SensitiveValueRow(account.passwordLabel?.ifBlank { stringResource(R.string.edit_password_label) } ?: stringResource(R.string.edit_password_label), account.password, masked = account.passwordHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar)
     if (account.hasTotp) AccountTotpRow(account, nowMillis, clipboardClearSeconds, onHotpAdvance)
     account.customFields.forEach { field -> SensitiveValueRow(field.label, field.value, masked = field.hidden, sensitive = field.hidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
     Spacer(Modifier.height(16.dp))

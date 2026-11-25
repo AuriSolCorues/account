@@ -7,6 +7,7 @@ import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import android.util.Base64
 import androidx.biometric.BiometricManager
+import com.copy.account.R
 import com.copy.account.data.model.Account
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.PersistedVault
@@ -92,8 +93,8 @@ internal class SecureVaultStore(private val context: Context) {
         changeMasterPassword(newPassword, dek, targetIterations as Int?)
 
     private fun changeMasterPassword(newPassword: String, dek: ByteArray, targetIterations: Int?): Result<BackupKeyMaterial> = runCatching {
-        require(isMasterPasswordValid(newPassword)) { MASTER_PASSWORD_RULE_HINT }
-        require(dek.size == 32) { "当前密码库密钥无效，请重新解锁" }
+        require(isMasterPasswordValid(newPassword)) { context.getString(R.string.master_password_rule_hint) }
+        require(dek.size == 32) { context.getString(R.string.vault_key_invalid) }
         val iterations = (targetIterations ?: prefs.getInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS))
             .coerceIn(MIN_PASSWORD_ITERATIONS, MAX_PASSWORD_ITERATIONS)
         val newSalt = ByteArray(16).also { SecureRandom().nextBytes(it) }
@@ -110,7 +111,7 @@ internal class SecureVaultStore(private val context: Context) {
                 .remove(BACKUP_KEY_CACHE)
                 .remove(BACKUP_KEY_CACHE_IV)
                 .commit()
-            require(committed) { "主密码保存失败，请重试" }
+            require(committed) { context.getString(R.string.security_password_save_failed) }
             BackupKeyMaterial(material.wrappingKey, newSalt, iterations)
         } catch (error: Throwable) {
             newSalt.fill(0)
@@ -136,7 +137,7 @@ internal class SecureVaultStore(private val context: Context) {
                 .putString(PASSWORD_WRAPPED_DEK, Base64.encodeToString(wrapped.ciphertext, Base64.NO_WRAP))
                 .putString(PASSWORD_WRAP_IV, Base64.encodeToString(wrapped.iv, Base64.NO_WRAP))
                 .putInt(PASSWORD_ITERATIONS_KEY, DEFAULT_PASSWORD_ITERATIONS)
-                .commit()) { "主密码保存失败，请重试" }
+                .commit()) { context.getString(R.string.security_password_save_failed) }
             return VaultUnlock(dek, state, BackupKeyMaterial(material.wrappingKey, salt, DEFAULT_PASSWORD_ITERATIONS))
         } catch (error: Throwable) {
             dek.fill(0)
@@ -200,7 +201,7 @@ internal class SecureVaultStore(private val context: Context) {
         changeMasterPassword(password, dek, iterations).getOrThrow()
 
     fun cacheBackupKey(material: BackupKeyMaterial, dek: ByteArray): Result<Unit> = runCatching {
-        require(dek.size == 32 && material.key.size == 32 && material.salt.size >= 16) { "备份密钥无效" }
+        require(dek.size == 32 && material.key.size == 32 && material.salt.size >= 16) { context.getString(R.string.vault_backup_key_invalid) }
         val plain = ByteBuffer.allocate(12 + material.salt.size + material.key.size)
             .putInt(BACKUP_KEY_CACHE_VERSION)
             .putInt(material.iterations)
@@ -214,7 +215,7 @@ internal class SecureVaultStore(private val context: Context) {
                 require(prefs.edit()
                     .putString(BACKUP_KEY_CACHE, Base64.encodeToString(encrypted.ciphertext, Base64.NO_WRAP))
                     .putString(BACKUP_KEY_CACHE_IV, Base64.encodeToString(encrypted.iv, Base64.NO_WRAP))
-                    .commit()) { "导出密钥缓存保存失败" }
+                    .commit()) { context.getString(R.string.vault_cache_save_failed) }
             } finally {
                 encrypted.iv.fill(0)
                 encrypted.ciphertext.fill(0)
@@ -241,10 +242,10 @@ internal class SecureVaultStore(private val context: Context) {
         } ?: return null
         return try {
             val buffer = ByteBuffer.wrap(plain)
-            require(buffer.int == BACKUP_KEY_CACHE_VERSION) { "未知的导出密钥缓存版本" }
+            require(buffer.int == BACKUP_KEY_CACHE_VERSION) { context.getString(R.string.vault_cache_unknown_version) }
             val iterations = buffer.int
             val saltSize = buffer.int
-            require(iterations in 10_000..2_000_000 && saltSize >= 16 && buffer.remaining() == saltSize + 32) { "导出密钥缓存无效" }
+            require(iterations in 10_000..2_000_000 && saltSize >= 16 && buffer.remaining() == saltSize + 32) { context.getString(R.string.vault_cache_invalid) }
             val salt = ByteArray(saltSize).also(buffer::get)
             val key = ByteArray(32).also(buffer::get)
             BackupKeyMaterial(key, salt, iterations)

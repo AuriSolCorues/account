@@ -16,6 +16,7 @@ import androidx.core.content.IntentCompat
 import androidx.fragment.app.FragmentActivity
 import com.copy.account.runtime.AutofillAccount
 import com.copy.account.runtime.AutofillBridge
+import com.copy.account.R
 import com.copy.account.security.SecureVaultStore
 import com.copy.account.runtime.toAutofillAccount
 import com.copy.account.ui.components.AppBottomSheet
@@ -79,7 +80,7 @@ class AutofillAuthActivity : FragmentActivity() {
             lockedModeUsesBiometric() -> {
                 val cipher = beginSelfHealCipher()
                 if (cipher == null) {
-                    Toast.makeText(this, "无法解封数据，请先打开 account 解锁一次", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.autofill_selfheal_need_unlock), Toast.LENGTH_SHORT).show()
                     finishCancel()
                     return
                 }
@@ -101,7 +102,7 @@ class AutofillAuthActivity : FragmentActivity() {
                                     if (acc != null) {
                                         replyFilled(listOf(acc))
                                     } else {
-                                        Toast.makeText(this@AutofillAuthActivity, "主密码错误或账号已不存在", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(this@AutofillAuthActivity, getString(R.string.autofill_password_wrong), Toast.LENGTH_SHORT).show()
                                         finishCancel()
                                     }
                                 }
@@ -125,7 +126,7 @@ class AutofillAuthActivity : FragmentActivity() {
                         this@AutofillAuthActivity.selfHeal && result.cryptoObject != null ->
                             selfHealAndReply(result.cryptoObject?.cipher)
                         this@AutofillAuthActivity.selfHeal -> {
-                            Toast.makeText(this@AutofillAuthActivity, "无法解封数据，请重试", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@AutofillAuthActivity, getString(R.string.autofill_selfheal_retry), Toast.LENGTH_SHORT).show()
                             finishCancel()
                         }
                         else -> loadAccountAndReply()
@@ -139,17 +140,17 @@ class AutofillAuthActivity : FragmentActivity() {
             }
         )
         val combined = BiometricPrompt.PromptInfo.Builder()
-            .setTitle(if (selfHeal) "解锁 account" else "解锁自动填充")
-            .setSubtitle(if (selfHeal) "验证后填充所选账号" else "验证指纹或锁屏密码以填充账号")
+            .setTitle(if (selfHeal) getString(R.string.autofill_prompt_title_app) else getString(R.string.autofill_prompt_title_fill))
+            .setSubtitle(if (selfHeal) getString(R.string.autofill_prompt_subtitle_app) else getString(R.string.autofill_prompt_subtitle_credential))
             .setAllowedAuthenticators(
                 BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
             )
             .build()
         val strongOnly = BiometricPrompt.PromptInfo.Builder()
-            .setTitle(if (selfHeal) "解锁 account" else "解锁自动填充")
-            .setSubtitle(if (selfHeal) "验证后填充所选账号" else "验证指纹以填充账号")
+            .setTitle(if (selfHeal) getString(R.string.autofill_prompt_title_app) else getString(R.string.autofill_prompt_title_fill))
+            .setSubtitle(if (selfHeal) getString(R.string.autofill_prompt_subtitle_app) else getString(R.string.autofill_prompt_subtitle_biometric))
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-            .setNegativeButtonText("取消")
+            .setNegativeButtonText(getString(R.string.action_cancel))
             .build()
         try {
             if (selfHeal) {
@@ -177,7 +178,7 @@ class AutofillAuthActivity : FragmentActivity() {
     private fun loadAccountAndReply() {
         val acc = loadFreshAccount(accountId) ?: AutofillBridge.findAccount(accountId)
         if (acc == null) {
-            Toast.makeText(this, "填充会话已失效，请先解锁本应用", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.autofill_session_invalid), Toast.LENGTH_SHORT).show()
             finishCancel()
             return
         }
@@ -191,13 +192,13 @@ class AutofillAuthActivity : FragmentActivity() {
 
     private fun selfHealAndReply(cipher: Cipher?) {
         if (cipher == null) {
-            Toast.makeText(this, "无法解封数据，请重试", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.autofill_selfheal_retry), Toast.LENGTH_SHORT).show()
             finishCancel()
             return
         }
         val acc = AutofillSelfHeal.unlockAccount(cipher, vaultStore, accountId)
         if (acc == null) {
-            Toast.makeText(this, "账号不存在或已更新，请解锁本应用后重试", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.autofill_account_missing), Toast.LENGTH_SHORT).show()
             finishCancel()
             return
         }

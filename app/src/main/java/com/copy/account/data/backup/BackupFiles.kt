@@ -5,19 +5,20 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import androidx.documentfile.provider.DocumentFile
+import com.copy.account.R
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private fun resolveDirectory(root: DocumentFile, folder: String): DocumentFile {
+private fun resolveDirectory(context: Context, root: DocumentFile, folder: String): DocumentFile {
     var current = root
     for (segment in folder.split('/').filter { it.isNotBlank() }) {
         val existing = current.findFile(segment)
         current = existing?.takeIf { it.isDirectory }
-            ?: existing?.let { error("$segment 名称已被文件占用") }
+            ?: existing?.let { error(context.getString(R.string.backupfile_name_conflict, segment)) }
             ?: current.createDirectory(segment)
-            ?: error("无法创建 $segment 目录")
+            ?: error(context.getString(R.string.backupfile_mkdir_failed, segment))
     }
     return current
 }
@@ -36,18 +37,18 @@ internal fun initializeBackupDirectory(context: Context, treeUri: Uri, folder: S
         treeUri,
         Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
     )
-    val selected = DocumentFile.fromTreeUri(context, treeUri) ?: error("无法访问所选目录")
-    require(selected.canRead() && selected.canWrite()) { "所选目录不可写，请选择可写目录" }
-    val directory = resolveDirectory(selected, folder)
-    require(directory.isDirectory && directory.canRead() && directory.canWrite()) { "$folder 目录不可写" }
+    val selected = DocumentFile.fromTreeUri(context, treeUri) ?: error(context.getString(R.string.backupfile_dir_inaccessible))
+    require(selected.canRead() && selected.canWrite()) { context.getString(R.string.backupfile_dir_readonly) }
+    val directory = resolveDirectory(context, selected, folder)
+    require(directory.isDirectory && directory.canRead() && directory.canWrite()) { context.getString(R.string.backupfile_folder_unwritable, folder) }
     directory.uri
 }
 
 internal fun backupAccountDirectory(context: Context, treeUri: Uri, folder: String): Result<DocumentFile> = runCatching {
-    val selected = DocumentFile.fromTreeUri(context, treeUri) ?: error("无法访问授权目录")
-    require(selected.canRead() && selected.canWrite()) { "授权目录不可写，请重新授权" }
-    val directory = resolveDirectory(selected, folder)
-    require(directory.isDirectory && directory.canRead() && directory.canWrite()) { "$folder 目录不可写" }
+    val selected = DocumentFile.fromTreeUri(context, treeUri) ?: error(context.getString(R.string.backupfile_grant_dir_inaccessible))
+    require(selected.canRead() && selected.canWrite()) { context.getString(R.string.backupfile_grant_dir_readonly) }
+    val directory = resolveDirectory(context, selected, folder)
+    require(directory.isDirectory && directory.canRead() && directory.canWrite()) { context.getString(R.string.backupfile_folder_unwritable, folder) }
     directory
 }
 
@@ -64,7 +65,7 @@ internal fun listBackupFiles(context: Context, treeUri: String?, folder: String)
 
 internal fun readSelectedDocument(context: Context, uri: Uri): Result<ByteArray> = runCatching {
     context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        ?: error("文件提供方不支持读取")
+        ?: error(context.getString(R.string.backupfile_provider_unreadable))
 }
 
 internal typealias BackupNameFactory = ((String) -> Boolean) -> String
@@ -79,10 +80,10 @@ internal fun writeBackupFile(
 ): String = runCatching {
     val directory = backupAccountDirectory(context, treeUri, folder).getOrThrow()
     val name = nameFactory { directory.findFile(it) != null }
-    val file = directory.createFile(mimeType, name) ?: error("无法创建备份文件")
+    val file = directory.createFile(mimeType, name) ?: error(context.getString(R.string.backupfile_create_failed))
     try {
         context.contentResolver.openOutputStream(file.uri)?.use { it.write(bytes) }
-            ?: error("无法写入备份文件")
+            ?: error(context.getString(R.string.backupfile_write_failed))
     } catch (error: Throwable) {
         file.delete()
         throw error
@@ -91,7 +92,7 @@ internal fun writeBackupFile(
 }.getOrThrow()
 
 internal fun deleteBackupFile(context: Context, uri: Uri): Result<Unit> = runCatching {
-    require(DocumentFile.fromSingleUri(context, uri)?.delete() == true) { "删除备份失败" }
+    require(DocumentFile.fromSingleUri(context, uri)?.delete() == true) { context.getString(R.string.backupfile_delete_failed) }
 }
 
 internal fun uniqueBackupName(tag: String, exists: (String) -> Boolean): String {
@@ -116,10 +117,10 @@ internal fun hasStorageAccess(): Boolean = Environment.isExternalStorageManager(
 internal fun backupAccountDirectory(folder: String): File =
     File(Environment.getExternalStorageDirectory(), folder)
 
-internal fun ensureBackupDirectory(folder: String): Result<File> = runCatching {
+internal fun ensureBackupDirectory(context: Context, folder: String): Result<File> = runCatching {
     val dir = backupAccountDirectory(folder)
-    if (!dir.isDirectory && !dir.mkdirs()) error("无法创建 $folder 目录")
-    require(dir.canRead() && dir.canWrite()) { "$folder 目录不可写，请检查「所有文件访问」权限" }
+    if (!dir.isDirectory && !dir.mkdirs()) error(context.getString(R.string.backupfile_mkdir_failed, folder))
+    require(dir.canRead() && dir.canWrite()) { context.getString(R.string.backupfile_folder_check_all_files, folder) }
     dir
 }
 
@@ -137,11 +138,12 @@ internal fun listFileBackups(folder: String): Result<List<FileBackupEntry>> = ru
 internal fun readFileBackup(file: File): Result<ByteArray> = runCatching { file.readBytes() }
 
 internal fun writeFileBackup(
+    context: Context,
     bytes: ByteArray,
     folder: String,
     nameFactory: BackupNameFactory = { uniqueBackupName("", it) }
 ): String = runCatching {
-    val directory = ensureBackupDirectory(folder).getOrThrow()
+    val directory = ensureBackupDirectory(context, folder).getOrThrow()
     val name = nameFactory { File(directory, it).exists() }
     val file = File(directory, name)
     try {
@@ -153,6 +155,6 @@ internal fun writeFileBackup(
     name
 }.getOrThrow()
 
-internal fun deleteFileBackup(file: File): Result<Unit> = runCatching {
-    require(file.delete()) { "删除备份失败" }
+internal fun deleteFileBackup(context: Context, file: File): Result<Unit> = runCatching {
+    require(file.delete()) { context.getString(R.string.backupfile_delete_failed) }
 }

@@ -24,7 +24,6 @@ import com.copy.account.BuildConfig
 import com.copy.account.R
 import com.copy.account.runtime.launchExtensionSettings
 import com.copy.account.security.ExportPasswordRequiredException
-import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.isMasterPasswordValid
 import androidx.compose.ui.res.stringResource
 import com.copy.account.ui.components.AppListScreen
@@ -138,7 +137,7 @@ internal fun SettingsScreen(
     }, confirmButton = {
         TextActionButton(stringResource(R.string.export_upgrade_verify), onClick = {
             if (!isMasterPasswordValid(exportPassword)) {
-                passwordError = MASTER_PASSWORD_RULE_HINT
+                passwordError = context.getString(R.string.master_password_rule_hint)
             } else {
                 scope.launch {
                     val result = withContext(Dispatchers.Default) { quickBackup.prepareExport(exportPassword) }
