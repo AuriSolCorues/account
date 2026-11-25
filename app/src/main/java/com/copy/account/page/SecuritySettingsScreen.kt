@@ -27,6 +27,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
+import com.copy.account.R
+import androidx.compose.ui.res.stringResource
 import com.copy.account.data.model.MAX_AUTO_LOCK_SECONDS
 import com.copy.account.security.MAX_PASSWORD_ITERATIONS
 import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
@@ -78,23 +80,34 @@ internal fun SecuritySettingsScreen(
     var confirmNewPassword by remember { mutableStateOf("") }
     var changePasswordError by remember { mutableStateOf("") }
     var changePasswordMessage by remember { mutableStateOf("") }
-    AppListScreen("安全设置", onBack) {
-        item { SettingsHeader("隐私与锁定") }
-        item { SettingsSwitchRow("禁止截图", blockScreenshots, onBlockScreenshotsChange) }
-        item { SettingsRow("自动锁定", autoLockLabel(autoLockSeconds)) { showAutoLockDialog = true } }
-        item { SettingsRow("后台锁定", backgroundLockLabel(backgroundLockSeconds)) { showBackgroundLockDialog = true } }
-        item { SettingsRow("剪贴板自动清除", clipboardClearLabel(clipboardClearSeconds)) { showClipboardDialog = true } }
-        item { SettingsHeader("解锁") }
+    val context = LocalContext.current
+    val passwordMismatchMsg = stringResource(R.string.security_password_mismatch)
+    val passwordChangedMsg = stringResource(R.string.security_password_changed)
+    val passwordSaveFailedMsg = stringResource(R.string.security_password_save_failed)
+    val cancelLabel = stringResource(R.string.action_cancel)
+    val saveLabel = stringResource(R.string.action_save)
+    val lockOffLabel = stringResource(R.string.security_lock_off)
+    val lockNowLabel = stringResource(R.string.security_lock_immediately)
+    val secondsFmt = stringResource(R.string.duration_seconds)
+    val minutesFmt = stringResource(R.string.duration_minutes)
+    val hoursFmt = stringResource(R.string.duration_hours)
+    AppListScreen(stringResource(R.string.security_title), onBack) {
+        item { SettingsHeader(stringResource(R.string.security_privacy_section)) }
+        item { SettingsSwitchRow(stringResource(R.string.security_block_screenshots), blockScreenshots, onBlockScreenshotsChange) }
+        item { SettingsRow(stringResource(R.string.security_autolock_row), autoLockLabel(autoLockSeconds, lockOffLabel, secondsFmt)) { showAutoLockDialog = true } }
+        item { SettingsRow(stringResource(R.string.security_background_lock_row), backgroundLockLabel(backgroundLockSeconds, lockNowLabel, secondsFmt, minutesFmt)) { showBackgroundLockDialog = true } }
+        item { SettingsRow(stringResource(R.string.security_clipboard_row), clipboardClearLabel(clipboardClearSeconds, lockOffLabel, secondsFmt, minutesFmt, hoursFmt)) { showClipboardDialog = true } }
+        item { SettingsHeader(stringResource(R.string.security_unlock_section)) }
         item {
             SettingsSwitchRow(
-                "生物识别解锁",
+                stringResource(R.string.security_biometric_row),
                 biometricEnabled,
                 onToggleBiometric,
                 enabled = biometricAvailable
             )
         }
         item {
-            SettingsRow("修改主密码", "打开") {
+            SettingsRow(stringResource(R.string.security_change_password_row), stringResource(R.string.action_open)) {
                 newPassword = ""
                 confirmNewPassword = ""
                 changePasswordError = ""
@@ -104,12 +117,12 @@ internal fun SecuritySettingsScreen(
         if (changePasswordMessage.isNotBlank()) {
             item { Text(changePasswordMessage, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
         }
-        item { SettingsRow("PBKDF2 迭代次数", "%,d".format(kdfIterations)) { showKdfDialog = true } }
-        item { SettingsHeader("自动填充") }
+        item { SettingsRow(stringResource(R.string.security_kdf_row), "%,d".format(kdfIterations)) { showKdfDialog = true } }
+        item { SettingsHeader(stringResource(R.string.security_autofill_section)) }
         item {
             SurfaceCard(modifier = Modifier.fillMaxWidth()) {
                 Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("自动填充")
+                    Text(stringResource(R.string.security_autofill_row))
                     TextActionButton(
                         if (autofillHelpExpanded) "−" else "?",
                         onClick = { autofillHelpExpanded = !autofillHelpExpanded },
@@ -126,7 +139,7 @@ internal fun SecuritySettingsScreen(
         if (autofillHelpExpanded) {
             item {
                 Text(
-                    "本开关是填充总闸：关闭即断开填充并清除数据；开启后还需在下面打开填充窗口。",
+                    stringResource(R.string.security_autofill_master_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -135,7 +148,7 @@ internal fun SecuritySettingsScreen(
         item {
             SurfaceCard(modifier = Modifier.fillMaxWidth()) {
                 Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("填充窗口")
+                    Text(stringResource(R.string.security_autofill_window_row))
                     TextActionButton(
                         if (windowHelpExpanded) "−" else "?",
                         onClick = { windowHelpExpanded = !windowHelpExpanded },
@@ -153,8 +166,7 @@ internal fun SecuritySettingsScreen(
         if (windowHelpExpanded) {
             item {
                 Text(
-                    "解锁即开、锁定即关（不跨会话记住）；锁定时在其他应用点选账号卡，" +
-                        "验证指纹或主密码后单次填充。需总开关与系统填充服务均已开启。",
+                    stringResource(R.string.security_autofill_window_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -164,20 +176,20 @@ internal fun SecuritySettingsScreen(
     }
     if (showChangePasswordDialog) AlertDialog(
         onDismissRequest = { showChangePasswordDialog = false },
-        title = { Text("修改主密码") },
+        title = { Text(stringResource(R.string.security_change_password_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("请输入新的主密码。修改后请记住新密码。", style = MaterialTheme.typography.bodySmall)
-                PasswordField("新主密码（4-20 个字符）", newPassword, { newPassword = it; changePasswordError = "" }, showPasswordToggle = true)
-                PasswordField("再次输入新主密码", confirmNewPassword, { confirmNewPassword = it; changePasswordError = "" }, showPasswordToggle = true)
+                Text(stringResource(R.string.security_change_password_hint), style = MaterialTheme.typography.bodySmall)
+                PasswordField(stringResource(R.string.security_new_password_label), newPassword, { newPassword = it; changePasswordError = "" }, showPasswordToggle = true)
+                PasswordField(stringResource(R.string.security_confirm_password_label), confirmNewPassword, { confirmNewPassword = it; changePasswordError = "" }, showPasswordToggle = true)
                 if (changePasswordError.isNotBlank()) Text(changePasswordError, color = MaterialTheme.colorScheme.error)
             }
         },
         confirmButton = {
-            TextActionButton("保存", onClick = {
+            TextActionButton(saveLabel, onClick = {
                 when {
                     !isMasterPasswordValid(newPassword) -> changePasswordError = MASTER_PASSWORD_RULE_HINT
-                    newPassword != confirmNewPassword -> changePasswordError = "两次输入的主密码不一致"
+                    newPassword != confirmNewPassword -> changePasswordError = passwordMismatchMsg
                     else -> {
                         scope.launch {
                             val result = onChangeMasterPassword(newPassword)
@@ -185,70 +197,70 @@ internal fun SecuritySettingsScreen(
                                 showChangePasswordDialog = false
                                 newPassword = ""
                                 confirmNewPassword = ""
-                                changePasswordMessage = "主密码已修改"
+                                changePasswordMessage = passwordChangedMsg
                             } else {
-                                changePasswordError = result.exceptionOrNull()?.message ?: "主密码保存失败，请重试"
+                                changePasswordError = result.exceptionOrNull()?.message ?: passwordSaveFailedMsg
                             }
                         }
                     }
                 }
             })
         },
-        dismissButton = { TextActionButton("取消", onClick = { showChangePasswordDialog = false }) }
+        dismissButton = { TextActionButton(cancelLabel, onClick = { showChangePasswordDialog = false }) }
     )
     if (showAutoLockDialog) NumberSettingDialog(
-        title = "自动锁定",
-        unit = "秒",
+        title = stringResource(R.string.security_autolock_row),
+        unit = stringResource(R.string.security_unit_seconds),
         minValue = 1,
         maxValue = MAX_AUTO_LOCK_SECONDS,
         presets = listOf(
-            "关闭" to { onAutoLockChange(0) },
-            "15 秒" to { onAutoLockChange(15) },
-            "30 秒" to { onAutoLockChange(30) },
-            "1 分钟" to { onAutoLockChange(60) },
-            "5 分钟" to { onAutoLockChange(300) },
-            "10 分钟" to { onAutoLockChange(600) },
-            "30 分钟" to { onAutoLockChange(1800) }
+            lockOffLabel to { onAutoLockChange(0) },
+            stringResource(R.string.duration_seconds, 15) to { onAutoLockChange(15) },
+            stringResource(R.string.duration_seconds, 30) to { onAutoLockChange(30) },
+            stringResource(R.string.duration_minutes, 1) to { onAutoLockChange(60) },
+            stringResource(R.string.duration_minutes, 5) to { onAutoLockChange(300) },
+            stringResource(R.string.duration_minutes, 10) to { onAutoLockChange(600) },
+            stringResource(R.string.duration_minutes, 30) to { onAutoLockChange(1800) }
         ),
         onConfirm = { seconds -> onAutoLockChange(seconds.coerceIn(1, MAX_AUTO_LOCK_SECONDS)) },
         onDismiss = { showAutoLockDialog = false }
     )
     if (showBackgroundLockDialog) NumberSettingDialog(
-        title = "后台锁定",
-        unit = "秒",
+        title = stringResource(R.string.security_background_lock_row),
+        unit = stringResource(R.string.security_unit_seconds),
         minValue = 0,
         maxValue = 300,
         presets = listOf(
-            "立即" to { onBackgroundLockChange(0) },
-            "5 秒" to { onBackgroundLockChange(5) },
-            "10 秒" to { onBackgroundLockChange(10) },
-            "15 秒" to { onBackgroundLockChange(15) },
-            "30 秒" to { onBackgroundLockChange(30) }
+            lockNowLabel to { onBackgroundLockChange(0) },
+            stringResource(R.string.duration_seconds, 5) to { onBackgroundLockChange(5) },
+            stringResource(R.string.duration_seconds, 10) to { onBackgroundLockChange(10) },
+            stringResource(R.string.duration_seconds, 15) to { onBackgroundLockChange(15) },
+            stringResource(R.string.duration_seconds, 30) to { onBackgroundLockChange(30) }
         ),
         onConfirm = { seconds -> onBackgroundLockChange(seconds.coerceIn(0, 300)) },
         onDismiss = { showBackgroundLockDialog = false }
     )
     if (showClipboardDialog) NumberSettingDialog(
-        title = "剪贴板清除时间",
-        unit = "秒",
+        title = stringResource(R.string.security_clipboard_row),
+        unit = stringResource(R.string.security_unit_seconds),
         minValue = 5,
         maxValue = 86_400,
         presets = listOf(
-            "不清空" to { onClipboardClearChange(0) },
-            "15 秒" to { onClipboardClearChange(15) },
-            "30 秒" to { onClipboardClearChange(30) },
-            "1 分钟" to { onClipboardClearChange(60) }
+            stringResource(R.string.security_clipboard_never) to { onClipboardClearChange(0) },
+            stringResource(R.string.duration_seconds, 15) to { onClipboardClearChange(15) },
+            stringResource(R.string.duration_seconds, 30) to { onClipboardClearChange(30) },
+            stringResource(R.string.duration_minutes, 1) to { onClipboardClearChange(60) }
         ),
         onConfirm = { seconds -> onClipboardClearChange(seconds.coerceIn(0, 86_400)) },
         onDismiss = { showClipboardDialog = false }
     )
     if (showKdfDialog) NumberSettingDialog(
-        title = "PBKDF2 迭代次数",
-        unit = "次",
+        title = stringResource(R.string.security_kdf_row),
+        unit = stringResource(R.string.security_unit_times),
         minValue = MIN_PASSWORD_ITERATIONS,
         maxValue = MAX_PASSWORD_ITERATIONS,
         presets = listOf(
-            "1,000,000（推荐）" to { onKdfIterationsChange(1_000_000) },
+            stringResource(R.string.security_kdf_recommended) to { onKdfIterationsChange(1_000_000) },
             "600,000" to { onKdfIterationsChange(600_000) },
             "500,000" to { onKdfIterationsChange(500_000) },
             "300,000" to { onKdfIterationsChange(300_000) }
@@ -258,31 +270,31 @@ internal fun SecuritySettingsScreen(
     )
 }
 
-internal fun autoLockLabel(seconds: Int): String = when {
-    seconds <= 0 -> "关闭"
-    else -> "$seconds 秒"
+internal fun autoLockLabel(seconds: Int, offLabel: String, secondsFmt: String): String = when {
+    seconds <= 0 -> offLabel
+    else -> secondsFmt.format(seconds)
 }
 
-internal fun backgroundLockLabel(seconds: Int): String = when {
-    seconds <= 0 -> "立即"
-    seconds < 60 -> "${seconds} 秒"
-    seconds % 60 == 0 -> "${seconds / 60} 分钟"
-    else -> "${seconds} 秒"
+internal fun backgroundLockLabel(seconds: Int, nowLabel: String, secondsFmt: String, minutesFmt: String): String = when {
+    seconds <= 0 -> nowLabel
+    seconds < 60 -> secondsFmt.format(seconds)
+    seconds % 60 == 0 -> minutesFmt.format(seconds / 60)
+    else -> secondsFmt.format(seconds)
 }
 
-internal fun clipboardClearLabel(seconds: Int): String =
+internal fun clipboardClearLabel(seconds: Int, offLabel: String, secondsFmt: String, minutesFmt: String, hoursFmt: String): String =
     when {
-        seconds <= 0 -> "关闭"
-        seconds < 60 -> "$seconds 秒"
-        seconds % 3600 == 0 -> "${seconds / 3600} 小时"
-        seconds % 60 == 0 -> "${seconds / 60} 分钟"
-        else -> "$seconds 秒"
+        seconds <= 0 -> offLabel
+        seconds < 60 -> secondsFmt.format(seconds)
+        seconds % 3600 == 0 -> hoursFmt.format(seconds / 3600)
+        seconds % 60 == 0 -> minutesFmt.format(seconds / 60)
+        else -> secondsFmt.format(seconds)
     }
 
 @Composable
 private fun AutofillJumpRow() {
     val context = LocalContext.current
-    SettingsRow("跳转系统填充服务设置", "前往") {
+    SettingsRow(stringResource(R.string.security_jump_autofill_settings), stringResource(R.string.security_jump_action)) {
         try {
             context.startActivity(
                 Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE, Uri.parse("package:${context.packageName}"))

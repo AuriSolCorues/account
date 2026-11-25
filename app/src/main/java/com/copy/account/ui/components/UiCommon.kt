@@ -18,10 +18,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
+import com.copy.account.R
 import com.copy.account.data.model.Account
 import com.copy.account.security.isHotp
 import com.copy.account.security.totpCode
@@ -63,7 +65,7 @@ internal fun SensitiveValueRow(label: String, value: String, masked: Boolean = f
             },
             fontWeight = if (masked && !revealed) FontWeight.Normal else FontWeight.Medium
         )
-        TextActionButton("复制", onClick = {
+        TextActionButton(stringResource(R.string.action_copy), onClick = {
             copyToClipboard(context, copyTransform(value), sensitive, clearAfterSeconds)
             afterCopy?.invoke()
         })
@@ -73,7 +75,7 @@ internal fun SensitiveValueRow(label: String, value: String, masked: Boolean = f
 @Composable
 internal fun AccountTotpRow(account: Account, nowMillis: Long, clipboardClearSeconds: Int, onHotpAdvance: () -> Unit) {
     SensitiveValueRow(
-        "动态密码",
+        stringResource(R.string.totp_value_label),
         totpCode(account, nowMillis),
         sensitive = true,
         clearAfterSeconds = clipboardClearSeconds,

@@ -26,6 +26,8 @@ import com.copy.account.data.model.FIXED_GROUP_COUNT
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.GroupKind
 import com.copy.account.data.model.initialGroups
+import androidx.compose.ui.res.stringResource
+import com.copy.account.R
 import com.copy.account.ui.components.AppListScreen
 import com.copy.account.ui.components.AppBottomSheet
 import com.copy.account.ui.components.AnimatedReorderCard
@@ -56,8 +58,8 @@ internal fun GroupManageScreen(
     var deleteConfirmGroup by remember { mutableStateOf<Group?>(null) }
     var dialogText by remember { mutableStateOf("") }
     var showAddSheet by remember { mutableStateOf(false) }
-    AppListScreen("分组管理", onBack, actions = { TopBarTextButton("＋ 新增", onClick = { showAddSheet = true; dialogText = "" }) }) {
-        item { Text("固定分组（可改名）", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    AppListScreen(stringResource(R.string.group_title), onBack, actions = { TopBarTextButton(stringResource(R.string.group_action_add), onClick = { showAddSheet = true; dialogText = "" }) }) {
+        item { Text(stringResource(R.string.group_fixed_hint), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         items(groups.take(FIXED_GROUP_COUNT), key = { it.id }) { group ->
             GroupManageItem(
                 group = group,
@@ -66,7 +68,7 @@ internal fun GroupManageScreen(
                 onNameClick = { editGroup = group; dialogText = group.name }
             )
         }
-        item { Text("自定义分组（长按拖动排序）", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
+        item { Text(stringResource(R.string.group_custom_hint), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp)) }
         items(groups.drop(FIXED_GROUP_COUNT), key = { it.id }) { group ->
             GroupManageItem(
                 group = group,
@@ -75,12 +77,12 @@ internal fun GroupManageScreen(
                 onNameClick = { editGroup = group; dialogText = group.name }
             )
         }
-        item { Text("固定分组不可删除或排序；删除自定义分组不会删除账号。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp)) }
+        item { Text(stringResource(R.string.group_footer_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp)) }
     }
     if (showAddSheet) {
         TextInputDialog(
-            title = "新增分组",
-            label = "分组名称",
+            title = stringResource(R.string.group_add_title),
+            label = stringResource(R.string.group_name_label),
             onConfirm = { name ->
                 onAddGroup(name.trim())
                 showAddSheet = false
@@ -104,8 +106,8 @@ internal fun GroupManageScreen(
     }
     deleteConfirmGroup?.let { group ->
         DeleteConfirmDialog(
-            title = "删除分组",
-            message = "删除「${group.name}」将解除 ${accountCount(group.id)} 个账号的关联，账号本身不会被删除。",
+            title = stringResource(R.string.group_delete_title),
+            message = stringResource(R.string.group_delete_message, group.name, accountCount(group.id)),
             onConfirm = { onDeleteGroup(group.id); deleteConfirmGroup = null },
             onDismiss = { deleteConfirmGroup = null }
         )
@@ -144,9 +146,9 @@ private fun RenameGroupSheetContent(
     onSave: () -> Unit,
     onDelete: () -> Unit
 ) {
-    SheetTitleRow("编辑分组") {
+    SheetTitleRow(stringResource(R.string.group_edit_title)) {
         TextActionButton(
-            text = "保存",
+            text = stringResource(R.string.action_save),
             enabled = value.isNotBlank(),
             onClick = onSave
         )
@@ -154,12 +156,12 @@ private fun RenameGroupSheetContent(
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        label = { Text("分组名称") },
+        label = { Text(stringResource(R.string.group_name_label)) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth()
     )
     if (group.kind == GroupKind.CUSTOM) {
-        DangerButton("删除分组", onClick = onDelete)
+        DangerButton(stringResource(R.string.group_delete_action), onClick = onDelete)
     }
     Spacer(Modifier.height(8.dp))
 }

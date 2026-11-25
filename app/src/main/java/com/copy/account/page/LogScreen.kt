@@ -19,8 +19,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.copy.account.R
 import com.copy.account.runtime.LogEvents
 import com.copy.account.runtime.LogEntry
 import com.copy.account.runtime.clearLogs
@@ -39,16 +41,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private fun typeLabel(type: String): String = when (type) {
-    LogEvents.SYNC -> "扩展事件"
-    LogEvents.ACCOUNT_ADD -> "新增账号"
-    LogEvents.ACCOUNT_DELETE -> "删除账号"
-    LogEvents.CRASH -> "软件崩溃"
-    LogEvents.EXPORT -> "导出备份"
-    LogEvents.EXTENSION -> "扩展"
-    LogEvents.AUTOFILL -> "填充诊断"
-    else -> type
-}
+private fun typeLabel(type: String, labels: Map<String, String>): String =
+    labels[type] ?: type
 
 @Composable
 internal fun LogScreen(onBack: () -> Unit) {
@@ -56,27 +50,36 @@ internal fun LogScreen(onBack: () -> Unit) {
     var entries by remember { mutableStateOf<List<LogEntry>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var pendingClear by remember { mutableStateOf(false) }
+    val typeLabels = mapOf(
+        LogEvents.SYNC to stringResource(R.string.log_type_sync),
+        LogEvents.ACCOUNT_ADD to stringResource(R.string.log_type_account_add),
+        LogEvents.ACCOUNT_DELETE to stringResource(R.string.log_type_account_delete),
+        LogEvents.CRASH to stringResource(R.string.log_type_crash),
+        LogEvents.EXPORT to stringResource(R.string.log_type_export),
+        LogEvents.EXTENSION to stringResource(R.string.log_type_extension),
+        LogEvents.AUTOFILL to stringResource(R.string.log_type_autofill)
+    )
     LaunchedEffect(Unit) {
         entries = withContext(Dispatchers.IO) { readLogs(context) }
         loading = false
     }
 
     AppScreen(
-        title = "操作日志",
+        title = stringResource(R.string.log_title),
         onBack = onBack,
-        actions = { TextActionButton("清空", onClick = { pendingClear = true }, textColor = LocalAccountThemePalette.current.topBarText) }
+        actions = { TextActionButton(stringResource(R.string.log_action_clear), onClick = { pendingClear = true }, textColor = LocalAccountThemePalette.current.topBarText) }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(start = 20.dp, end = 20.dp, top = 14.dp)) {
             when {
-                loading -> EmptyState("正在加载…", Modifier.fillMaxWidth())
-                entries.isEmpty() -> EmptyState("暂无日志", Modifier.fillMaxWidth())
+                loading -> EmptyState(stringResource(R.string.log_loading), Modifier.fillMaxWidth())
+                entries.isEmpty() -> EmptyState(stringResource(R.string.log_empty), Modifier.fillMaxWidth())
                 else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(entries) { entry ->
                         SurfaceCard(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Row {
                                     Text(
-                                        typeLabel(entry.type),
+                                        typeLabel(entry.type, typeLabels),
                                         style = MaterialTheme.typography.titleSmall,
                                         color = if (entry.type == LogEvents.CRASH) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.weight(1f)
@@ -98,7 +101,7 @@ internal fun LogScreen(onBack: () -> Unit) {
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     if (entry.details.size > 50) {
-                                        Text("…共 ${entry.details.size} 条", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(stringResource(R.string.log_details_more, entry.details.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                             }
@@ -111,8 +114,8 @@ internal fun LogScreen(onBack: () -> Unit) {
 
     if (pendingClear) {
         DeleteConfirmDialog(
-            title = "清空日志",
-            message = "确定清空全部操作日志吗？此操作不可撤销。",
+            title = stringResource(R.string.log_clear_title),
+            message = stringResource(R.string.log_clear_message),
             onConfirm = {
                 pendingClear = false
                 entries = emptyList()

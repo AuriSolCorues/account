@@ -22,6 +22,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
+import com.copy.account.R
+import androidx.compose.ui.res.stringResource
 import com.copy.account.ui.platform.copyToClipboard
 import com.copy.account.ui.theme.AccountTheme
 import java.security.SecureRandom
@@ -64,16 +66,16 @@ private fun RandomPasswordGeneratorItems(onFill: (String) -> Unit, clipboardClea
     var symbols by remember { mutableStateOf(true) }
     val generated = remember(length, upper, lower, digits, symbols) { generatePassword(length, upper, lower, digits, symbols) }
     val context = LocalContext.current
-    SheetTitleRow("随机密码生成器")
+    SheetTitleRow(stringResource(R.string.generator_title))
     Text(generated, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, modifier = Modifier.fillMaxWidth())
-    Text("长度：$length", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(stringResource(R.string.generator_length, length), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Slider(value = length.toFloat(), onValueChange = { length = it.toInt().coerceIn(4, 20) }, valueRange = 4f..20f, steps = 15)
-    GeneratorToggle("大写字母（A-Z）", upper) { upper = it }
-    GeneratorToggle("小写字母（a-z）", lower) { lower = it }
-    GeneratorToggle("数字（0-9）", digits) { digits = it }
-    GeneratorToggle("特殊符号（\$%&^*()[].@#_!）", symbols) { symbols = it }
+    GeneratorToggle(stringResource(R.string.generator_uppercase), upper) { upper = it }
+    GeneratorToggle(stringResource(R.string.generator_lowercase), lower) { lower = it }
+    GeneratorToggle(stringResource(R.string.generator_digits), digits) { digits = it }
+    GeneratorToggle(stringResource(R.string.generator_symbols), symbols) { symbols = it }
     PrimaryButton(
-        "复制并填入",
+        stringResource(R.string.generator_copy_fill),
         onClick = {
             copyToClipboard(context, generated, sensitive = true, clearAfterSeconds = clipboardClearSeconds)
             onFill(generated)

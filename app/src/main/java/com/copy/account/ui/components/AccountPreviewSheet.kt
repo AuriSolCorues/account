@@ -7,6 +7,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
+import com.copy.account.R
+import androidx.compose.ui.res.stringResource
 import com.copy.account.data.model.Account
 import com.copy.account.data.model.initialAccounts
 import com.copy.account.data.model.passwordRowLabel
@@ -40,8 +42,8 @@ private fun AccountPreviewContent(
 ) {
     val nowMillis = rememberClock(if (account.isHotp) 60_000L else 1000L)
     SheetTitleRow(account.name) {
-        TextActionButton("详情", onDetail)
-        TextActionButton("编辑", onEdit)
+        TextActionButton(stringResource(R.string.action_detail), onDetail)
+        TextActionButton(stringResource(R.string.action_edit), onEdit)
     }
     Spacer(Modifier.height(12.dp))
     SensitiveValueRow(account.usernameRowLabel, account.username, masked = account.usernameHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar)

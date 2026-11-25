@@ -56,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.copy.account.BuildConfig
+import com.copy.account.R
+import androidx.compose.ui.res.stringResource
 import com.copy.account.data.model.DEFAULT_TOTP_ALGORITHM
 import com.copy.account.data.model.DEFAULT_TOTP_DIGITS
 import com.copy.account.data.model.DEFAULT_TOTP_PERIOD
@@ -189,6 +191,24 @@ internal fun AccountEditScreen(
     var saving by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val customGroups = groups.filter { it.kind == GroupKind.CUSTOM }
+    val totpPeriodError = stringResource(R.string.edit_error_totp_period)
+    val totpDigitsError = stringResource(R.string.edit_error_totp_digits)
+    val totpCounterError = stringResource(R.string.edit_error_totp_counter)
+    val secretEmptyError = stringResource(R.string.edit_error_secret_empty)
+    val steamSecretError = stringResource(R.string.edit_error_steam_secret)
+    val secretFormatError = stringResource(R.string.edit_error_secret_format)
+    val nameMissingTitle = stringResource(R.string.edit_error_name_missing)
+    val deleteTitle = stringResource(R.string.edit_delete_account)
+    val cancelLabel = stringResource(R.string.action_cancel)
+    val savingLabel = stringResource(R.string.edit_saving)
+    val saveLabel = stringResource(R.string.action_save)
+    val usernamePlaceholder = stringResource(R.string.edit_username_label)
+    val passwordPlaceholder = stringResource(R.string.edit_password_label)
+    val fieldNamePlaceholder = stringResource(R.string.edit_field_name_label)
+    val newFieldPlaceholder = stringResource(R.string.edit_new_field)
+    val randomPasswordLabel = stringResource(R.string.edit_random_password)
+    val addFieldLabel = stringResource(R.string.edit_add_field)
+    val totpPreviewFmt = stringResource(R.string.edit_totp_preview_code)
 
     fun totpPeriodValue(): Int? = if (totpType == "STEAM" || totpType == "HOTP") 30 else totpPeriodText.toIntOrNull()
 
@@ -219,9 +239,9 @@ internal fun AccountEditScreen(
         val period = totpPeriodValue()
         when {
             name.isBlank() -> showMissingName = true
-            hasTotp && !isSteam && (period == null || period !in 1..300) -> totpError = "验证码周期需为 1-300 秒"
-            hasTotp && !isSteam && totpDigits !in 1..10 -> totpError = "验证码位数需为 1-10"
-            hasTotp && isHotp && counter < 0 -> totpError = "计数器需为非负整数"
+            hasTotp && !isSteam && (period == null || period !in 1..300) -> totpError = totpPeriodError
+            hasTotp && !isSteam && totpDigits !in 1..10 -> totpError = totpDigitsError
+            hasTotp && isHotp && counter < 0 -> totpError = totpCounterError
             else -> {
                 val edited = Account(
                     id = account?.id ?: "account-${System.currentTimeMillis()}",
@@ -256,22 +276,22 @@ internal fun AccountEditScreen(
     }
 
     AppListScreen(
-        if (account == null) "新建账号" else "编辑账号",
+        if (account == null) stringResource(R.string.edit_title_new) else stringResource(R.string.edit_title_edit),
         onBack,
-        actions = { TopBarTextButton(if (saving) "保存中" else "保存", ::saveAccount, enabled = !saving) },
+        actions = { TopBarTextButton(if (saving) savingLabel else saveLabel, ::saveAccount, enabled = !saving) },
         spacing = 12.dp
     ) {
         item {
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("账号名称 *") },
+                label = { Text(stringResource(R.string.edit_name_label)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
         }
         item {
-            Text("分组", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.edit_group_label), style = MaterialTheme.typography.labelLarge)
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()).padding(top = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -289,10 +309,13 @@ internal fun AccountEditScreen(
                         label = { Text(group.name) }
                     )
                 }
-                FilterChip(selected = false, onClick = { addGroupDialog = true }, label = { Text("＋ 增加组") })
+                FilterChip(selected = false, onClick = { addGroupDialog = true }, label = { Text(stringResource(R.string.edit_add_group)) })
             }
             Text(
-                "当前进入：${groups.firstOrNull { it.id == initialGroupId }?.name ?: "默认"}；动态密码由 TOTP 自动决定。",
+                stringResource(
+                    R.string.edit_group_dynamic_note_fmt,
+                    groups.firstOrNull { it.id == initialGroupId }?.name ?: stringResource(R.string.detail_group_default)
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -302,7 +325,7 @@ internal fun AccountEditScreen(
             FieldEditRow(
                 labelValue = usernameLabel,
                 onLabelChange = { usernameLabel = it },
-                labelPlaceholder = "用户名",
+                labelPlaceholder = usernamePlaceholder,
                 value = username,
                 onValueChange = fill,
                 hidden = usernameHidden,
@@ -310,7 +333,7 @@ internal fun AccountEditScreen(
                 onFocused = { fillTarget = fill },
                 onHandleMenu = {
                     menuTarget = FieldMenuTarget(
-                        label = usernameLabel.ifBlank { "用户名" },
+                        label = usernameLabel.ifBlank { usernamePlaceholder },
                         hidden = usernameHidden,
                         fill = fill,
                         onToggleHidden = { usernameHidden = !usernameHidden }
@@ -323,7 +346,7 @@ internal fun AccountEditScreen(
             FieldEditRow(
                 labelValue = passwordLabel,
                 onLabelChange = { passwordLabel = it },
-                labelPlaceholder = "密码",
+                labelPlaceholder = passwordPlaceholder,
                 value = password,
                 onValueChange = fill,
                 hidden = passwordHidden,
@@ -331,7 +354,7 @@ internal fun AccountEditScreen(
                 onFocused = { fillTarget = fill },
                 onHandleMenu = {
                     menuTarget = FieldMenuTarget(
-                        label = passwordLabel.ifBlank { "密码" },
+                        label = passwordLabel.ifBlank { passwordPlaceholder },
                         hidden = passwordHidden,
                         fill = fill,
                         onToggleHidden = { passwordHidden = !passwordHidden }
@@ -343,7 +366,7 @@ internal fun AccountEditScreen(
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
-                label = { Text("网址") },
+                label = { Text(stringResource(R.string.edit_url_label)) },
                 placeholder = { Text("https://example.com") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
@@ -362,7 +385,7 @@ internal fun AccountEditScreen(
             FieldEditRow(
                 labelValue = field.label,
                 onLabelChange = { label -> fields = fields.map { if (it.id == field.id) it.copy(label = label) else it } },
-                labelPlaceholder = "字段名",
+                labelPlaceholder = fieldNamePlaceholder,
                 value = field.value,
                 onValueChange = fill,
                 hidden = field.hidden,
@@ -370,7 +393,7 @@ internal fun AccountEditScreen(
                 onFocused = { fillTarget = fill },
                 onHandleMenu = {
                     menuTarget = FieldMenuTarget(
-                        label = field.label.ifBlank { "新字段" },
+                        label = field.label.ifBlank { newFieldPlaceholder },
                         hidden = field.hidden,
                         fill = fill,
                         onToggleHidden = { fields = fields.map { if (it.id == field.id) it.copy(hidden = !it.hidden) else it } },
@@ -383,7 +406,7 @@ internal fun AccountEditScreen(
         }
         item {
             Text(
-                "短按 ☷ 操作该字段 · 长按行拖动排序（用户名/密码固定、不可拖）。",
+                stringResource(R.string.edit_fields_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -391,12 +414,12 @@ internal fun AccountEditScreen(
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 TextActionButton(
-                    text = "随机密码",
+                    text = randomPasswordLabel,
                     onClick = { showPasswordGenerator = true },
                     modifier = Modifier.weight(1f)
                 )
                 TextActionButton(
-                    text = "＋ 新增字段",
+                    text = addFieldLabel,
                     onClick = {
                         val id = "field-${System.currentTimeMillis()}"
                         fields = fields + AccountField(id, "", "", false)
@@ -408,17 +431,17 @@ internal fun AccountEditScreen(
         }
         item {
             SwitchRow(
-                "两步验证",
+                stringResource(R.string.edit_totp_section),
                 hasTotp,
                 { hasTotp = it },
-                subtitle = if (hasTotp) "已配置 · 自动显示在动态密码分组" else "未配置"
+                subtitle = if (hasTotp) stringResource(R.string.edit_totp_configured) else stringResource(R.string.edit_totp_unset)
             )
         }
         if (hasTotp) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     DropdownBox(
-                        label = "服务提供",
+                        label = stringResource(R.string.edit_totp_issuer),
                         display = when (totpType) {
                             "STEAM" -> "Steam Guard"
                             "HOTP" -> "HOTP"
@@ -433,7 +456,7 @@ internal fun AccountEditScreen(
                         onSelect = { totpType = it }
                     )
                     DropdownBox(
-                        label = "加密方式",
+                        label = stringResource(R.string.edit_totp_algorithm),
                         display = totpAlgorithm,
                         options = listOf("SHA1", "SHA256", "SHA512").map { it to it },
                         enabled = totpType != "STEAM",
@@ -445,9 +468,9 @@ internal fun AccountEditScreen(
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     DropdownBox(
-                        label = "位数",
-                        display = if (totpCustomMode) "自定义" else "$totpDigits 位",
-                        options = TotpDigitPresets.map { it.toString() to "$it 位" } + ("custom" to "自定义"),
+                        label = stringResource(R.string.edit_totp_digits_row),
+                        display = if (totpCustomMode) stringResource(R.string.edit_totp_digits_custom) else stringResource(R.string.edit_totp_digits_value, totpDigits),
+                        options = TotpDigitPresets.map { it.toString() to stringResource(R.string.edit_totp_digits_value, it) } + ("custom" to stringResource(R.string.edit_totp_digits_custom)),
                         enabled = totpType != "STEAM",
                         modifier = Modifier.weight(1f),
                         onSelect = { value ->
@@ -465,7 +488,7 @@ internal fun AccountEditScreen(
                         OutlinedTextField(
                             value = totpCounterText,
                             onValueChange = { totpCounterText = it.filter(Char::isDigit); totpError = "" },
-                            label = { Text("当前计数") },
+                            label = { Text(stringResource(R.string.edit_totp_counter_row)) },
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
@@ -473,7 +496,7 @@ internal fun AccountEditScreen(
                         OutlinedTextField(
                             value = totpPeriodText,
                             onValueChange = { totpPeriodText = it.filter(Char::isDigit); totpError = "" },
-                            label = { Text("验证码周期（秒）") },
+                            label = { Text(stringResource(R.string.edit_totp_period_row)) },
                             enabled = totpType != "STEAM",
                             singleLine = true,
                             modifier = Modifier.weight(1f)
@@ -491,7 +514,7 @@ internal fun AccountEditScreen(
                             totpDigits = clean.toIntOrNull() ?: 0
                             totpError = ""
                         },
-                        label = { Text("自定义位数（1-10）") },
+                        label = { Text(stringResource(R.string.edit_totp_custom_digits_label)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -502,12 +525,12 @@ internal fun AccountEditScreen(
                     OutlinedTextField(
                         value = totpSecret,
                         onValueChange = { totpSecret = it; totpError = "" },
-                        label = { Text(if (totpType == "STEAM") "Steam shared_secret（Base64）" else "${if (totpType == "HOTP") "HOTP" else "TOTP"} 密钥（Base32 或 otpauth）") },
+                        label = { Text(if (totpType == "STEAM") stringResource(R.string.edit_steam_secret_label) else stringResource(R.string.edit_totp_secret_fmt, if (totpType == "HOTP") "HOTP" else "TOTP")) },
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
                     if (totpType == "TOTP") {
-                        TextActionButton("扫码", onClick = { showScan = true })
+                        TextActionButton(stringResource(R.string.edit_scan_action), onClick = { showScan = true })
                     }
                 }
             }
@@ -532,9 +555,9 @@ internal fun AccountEditScreen(
                 }
                 Text(
                     when {
-                        totpSecret.isBlank() -> "请输入密钥以生成验证码"
-                        decodedSecret.size < 10 -> if (totpType == "STEAM") "Steam shared_secret 格式不正确，请检查 Base64 内容" else "密钥格式不正确，请检查 Base32 内容"
-                        else -> "当前验证码：${totpCode(previewAccount, decodedSecret, nowMillis)}"
+                        totpSecret.isBlank() -> secretEmptyError
+                        decodedSecret.size < 10 -> if (totpType == "STEAM") steamSecretError else secretFormatError
+                        else -> totpPreviewFmt.format(totpCode(previewAccount, decodedSecret, nowMillis))
                     },
                     color = if (decodedSecret.size in 1..9) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                 )
@@ -542,28 +565,28 @@ internal fun AccountEditScreen(
             if (totpError.isNotBlank()) item { Text(totpError, color = MaterialTheme.colorScheme.error) }
         }
         if (saveError.isNotBlank()) item { Text(saveError, color = MaterialTheme.colorScheme.error) }
-        if (account != null && onDelete != null) item { DangerButton("删除账号", onClick = { deleteConfirm = true }) }
+        if (account != null && onDelete != null) item { DangerButton(deleteTitle, onClick = { deleteConfirm = true }) }
     }
 
     menuTarget?.let { target ->
         AppBottomSheet(onDismiss = { menuTarget = null }, skipPartiallyExpanded = true, verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SheetTitleRow(target.label) {}
-            ActionSheetRow(if (target.hidden) "显示" else "隐藏") {
+            ActionSheetRow(if (target.hidden) stringResource(R.string.edit_show_field) else stringResource(R.string.edit_hide_field)) {
                 target.onToggleHidden()
                 menuTarget = null
             }
-            ActionSheetRow("随机密码") {
+            ActionSheetRow(randomPasswordLabel) {
                 fillTarget = target.fill
                 menuTarget = null
                 showPasswordGenerator = true
             }
             if (target.onDelete != null) {
-                ActionSheetRow("删除字段", color = MaterialTheme.colorScheme.error) {
+                ActionSheetRow(stringResource(R.string.edit_delete_field), color = MaterialTheme.colorScheme.error) {
                     target.onDelete?.invoke()
                     menuTarget = null
                 }
             }
-            ActionSheetRow("取消", muted = true) { menuTarget = null }
+            ActionSheetRow(cancelLabel, muted = true) { menuTarget = null }
         }
     }
 
@@ -579,9 +602,9 @@ internal fun AccountEditScreen(
     }
     if (addGroupDialog) {
         TextInputDialog(
-            title = "新增分组",
-            label = "分组名称",
-            confirmText = "创建并选择",
+            title = stringResource(R.string.edit_group_dialog_title),
+            label = stringResource(R.string.edit_group_dialog_label),
+            confirmText = stringResource(R.string.edit_group_dialog_confirm),
             validate = { it.isNotBlank() && customGroups.none { group -> group.name == it.trim() } },
             onConfirm = { selectedCustomGroups = selectedCustomGroups + onCreateGroup(it); addGroupDialog = false },
             onDismiss = { addGroupDialog = false }
@@ -600,15 +623,15 @@ internal fun AccountEditScreen(
     if (showMissingName) {
         AlertDialog(
             onDismissRequest = { showMissingName = false },
-            title = { Text("缺少账号名称") },
-            text = { Text("请输入账号名称后再保存。") },
-            confirmButton = { TextActionButton("确定", onClick = { showMissingName = false }) }
+            title = { Text(nameMissingTitle) },
+            text = { Text(stringResource(R.string.edit_error_name_missing_detail)) },
+            confirmButton = { TextActionButton(stringResource(R.string.action_ok), onClick = { showMissingName = false }) }
         )
     }
     if (deleteConfirm) {
         DeleteConfirmDialog(
-            title = "删除账号",
-            message = "删除「${account?.name.orEmpty()}」后无法恢复。",
+            title = deleteTitle,
+            message = stringResource(R.string.edit_delete_confirm_message, account?.name.orEmpty()),
             onConfirm = {
                 deleteConfirm = false
                 scope.launch {
@@ -670,7 +693,7 @@ private fun BoundAppCard(
                 Spacer(Modifier.width(12.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text("关联应用", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.edit_app_link_section), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val label = remember(boundPackage) {
                     boundPackage?.let { pkg ->
                         runCatching {
@@ -680,7 +703,7 @@ private fun BoundAppCard(
                     }
                 }
                 Text(
-                    text = label ?: "选择应用",
+                    text = label ?: stringResource(R.string.edit_pick_app),
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -696,7 +719,7 @@ private fun BoundAppCard(
                 }
             }
             if (boundPackage != null) {
-                TextActionButton("解除绑定", onClick = onUnbind)
+                TextActionButton(stringResource(R.string.edit_unbind_app), onClick = onUnbind)
             }
         }
     }
@@ -736,19 +759,19 @@ private fun AppPickerDialog(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
-                SheetTitleRow("选择应用") {}
+                SheetTitleRow(stringResource(R.string.edit_pick_app)) {}
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = { Text("搜索应用") },
+                    placeholder = { Text(stringResource(R.string.edit_search_apps)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(12.dp))
                 if (filtered.isEmpty()) {
                     Text(
-                        "未找到匹配的应用",
+                        stringResource(R.string.edit_no_matching_apps),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
                         textAlign = TextAlign.Center
@@ -785,7 +808,7 @@ private fun AppPickerDialog(
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                TextActionButton("取消", onClick = onDismiss, modifier = Modifier.align(Alignment.End))
+                TextActionButton(stringResource(R.string.action_cancel), onClick = onDismiss, modifier = Modifier.align(Alignment.End))
             }
         }
     }

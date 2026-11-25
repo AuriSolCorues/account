@@ -26,6 +26,8 @@ import com.copy.account.ui.components.SensitiveValueRow
 import com.copy.account.ui.components.TextActionButton
 import com.copy.account.ui.components.rememberClock
 import com.copy.account.BuildConfig
+import com.copy.account.R
+import androidx.compose.ui.res.stringResource
 import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
 
@@ -40,26 +42,26 @@ internal fun AccountDetailScreen(
     onHotpAdvance: (String) -> Unit = {}
 ) {
     val nowMillis = rememberClock(if (account?.isHotp == true) 60_000L else 1000L)
-    val title = account?.name ?: "账号详情"
+    val title = account?.name ?: stringResource(R.string.detail_fallback_title)
     val groupNames = account?.groups
         ?.mapNotNull { id -> groups.firstOrNull { it.id == id }?.name }
         ?.filter { it.isNotBlank() }
         .orEmpty()
-    val topBarActions: @Composable RowScope.() -> Unit = { TextActionButton("编辑", onEdit, textColor = LocalAccountThemePalette.current.topBarText) }
+    val topBarActions: @Composable RowScope.() -> Unit = { TextActionButton(stringResource(R.string.action_edit), onEdit, textColor = LocalAccountThemePalette.current.topBarText) }
     if (account == null) {
         AppScreen(title = title, onBack = onBack, actions = topBarActions) { padding ->
-            EmptyState("账号不存在", Modifier.fillMaxSize().padding(padding))
+            EmptyState(stringResource(R.string.detail_missing_account), Modifier.fillMaxSize().padding(padding))
         }
     } else {
         AppListScreen(title, onBack, actions = topBarActions, spacing = 4.dp) {
-            item { Text("分组：${groupNames.joinToString().ifBlank { "默认" }}", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 12.dp)) }
-            item { Text("登录信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
+            item { Text(stringResource(R.string.detail_group_line, groupNames.joinToString().ifBlank { stringResource(R.string.detail_group_default) }), color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 12.dp)) }
+            item { Text(stringResource(R.string.detail_login_section), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
             item { SensitiveValueRow(account.usernameRowLabel, account.username, masked = account.usernameHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
             item { SensitiveValueRow(account.passwordRowLabel, account.password, masked = account.passwordHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
-            item { Text("两步验证", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
+            item { Text(stringResource(R.string.detail_totp_section), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
             item {
                 if (account.hasTotp) AccountTotpRow(account, nowMillis, clipboardClearSeconds) { onHotpAdvance(account.id) }
-                else Text("未配置", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else Text(stringResource(R.string.detail_totp_unset), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(account.customFields, key = { it.id }) { field -> SensitiveValueRow(field.label, field.value, masked = field.hidden, sensitive = field.hidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
         }

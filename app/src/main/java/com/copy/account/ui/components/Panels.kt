@@ -10,9 +10,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
+import com.copy.account.R
 import com.copy.account.data.model.Account
 import com.copy.account.data.model.initialAccounts
 import com.copy.account.ui.theme.AccountTheme
@@ -42,12 +44,12 @@ private fun AccountActionContent(
 ) {
     Text(account.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextActionButton("编辑", onClick = { onDismiss(); onEdit() }, modifier = Modifier.weight(1f))
-        DangerButton("删除", onClick = { onDismiss(); onDelete() }, modifier = Modifier.weight(1f))
+        TextActionButton(stringResource(R.string.action_edit), onClick = { onDismiss(); onEdit() }, modifier = Modifier.weight(1f))
+        DangerButton(stringResource(R.string.action_delete), onClick = { onDismiss(); onDelete() }, modifier = Modifier.weight(1f))
     }
-    ActionSheetRow("作为模板新建账号") { onDismiss(); onTemplateNew() }
-    ActionSheetRow("复制账号全部内容") { onDismiss(); onCopyAll() }
-    ActionSheetRow("取消", muted = true) { onDismiss() }
+    ActionSheetRow(stringResource(R.string.action_template_new)) { onDismiss(); onTemplateNew() }
+    ActionSheetRow(stringResource(R.string.action_copy_all)) { onDismiss(); onCopyAll() }
+    ActionSheetRow(stringResource(R.string.action_cancel), muted = true) { onDismiss() }
     Spacer(Modifier.height(8.dp))
 }
 

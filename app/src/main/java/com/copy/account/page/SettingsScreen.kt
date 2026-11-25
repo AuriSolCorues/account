@@ -21,10 +21,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.padding
 import com.copy.account.BuildConfig
+import com.copy.account.R
 import com.copy.account.runtime.launchExtensionSettings
 import com.copy.account.security.ExportPasswordRequiredException
 import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.isMasterPasswordValid
+import androidx.compose.ui.res.stringResource
 import com.copy.account.ui.components.AppListScreen
 import com.copy.account.ui.components.ExportConfirmDialog
 import com.copy.account.ui.components.PasswordField
@@ -64,28 +66,28 @@ internal fun SettingsScreen(
             busy = false
             val error = result.exceptionOrNull()
             if (result.isSuccess) {
-                resultMessage = "已导出 ${result.getOrThrow()}"
+                resultMessage = context.getString(R.string.settings_export_done, result.getOrThrow())
                 resultIsError = false
             } else if (error is ExportPasswordRequiredException) {
                 exportPassword = ""
                 passwordError = ""
                 showPasswordDialog = true
             } else {
-                resultMessage = error?.message ?: "备份生成失败"
+                resultMessage = error?.message ?: context.getString(R.string.settings_export_error_default)
                 resultIsError = true
             }
         }
     }
 
-    AppListScreen("设置", onBack) {
+    AppListScreen(stringResource(R.string.settings_title), onBack) {
         item {
             Column(modifier = Modifier.fillMaxWidth()) {
                 SettingsRow(
-                    "一键备份",
+                    stringResource(R.string.settings_quick_backup),
                     when {
-                        busy -> "备份中…"
-                        resultMessage.isBlank() -> "备份"
-                        else -> if (resultIsError) "导出失败" else "导出成功"
+                        busy -> stringResource(R.string.settings_backup_busy)
+                        resultMessage.isBlank() -> stringResource(R.string.settings_backup_idle)
+                        else -> if (resultIsError) stringResource(R.string.settings_export_failed) else stringResource(R.string.settings_export_ok)
                     },
                     onClick = {
                         if (!busy && resultMessage.isBlank()) {
@@ -103,16 +105,16 @@ internal fun SettingsScreen(
                 }
             }
         }
-        item { SettingsRow("安全设置", "打开", onClick = onOpenSecurity) }
-        item { SettingsRow("主题与语言", "打开", onClick = onOpenAppearance) }
-        item { SettingsRow("备份与数据", "打开", onClick = onOpenBackup) }
+        item { SettingsRow(stringResource(R.string.settings_security), stringResource(R.string.action_open), onClick = onOpenSecurity) }
+        item { SettingsRow(stringResource(R.string.settings_appearance), stringResource(R.string.action_open), onClick = onOpenAppearance) }
+        item { SettingsRow(stringResource(R.string.settings_backup_data), stringResource(R.string.action_open), onClick = onOpenBackup) }
         if (extensionLaunch != null) {
             item {
-                SettingsRow("扩展", "打开", onClick = { launchExtensionSettings(context) })
+                SettingsRow(stringResource(R.string.settings_extension), stringResource(R.string.action_open), onClick = { launchExtensionSettings(context) })
             }
         }
-        item { SettingsRow("操作日志", "打开", onClick = onOpenLogs) }
-        item { SettingsRow("关于", BuildConfig.VERSION_NAME, onClick = onOpenAbout) }
+        item { SettingsRow(stringResource(R.string.settings_logs), stringResource(R.string.action_open), onClick = onOpenLogs) }
+        item { SettingsRow(stringResource(R.string.settings_about), BuildConfig.VERSION_NAME, onClick = onOpenAbout) }
     }
     LaunchedEffect(resultMessage) {
         if (resultMessage.isNotBlank()) {
@@ -127,14 +129,14 @@ internal fun SettingsScreen(
         },
         onDismiss = { showExportConfirm = false }
     )
-    if (showPasswordDialog) AlertDialog(onDismissRequest = { showPasswordDialog = false }, title = { Text("完成导出升级") }, text = {
+    if (showPasswordDialog) AlertDialog(onDismissRequest = { showPasswordDialog = false }, title = { Text(stringResource(R.string.export_upgrade_title)) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("首次导出需要验证一次主密码。之后指纹或主密码解锁都可直接导出。", style = MaterialTheme.typography.bodySmall)
-            PasswordField("主密码", exportPassword, { exportPassword = it; passwordError = "" }, showPasswordToggle = true)
+            Text(stringResource(R.string.export_upgrade_hint), style = MaterialTheme.typography.bodySmall)
+            PasswordField(stringResource(R.string.unlock_password_label), exportPassword, { exportPassword = it; passwordError = "" }, showPasswordToggle = true)
             if (passwordError.isNotBlank()) Text(passwordError, color = MaterialTheme.colorScheme.error)
         }
     }, confirmButton = {
-        TextActionButton("验证并导出", onClick = {
+        TextActionButton(stringResource(R.string.export_upgrade_verify), onClick = {
             if (!isMasterPasswordValid(exportPassword)) {
                 passwordError = MASTER_PASSWORD_RULE_HINT
             } else {
@@ -145,12 +147,12 @@ internal fun SettingsScreen(
                         showPasswordDialog = false
                         exportBackup()
                     } else {
-                        passwordError = result.exceptionOrNull()?.message ?: "主密码验证失败"
+                        passwordError = result.exceptionOrNull()?.message ?: context.getString(R.string.export_upgrade_password_error)
                     }
                 }
             }
         }, textColor = MaterialTheme.colorScheme.primary)
-    }, dismissButton = { TextActionButton("取消", onClick = { showPasswordDialog = false }, textColor = MaterialTheme.colorScheme.primary) })
+    }, dismissButton = { TextActionButton(stringResource(R.string.action_cancel), onClick = { showPasswordDialog = false }, textColor = MaterialTheme.colorScheme.primary) })
 }
 
 @Preview(showBackground = true)

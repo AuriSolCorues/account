@@ -19,9 +19,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.copy.account.BuildConfig
+import com.copy.account.R
 import com.copy.account.data.model.SavedTheme
 import com.copy.account.ui.components.AppListScreen
 import com.copy.account.ui.components.ChoiceDialog
@@ -56,69 +58,79 @@ internal fun AppearanceSettingsScreen(
     var showJsonDialog by remember { mutableStateOf(false) }
     var jsonError by remember { mutableStateOf("") }
     var draftThemeJson by remember(customThemeJson) { mutableStateOf(customThemeJson.ifBlank { presets.first().json }) }
-    AppListScreen("主题与语言", onBack) {
+    val deleteConfirmLabel = stringResource(R.string.action_cancel)
+    val reloadToast = stringResource(R.string.appearance_reload_done)
+    val invalidJsonError = stringResource(R.string.appearance_json_invalid)
+    AppListScreen(stringResource(R.string.appearance_title), onBack) {
         item {
             SettingsRow(
-                "明暗模式",
+                stringResource(R.string.appearance_mode_row),
                 when (themeMode) {
-                    "light" -> "浅色"
-                    "system" -> "跟随系统"
-                    else -> "深色"
+                    "light" -> stringResource(R.string.appearance_mode_light)
+                    "system" -> stringResource(R.string.appearance_mode_system)
+                    else -> stringResource(R.string.appearance_mode_dark)
                 }
             ) { showThemeDialog = true }
         }
         item {
-            SettingsRow("配色方案", if (accentTheme == "blue") "蓝色" else "绿色（设计）") { showAccentDialog = true }
+            SettingsRow(stringResource(R.string.appearance_accent_row), if (accentTheme == "blue") stringResource(R.string.appearance_accent_blue) else stringResource(R.string.appearance_accent_green)) { showAccentDialog = true }
         }
         item {
-            SettingsRow("自定义主题 JSON", if (customThemeJson.isBlank()) "未启用" else "已启用") {
+            SettingsRow(stringResource(R.string.appearance_custom_json_row), if (customThemeJson.isBlank()) stringResource(R.string.appearance_custom_off) else stringResource(R.string.appearance_custom_on)) {
                 draftThemeJson = customThemeJson.ifBlank { presets.first().json }
                 jsonError = ""
                 showJsonDialog = true
             }
         }
         item {
-            SettingsRow("重新加载配置文件", "打开") {
+            SettingsRow(stringResource(R.string.appearance_reload_row), stringResource(R.string.action_open)) {
                 onReloadSettings()
-                Toast.makeText(context, "配置已重新加载", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, reloadToast, Toast.LENGTH_SHORT).show()
             }
         }
         item {
             Text(
-                "appsettings.json · 位于备份文件夹内，与 .acc 同级 · 可覆盖主题、语言与安全默认值",
+                stringResource(R.string.appearance_appsettings_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         item {
-            SettingsRow("当前生效", if (externalConfigLoaded) "外挂配置已加载" else "未使用外挂配置")
+            SettingsRow(stringResource(R.string.appearance_external_row), if (externalConfigLoaded) stringResource(R.string.appearance_external_on) else stringResource(R.string.appearance_external_off))
         }
         if (customThemes.isNotEmpty()) {
-            item { SettingsHeader("已保存的自定义主题") }
+            item { SettingsHeader(stringResource(R.string.appearance_saved_themes_header)) }
             items(customThemes, key = { it.id }) { saved ->
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     TextActionButton(saved.name, onClick = { draftThemeJson = saved.json; showJsonDialog = true }, modifier = Modifier.weight(1f))
-                    DangerButton("删除", onClick = { onDeleteCustomTheme(saved.id) })
+                    DangerButton(stringResource(R.string.action_delete), onClick = { onDeleteCustomTheme(saved.id) })
                 }
             }
         }
-        item { SettingsHeader("语言") }
-        item { SettingsRow("语言", "简体中文") }
+        item { SettingsHeader(stringResource(R.string.appearance_language_header)) }
+        item { SettingsRow(stringResource(R.string.appearance_language_header), stringResource(R.string.appearance_language_value)) }
     }
     if (showThemeDialog) ChoiceDialog(
-        "颜色主题",
-        listOf("dark" to "深色", "light" to "浅色", "system" to "跟随系统").map { (mode, label) -> label to { onThemeModeChange(mode) } }
+        stringResource(R.string.appearance_theme_dialog_title),
+        listOf(
+            "dark" to stringResource(R.string.appearance_mode_dark),
+            "light" to stringResource(R.string.appearance_mode_light),
+            "system" to stringResource(R.string.appearance_mode_system)
+        ).map { (mode, label) -> label to { onThemeModeChange(mode) } }
     ) { showThemeDialog = false }
     if (showAccentDialog) ChoiceDialog(
-        "配色方案",
-        listOf("green" to "绿色（设计）", "blue" to "蓝色").map { (accent, label) -> label to { onAccentThemeChange(accent) } }
+        stringResource(R.string.appearance_accent_row),
+        listOf(
+            "green" to stringResource(R.string.appearance_accent_green),
+            "blue" to stringResource(R.string.appearance_accent_blue)
+        ).map { (accent, label) -> label to { onAccentThemeChange(accent) } }
     ) { showAccentDialog = false }
     if (showJsonDialog) AlertDialog(
         onDismissRequest = { showJsonDialog = false },
-        title = { Text("自定义主题 JSONC") },
+        title = { Text(stringResource(R.string.appearance_json_dialog_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("示例主题（可直接载入后修改）", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.appearance_json_preset_hint), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     presets.forEach { preset -> TextActionButton(preset.name, onClick = { draftThemeJson = preset.json; jsonError = "" }) }
                 }
@@ -128,29 +140,29 @@ internal fun AppearanceSettingsScreen(
                     modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp, max = 420.dp),
                     minLines = 10,
                     maxLines = 20,
-                    label = { Text("主题配置（支持 // 和 /* */ 注释）") }
+                    label = { Text(stringResource(R.string.appearance_json_label)) }
                 )
                 if (jsonError.isNotBlank()) Text(jsonError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextActionButton("复制 JSON", onClick = {
+                    TextActionButton(stringResource(R.string.appearance_json_copy), onClick = {
                         copyToClipboard(context, draftThemeJson, sensitive = false, clearAfterSeconds = 0)
                     })
-                    TextActionButton("保存副本", onClick = {
+                    TextActionButton(stringResource(R.string.appearance_json_save_copy), onClick = {
                         val parsed = parseThemeJson(draftThemeJson)
-                        if (parsed == null) jsonError = "JSON 或颜色格式无效" else onSaveCustomTheme(parsed.name, draftThemeJson)
+                        if (parsed == null) jsonError = invalidJsonError else onSaveCustomTheme(parsed.name, draftThemeJson)
                     })
                 }
             }
         },
         confirmButton = {
-            TextActionButton("应用", onClick = {
+            TextActionButton(stringResource(R.string.appearance_json_apply), onClick = {
                 if (onApplyThemeJson(draftThemeJson)) {
                     jsonError = ""
                     showJsonDialog = false
-                } else jsonError = "JSON 或颜色格式无效"
+                } else jsonError = invalidJsonError
             })
         },
-        dismissButton = { TextActionButton("取消", onClick = { showJsonDialog = false }) }
+        dismissButton = { TextActionButton(deleteConfirmLabel, onClick = { showJsonDialog = false }) }
     )
 }
 
