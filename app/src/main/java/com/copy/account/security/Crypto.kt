@@ -2,12 +2,10 @@ package com.copy.account.security
 
 import java.text.Normalizer
 import javax.crypto.Cipher
-import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
-internal const val DEFAULT_PASSWORD_ITERATIONS = 600_000
+internal const val DEFAULT_PASSWORD_ITERATIONS = 1_000_000
 
 internal const val MIN_PASSWORD_ITERATIONS = 50_000
 internal const val MAX_PASSWORD_ITERATIONS = 2_000_000
@@ -23,14 +21,18 @@ internal const val MASTER_PASSWORD_RULE_HINT = "主密码长度需为 4-20 个�
 private fun normalizePassword(password: String): String =
     Normalizer.normalize(password, Normalizer.Form.NFC)
 
-internal fun passwordHash(password: String, salt: ByteArray, iterations: Int = DEFAULT_PASSWORD_ITERATIONS): ByteArray {
-    val spec = PBEKeySpec(normalizePassword(password).toCharArray(), salt, iterations, 256)
+private fun deriveBytes(password: String, salt: ByteArray, iterations: Int, bits: Int): ByteArray {
+    val normalized = normalizePassword(password)
+    val pass = normalized.toByteArray(Charsets.UTF_8)
     return try {
-        SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+        NativeKdf.derive(pass, salt, iterations, bits)
     } finally {
-        spec.clearPassword()
+        pass.fill(0)
     }
 }
+
+internal fun passwordHash(password: String, salt: ByteArray, iterations: Int = DEFAULT_PASSWORD_ITERATIONS): ByteArray =
+    deriveBytes(password, salt, iterations, 256)
 
 internal data class PasswordKeyMaterial(val wrappingKey: ByteArray, val verifier: ByteArray) {
     fun clear() {
@@ -40,12 +42,7 @@ internal data class PasswordKeyMaterial(val wrappingKey: ByteArray, val verifier
 }
 
 internal fun passwordKeyMaterial(password: String, salt: ByteArray, iterations: Int = DEFAULT_PASSWORD_ITERATIONS): PasswordKeyMaterial {
-    val spec = PBEKeySpec(normalizePassword(password).toCharArray(), salt, iterations, 512)
-    val bytes = try {
-        SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
-    } finally {
-        spec.clearPassword()
-    }
+    val bytes = deriveBytes(password, salt, iterations, 512)
     return try {
         PasswordKeyMaterial(bytes.copyOfRange(0, 32), bytes.copyOfRange(32, 64))
     } finally {

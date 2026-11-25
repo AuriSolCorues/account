@@ -41,6 +41,9 @@ CLAUDE.md
 .opencode/
 .planning/
 
+# Rust KDF（rust/kdf）构建产物（cargo target 生成在 crate 目录 rust/kdf/target/）
+/rust/kdf/target/
+
 build.sh
 test.sh
 release/
