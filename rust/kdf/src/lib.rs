@@ -1,5 +1,3 @@
-//! account_kdf — PBKDF2-HMAC-SHA256 密钥派生（JNI）。
-
 use hmac::Hmac;
 use jni::objects::{JByteArray, JClass};
 use jni::sys::{jbyteArray, jint};
