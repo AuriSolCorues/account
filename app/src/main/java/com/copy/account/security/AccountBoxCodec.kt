@@ -15,6 +15,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 internal const val ACCOUNTBOX_MAGIC = "ACCOUNTBOX_JSON_13"
+internal const val ACCOUNTBOX_FORMAT_ERROR = "不是 account 明文格式（缺少 ACCOUNTBOX_JSON_13 标识）"
 internal const val ACCOUNTBOX_VERSION = 13
 
 private const val DYNAMIC_TYPE_STEAM = 2
@@ -104,7 +105,7 @@ internal fun exportAccountBoxJson(vault: PersistedVault, exportedAtMs: Long): By
 internal fun importAccountBoxJson(bytes: ByteArray): Result<PersistedVault> = runCatching {
     val text = bytes.toString(Charsets.UTF_8)
     val firstLine = text.lineSequence().firstOrNull()?.trim().orEmpty()
-    require(firstLine == ACCOUNTBOX_MAGIC) { "不是 account 明文格式（缺少 ACCOUNTBOX_JSON_13 标识）" }
+    require(firstLine == ACCOUNTBOX_MAGIC) { ACCOUNTBOX_FORMAT_ERROR }
     val document = abJson.decodeFromString(AbDocument.serializer(), text.substringAfter('\n'))
     val customGroups = document.tagList.distinctBy { it.tagName }.map { Group("ab-${it.tagName}", it.tagName, GroupKind.CUSTOM) }
     val tagNameToId = customGroups.associate { it.name to it.id }

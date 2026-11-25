@@ -84,12 +84,6 @@ internal fun Account.withUidFilled(): Account = if (uid.isBlank()) copy(uid = ne
 internal fun sortAccounts(accounts: List<Account>): List<Account> =
     accounts.sortedWith(compareByDescending { it.createdMillis })
 
-internal val Account.usernameRowLabel: String
-    get() = usernameLabel?.ifBlank { "用户名" } ?: "用户名"
-
-internal val Account.passwordRowLabel: String
-    get() = passwordLabel?.ifBlank { "密码" } ?: "密码"
-
 internal const val FIXED_GROUP_COUNT = 2
 
 internal fun accountInGroup(account: Account, groups: List<Group>, groupId: String): Boolean {

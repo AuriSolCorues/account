@@ -19,6 +19,7 @@ import android.util.Log
 import android.view.View
 import android.view.autofill.AutofillId
 import android.widget.Toast
+import com.copy.account.R
 import com.copy.account.data.model.Account
 import com.copy.account.data.model.AccountField
 import com.copy.account.data.model.PersistedVault
@@ -330,7 +331,7 @@ class AppAutofillService : AutofillService() {
                 try {
                     val cleanPassword = newPassword.trim()
                     if (cleanPassword.isBlank()) {
-                        toast("未捕获到密码，已取消保存")
+                        toast(getString(R.string.autofill_save_no_password))
                         callback.onSuccess()
                         return@launch
                     }
@@ -397,14 +398,14 @@ class AppAutofillService : AutofillService() {
                                 vaultStore.save(nextState, dek)
                                 newSnapshot = AutofillBridge.toAutofillAccounts(nextState.accounts)
                                 Log.d(TAG, "onSaveRequest: password updated for ${existing.name}")
-                                toast("已覆盖更新密码")
+                                toast(getString(R.string.autofill_save_updated))
                             }
                         } else {
                             val displayName = when {
                                 webTrack -> cleanDomain(rawWebDomain)
                                 packageName.isNotBlank() -> appLabel(packageName)
                                 else -> ""
-                            }.ifBlank { "新建账号卡" }
+                            }.ifBlank { getString(R.string.autofill_new_card_name) }
                             val now = System.currentTimeMillis()
                             val newAccount = Account(
                                 id = "account-$now",
@@ -428,7 +429,7 @@ class AppAutofillService : AutofillService() {
                             vaultStore.save(nextState, dek)
                             newSnapshot = AutofillBridge.toAutofillAccounts(nextState.accounts)
                             Log.d(TAG, "onSaveRequest: new account card created")
-                            toast("新账号已保存")
+                            toast(getString(R.string.autofill_save_new))
                         }
                     }
 
@@ -436,7 +437,7 @@ class AppAutofillService : AutofillService() {
                     callback.onSuccess()
                 } catch (e: Exception) {
                     Log.e(TAG, "onSaveRequest inner error", e)
-                    toast("保存异常: ${e.message}")
+                    toast(getString(R.string.autofill_save_error, e.message ?: ""))
                     callback.onFailure(e.message ?: "save failed")
                 } finally {
                     dekCopy?.fill(0)

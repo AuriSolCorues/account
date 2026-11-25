@@ -31,7 +31,6 @@ import com.copy.account.R
 import androidx.compose.ui.res.stringResource
 import com.copy.account.data.model.MAX_AUTO_LOCK_SECONDS
 import com.copy.account.security.MAX_PASSWORD_ITERATIONS
-import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.MIN_PASSWORD_ITERATIONS
 import com.copy.account.security.isMasterPasswordValid
 import com.copy.account.ui.components.AppListScreen
@@ -84,6 +83,7 @@ internal fun SecuritySettingsScreen(
     val passwordMismatchMsg = stringResource(R.string.security_password_mismatch)
     val passwordChangedMsg = stringResource(R.string.security_password_changed)
     val passwordSaveFailedMsg = stringResource(R.string.security_password_save_failed)
+    val masterPasswordHint = stringResource(R.string.master_password_rule_hint)
     val cancelLabel = stringResource(R.string.action_cancel)
     val saveLabel = stringResource(R.string.action_save)
     val lockOffLabel = stringResource(R.string.security_lock_off)
@@ -188,7 +188,7 @@ internal fun SecuritySettingsScreen(
         confirmButton = {
             TextActionButton(saveLabel, onClick = {
                 when {
-                    !isMasterPasswordValid(newPassword) -> changePasswordError = MASTER_PASSWORD_RULE_HINT
+                    !isMasterPasswordValid(newPassword) -> changePasswordError = masterPasswordHint
                     newPassword != confirmNewPassword -> changePasswordError = passwordMismatchMsg
                     else -> {
                         scope.launch {

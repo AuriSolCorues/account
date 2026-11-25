@@ -24,7 +24,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.isMasterPasswordValid
 import com.copy.account.BuildConfig
 import com.copy.account.R
@@ -65,12 +64,13 @@ internal fun UnlockScreen(
         if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
         val errorMsgMismatch = stringResource(R.string.unlock_error_mismatch)
         val errorMsgFailed = stringResource(R.string.unlock_error_failed)
+        val passwordRuleHint = stringResource(R.string.master_password_rule_hint)
         if (showPassword) PrimaryButton(
             text = if (unlocking) stringResource(R.string.unlock_button_busy) else if (firstUse) stringResource(R.string.unlock_button_setup) else stringResource(R.string.unlock_button_unlock),
             enabled = isMasterPasswordValid(password) && !unlocking,
             onClick = {
                 when {
-                    !isMasterPasswordValid(password) -> error = MASTER_PASSWORD_RULE_HINT
+                    !isMasterPasswordValid(password) -> error = passwordRuleHint
                     firstUse && password != confirmation -> error = errorMsgMismatch
                     else -> scope.launch {
                         unlocking = true

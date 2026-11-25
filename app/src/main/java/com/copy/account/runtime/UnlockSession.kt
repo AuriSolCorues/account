@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.copy.account.R
 import com.copy.account.data.model.Account
 import com.copy.account.data.model.withUidFilled
 import com.copy.account.data.model.Group
@@ -70,7 +71,7 @@ internal class UnlockSession(
         nextGroups: List<Group> = groups,
         nextSelectedGroupId: String = selectedGroupId
     ): Result<Unit> {
-        val key = dataKey?.copyOf() ?: return Result.failure(IllegalStateException("当前未解锁，请重新解锁后重试"))
+        val key = dataKey?.copyOf() ?: return Result.failure(IllegalStateException(context.getString(R.string.error_not_unlocked)))
         val snapshot = PersistedVault(accounts = nextAccounts, groups = nextGroups, selectedGroupId = nextSelectedGroupId)
         val result = try {
             vaultWriteMutex.withLock {
@@ -172,9 +173,9 @@ internal class UnlockSession(
         })
         prompt.authenticate(
             BiometricPrompt.PromptInfo.Builder()
-                .setTitle("解锁 account")
-                .setSubtitle("使用指纹或面容解锁")
-                .setNegativeButtonText("使用主密码")
+                .setTitle(context.getString(R.string.autofill_prompt_title_app))
+                .setSubtitle(context.getString(R.string.unlock_biometric_subtitle))
+                .setNegativeButtonText(context.getString(R.string.unlock_use_password_action))
                 .build(),
             BiometricPrompt.CryptoObject(cipher)
         )
@@ -200,9 +201,9 @@ internal class UnlockSession(
         })
         prompt.authenticate(
             BiometricPrompt.PromptInfo.Builder()
-                .setTitle("启用生物识别")
-                .setSubtitle("验证指纹或面容以启用快速解锁")
-                .setNegativeButtonText("取消")
+                .setTitle(context.getString(R.string.unlock_enroll_title))
+                .setSubtitle(context.getString(R.string.unlock_enroll_subtitle))
+                .setNegativeButtonText(context.getString(R.string.action_cancel))
                 .build(),
             BiometricPrompt.CryptoObject(cipher)
         )

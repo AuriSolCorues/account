@@ -16,8 +16,6 @@ internal fun needsIterationUpgrade(storedIterations: Int, targetIterations: Int)
 internal fun isMasterPasswordValid(password: String): Boolean =
     password.codePointCount(0, password.length) in 4..20
 
-internal const val MASTER_PASSWORD_RULE_HINT = "主密码长度需为 4-20 个字符"
-
 private fun normalizePassword(password: String): String =
     Normalizer.normalize(password, Normalizer.Form.NFC)
 

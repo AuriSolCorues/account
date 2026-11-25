@@ -243,7 +243,7 @@ fun AccountApp(
 
     fun writeExportBytes(bytes: ByteArray, nameFactory: BackupNameFactory, mimeType: String): String {
         val tree = backupLocation.backupTreeUri?.let(Uri::parse)
-        return if (directBackup) writeFileBackup(bytes, backupLocation.backupFolder, nameFactory)
+        return if (directBackup) writeFileBackup(context, bytes, backupLocation.backupFolder, nameFactory)
         else writeBackupFile(context, tree!!, bytes, backupLocation.backupFolder, nameFactory, mimeType)
     }
 
@@ -331,7 +331,7 @@ fun AccountApp(
                                         System.currentTimeMillis()
                                     )
                                     try {
-                                        if (directBackup) writeFileBackup(bytes, "Download", ::uniquePlainExportName)
+                                        if (directBackup) writeFileBackup(context, bytes, "Download", ::uniquePlainExportName)
                                         else writeExportBytes(bytes, ::uniquePlainExportName, "application/json")
                                     } finally {
                                         bytes.fill(0)
@@ -586,7 +586,7 @@ fun AccountApp(
                         scope.launch {
                             val ok = withContext(Dispatchers.IO) {
                                 runCatching {
-                                    if (row.direct) deleteFileBackup(File(row.key))
+                                    if (row.direct) deleteFileBackup(context, File(row.key))
                                     else deleteBackupFile(context, Uri.parse(row.key))
                                 }.isSuccess
                             }
@@ -639,7 +639,7 @@ fun AccountApp(
                             Result.failure(imported.exceptionOrNull() ?: IllegalStateException("account 文件解析失败"))
                         }
                     } else {
-                        importAcc(bytes, password)
+                        importAcc(context, bytes, password)
                     }
                 },
                 onApplyImport = { imported ->

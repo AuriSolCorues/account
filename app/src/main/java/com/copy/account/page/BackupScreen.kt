@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import com.copy.account.security.AccImportResult
 import com.copy.account.security.ACCOUNTBOX_MAGIC
 import com.copy.account.security.ExportPasswordRequiredException
-import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.isMasterPasswordValid
 import com.copy.account.R
 import androidx.compose.ui.res.stringResource
@@ -101,6 +100,7 @@ internal fun BackupScreen(
     val exportUpgradeHint = stringResource(R.string.export_upgrade_hint)
     val exportUpgradeVerify = stringResource(R.string.export_upgrade_verify)
     val exportUpgradePasswordError = stringResource(R.string.export_upgrade_password_error)
+    val masterPasswordHint = stringResource(R.string.master_password_rule_hint)
     val cancelLabel = stringResource(R.string.action_cancel)
     val importPasswordTitle = stringResource(R.string.backup_import_password_title)
     val importPasswordHint = stringResource(R.string.backup_import_password_hint)
@@ -252,7 +252,7 @@ internal fun BackupScreen(
     }, confirmButton = {
         TextActionButton(exportUpgradeVerify, onClick = {
             if (!isMasterPasswordValid(exportPassword)) {
-                exportPasswordError = MASTER_PASSWORD_RULE_HINT
+                exportPasswordError = masterPasswordHint
             } else {
                 scope.launch {
                     val result = withContext(Dispatchers.Default) { exporter.prepareExport(exportPassword) }

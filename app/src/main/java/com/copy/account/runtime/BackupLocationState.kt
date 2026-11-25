@@ -14,6 +14,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.datastore.preferences.core.edit
+import com.copy.account.R
 import com.copy.account.data.backup.DEFAULT_BACKUP_FOLDER
 import com.copy.account.data.backup.backupFolderPath
 import com.copy.account.data.backup.hasStorageAccess
@@ -72,15 +73,15 @@ internal class BackupLocationState(
 
     fun onDirectoryChosen(uri: Uri?) {
         if (uri == null) {
-            backupDirectoryMessage = "未选择目录"
+            backupDirectoryMessage = context.getString(R.string.backup_dir_none)
         } else {
             val result = initializeBackupDirectory(context, uri, backupFolder)
             if (result.isSuccess) {
                 backupTreeUri = uri.toString()
                 persistTreeUri(backupTreeUri)
-                backupDirectoryMessage = "已授权，备份保存于 $backupFolder"
+                backupDirectoryMessage = context.getString(R.string.backup_dir_granted, backupFolder)
             } else {
-                backupDirectoryMessage = result.exceptionOrNull()?.message ?: "目录不可写，请重新选择"
+                backupDirectoryMessage = result.exceptionOrNull()?.message ?: context.getString(R.string.backup_dir_unwritable)
             }
         }
     }

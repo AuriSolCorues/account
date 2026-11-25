@@ -6,6 +6,7 @@ import com.copy.account.data.model.MAX_AUTO_LOCK_SECONDS
 import com.copy.account.data.model.PersistedVault
 import com.copy.account.data.model.SavedTheme
 import com.copy.account.data.model.vaultJson
+import com.copy.account.R
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -53,9 +54,12 @@ private val accJson = Json {
     ignoreUnknownKeys = false
 }
 
+private const val ACC_EXPORT_KEY_INVALID = "备份密钥无效，请先使用主密码解锁"
+private const val ACC_EXPORT_SALT_INVALID = "备份盐无效，请先使用主密码解锁"
+
 internal fun exportAcc(input: AccExportInput, key: ByteArray, salt: ByteArray, iterations: Int): ByteArray {
-    require(key.size == 32) { "备份密钥无效，请先使用主密码解锁" }
-    require(salt.size >= 16) { "备份盐无效，请先使用主密码解锁" }
+    require(key.size == 32) { ACC_EXPORT_KEY_INVALID }
+    require(salt.size >= 16) { ACC_EXPORT_SALT_INVALID }
     val plain = vaultJson.encodeToString(PersistedVault.serializer(), input.vault).toByteArray(Charsets.UTF_8)
     return try {
         val encrypted = encryptBytes(key, plain)
@@ -89,18 +93,18 @@ internal fun exportAcc(input: AccExportInput, key: ByteArray, salt: ByteArray, i
     }
 }
 
-internal fun importAcc(bytes: ByteArray, password: String): Result<AccImportResult> = runCatching {
-    require(isMasterPasswordValid(password)) { "备份密码长度需为 4-20 个字符" }
+internal fun importAcc(context: android.content.Context, bytes: ByteArray, password: String): Result<AccImportResult> = runCatching {
+    require(isMasterPasswordValid(password)) { context.getString(R.string.backup_import_password_invalid) }
     val document = accJson.decodeFromString(AccDocument.serializer(), bytes.toString(Charsets.UTF_8))
     val payloadBytes = Base64.getDecoder().decode(document.passwordVault)
     val payload = accJson.decodeFromString(AccPayload.serializer(), payloadBytes.toString(Charsets.UTF_8))
-    require(payload.version == 1) { "不支持的备份版本" }
-    require(payload.kdf == "PBKDF2-HMAC-SHA256") { "不支持的密钥派生算法" }
-    require(payload.iterations in 10_000..2_000_000) { "无效的密钥派生参数" }
+    require(payload.version == 1) { context.getString(R.string.acc_unsupported_version) }
+    require(payload.kdf == "PBKDF2-HMAC-SHA256") { context.getString(R.string.acc_unsupported_kdf) }
+    require(payload.iterations in 10_000..2_000_000) { context.getString(R.string.acc_invalid_kdf_params) }
     val salt = Base64.getDecoder().decode(payload.salt)
     val iv = Base64.getDecoder().decode(payload.iv)
     val ciphertext = Base64.getDecoder().decode(payload.ciphertext)
-    require(salt.size >= 16 && iv.size == 12 && ciphertext.size > 16) { "备份数据不完整" }
+    require(salt.size >= 16 && iv.size == 12 && ciphertext.size > 16) { context.getString(R.string.acc_incomplete) }
 
     val key = passwordHash(password, salt, payload.iterations)
     val plain = try {

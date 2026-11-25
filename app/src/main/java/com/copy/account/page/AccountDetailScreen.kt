@@ -16,8 +16,6 @@ import com.copy.account.data.model.Account
 import com.copy.account.data.model.Group
 import com.copy.account.data.model.initialAccounts
 import com.copy.account.data.model.initialGroups
-import com.copy.account.data.model.passwordRowLabel
-import com.copy.account.data.model.usernameRowLabel
 import com.copy.account.ui.components.AppListScreen
 import com.copy.account.ui.components.AccountTotpRow
 import com.copy.account.ui.components.AppScreen
@@ -56,8 +54,8 @@ internal fun AccountDetailScreen(
         AppListScreen(title, onBack, actions = topBarActions, spacing = 4.dp) {
             item { Text(stringResource(R.string.detail_group_line, groupNames.joinToString().ifBlank { stringResource(R.string.detail_group_default) }), color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 12.dp)) }
             item { Text(stringResource(R.string.detail_login_section), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
-            item { SensitiveValueRow(account.usernameRowLabel, account.username, masked = account.usernameHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
-            item { SensitiveValueRow(account.passwordRowLabel, account.password, masked = account.passwordHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
+            item { SensitiveValueRow(account.usernameLabel?.ifBlank { stringResource(R.string.edit_username_label) } ?: stringResource(R.string.edit_username_label), account.username, masked = account.usernameHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
+            item { SensitiveValueRow(account.passwordLabel?.ifBlank { stringResource(R.string.edit_password_label) } ?: stringResource(R.string.edit_password_label), account.password, masked = account.passwordHidden, clearAfterSeconds = clipboardClearSeconds, mask = maskChar) }
             item { Text(stringResource(R.string.detail_totp_section), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
             item {
                 if (account.hasTotp) AccountTotpRow(account, nowMillis, clipboardClearSeconds) { onHotpAdvance(account.id) }
