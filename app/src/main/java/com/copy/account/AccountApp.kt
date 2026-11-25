@@ -163,7 +163,7 @@ fun AccountApp(
     }
 
     suspend fun changeMasterPassword(newPassword: String): Result<Unit> {
-        val key = session.dataKey ?: return Result.failure(IllegalStateException("当前未解锁，请重新解锁后重试"))
+        val key = session.dataKey ?: return Result.failure(IllegalStateException(context.getString(R.string.error_not_unlocked)))
         val target = settingsContainer.settings.kdfIterations
         return withContext(Dispatchers.Default) {
             store.changeMasterPassword(newPassword, key, target).onSuccess { material ->
@@ -235,9 +235,9 @@ fun AccountApp(
     val currentDataKey by rememberUpdatedState(dataKey)
 
     fun exportGateError(): String? = when {
-        directBackup && !backupLocation.storageAccessGranted -> "请先授予「所有文件访问」权限"
-        !directBackup && backupLocation.backupTreeUri == null -> "请先授权备份目录"
-        currentDataKey == null -> "当前未解锁，请重新解锁后重试"
+        directBackup && !backupLocation.storageAccessGranted -> context.getString(R.string.backup_need_all_files_gate)
+        !directBackup && backupLocation.backupTreeUri == null -> context.getString(R.string.backup_need_dir_gate)
+        currentDataKey == null -> context.getString(R.string.error_not_unlocked)
         else -> null
     }
 
@@ -258,7 +258,7 @@ fun AccountApp(
         object : BackupExporter {
             override fun exportEncrypted(onDone: (Result<String>) -> Unit) {
                 if (!exportInFlight.compareAndSet(false, true)) {
-                    onDone(Result.failure(IllegalStateException("已有导出在进行，请稍候")))
+                    onDone(Result.failure(IllegalStateException(context.getString(R.string.error_export_in_flight))))
                     return
                 }
                 scope.launch {
@@ -311,7 +311,7 @@ fun AccountApp(
 
             override fun exportPlaintext(onDone: (Result<String>) -> Unit) {
                 if (!exportInFlight.compareAndSet(false, true)) {
-                    onDone(Result.failure(IllegalStateException("已有导出在进行，请稍候")))
+                    onDone(Result.failure(IllegalStateException(context.getString(R.string.error_export_in_flight))))
                     return
                 }
                 scope.launch {
@@ -348,11 +348,11 @@ fun AccountApp(
 
             override fun prepareExport(password: String): Result<Unit> {
                 if (currentDataKey == null) {
-                    return Result.failure(IllegalStateException("当前未解锁，请重新解锁后重试"))
+                    return Result.failure(IllegalStateException(context.getString(R.string.error_not_unlocked)))
                 }
                 val unlocked = store.unlockWithPassword(password)
                 return if (unlocked == null) {
-                    Result.failure(IllegalArgumentException("主密码错误"))
+                    Result.failure(IllegalArgumentException(context.getString(R.string.error_wrong_password)))
                 } else {
                     try {
                         store.cacheBackupKey(unlocked.backupKey, unlocked.dataKey)
@@ -636,7 +636,7 @@ fun AccountApp(
                         if (imported.isSuccess) {
                             Result.success(AccImportResult(vault = imported.getOrThrow(), settings = settingsContainer.baseSettings))
                         } else {
-                            Result.failure(imported.exceptionOrNull() ?: IllegalStateException("account 文件解析失败"))
+                            Result.failure(imported.exceptionOrNull() ?: IllegalStateException(context.getString(R.string.plain_parse_failed_short)))
                         }
                     } else {
                         importAcc(context, bytes, password)
@@ -725,12 +725,12 @@ fun AccountApp(
                         password = payload.password,
                         url = payload.url,
                         customFields = if (payload.notes.isNotBlank()) {
-                            listOf(AccountField(id = "import-note", label = "备注", value = payload.notes, hidden = false))
+                            listOf(AccountField(id = "import-note", label = context.getString(R.string.seed_field_note), value = payload.notes, hidden = false))
                         } else emptyList()
                     )
                     page = AppPage.Edit(null)
                 } else {
-                    android.widget.Toast.makeText(context, "二维码不是 account 导入格式", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(context, R.string.qr_not_account_format, android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
         )
