@@ -68,6 +68,8 @@ import com.copy.account.ui.components.TextActionButton
 import com.copy.account.ui.components.accountTopBarColors
 import com.copy.account.ui.components.rememberClock
 import com.copy.account.BuildConfig
+import com.copy.account.R
+import androidx.compose.ui.res.stringResource
 import com.copy.account.ui.theme.AccountTheme
 import com.copy.account.ui.theme.LocalAccountThemePalette
 
@@ -109,6 +111,11 @@ internal fun HomeScreen(
         batchGroupId = null
         batchSelectedIds = emptySet()
     }
+    val deleteAccountTitle = stringResource(R.string.home_delete_account_title)
+    val moveTargetTitle = stringResource(R.string.home_move_title)
+    val moveConfirmText = stringResource(R.string.home_move_confirm)
+    val cancelText = stringResource(R.string.action_cancel)
+    val batchDeleteText = stringResource(R.string.home_batch_delete)
     LaunchedEffect(searchOpen) {
         if (searchOpen) searchFocus.requestFocus()
     }
@@ -146,7 +153,7 @@ internal fun HomeScreen(
                         OutlinedTextField(
                             searchQuery,
                             { searchQuery = it },
-                            placeholder = { Text("搜索账号") },
+                            placeholder = { Text(stringResource(R.string.home_search_hint)) },
                             singleLine = true,
                             textStyle = MaterialTheme.typography.bodyLarge.copy(color = palette.topBarText),
                             colors = OutlinedTextFieldDefaults.colors(
@@ -197,33 +204,33 @@ internal fun HomeScreen(
                 Column(modifier = Modifier.weight(1f).fillMaxHeight().padding(horizontal = 12.dp)) {
                     if (batchSourceGroup != null) {
                         Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                            Text("从「${batchSourceGroup.name}」转移 · 已选 ${batchSelectedIds.size} 个", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
-                            Text("点左侧其他分组作为目标", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(R.string.home_batch_move_from, batchSourceGroup.name, batchSelectedIds.size), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(R.string.home_batch_move_hint), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 TextActionButton(
-                                    "删除",
+                                    batchDeleteText,
                                     onClick = { deleteConfirmIds = batchSelectedIds },
                                     enabled = batchSelectedIds.isNotEmpty(),
                                     textColor = MaterialTheme.colorScheme.error
                                 )
-                                TextActionButton("取消", onClick = cancelBatchMove)
+                                TextActionButton(cancelText, onClick = cancelBatchMove)
                             }
                         }
                     } else {
                         Text(
-                            if (searchQuery.isNotBlank()) "搜索「${searchQuery.trim()}」 · ${visibleAccounts.size} 条"
-                            else "${selectedGroup.name} · ${visibleAccounts.size} 条",
+                            if (searchQuery.isNotBlank()) stringResource(R.string.home_search_result, searchQuery.trim(), visibleAccounts.size)
+                            else stringResource(R.string.home_group_count, selectedGroup.name, visibleAccounts.size),
                             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp)
                         )
                     }
                     if (visibleAccounts.isEmpty()) {
                         EmptyState(
                             when {
-                                batchSourceGroup != null -> "该分组暂无账号"
-                                searchQuery.isNotBlank() -> "无匹配账号"
-                                selectedGroup.kind == GroupKind.DYNAMIC -> "在账号编辑页添加两步验证"
-                                selectedGroup.kind == GroupKind.DEFAULT -> "暂无未分组账号"
-                                else -> "暂无账号"
+                                batchSourceGroup != null -> stringResource(R.string.home_empty_batch_group)
+                                searchQuery.isNotBlank() -> stringResource(R.string.home_empty_search)
+                                selectedGroup.kind == GroupKind.DYNAMIC -> stringResource(R.string.home_empty_dynamic_hint)
+                                selectedGroup.kind == GroupKind.DEFAULT -> stringResource(R.string.home_empty_default_group)
+                                else -> stringResource(R.string.home_empty)
                             },
                             Modifier.fillMaxWidth().weight(1f)
                         )
@@ -259,13 +266,13 @@ internal fun HomeScreen(
             onEdit = { onEditAccount(account.id) },
             onDelete = { menuAccount = null; deleteConfirmAccount = account },
             onTemplateNew = { onTemplateNew(account) },
-            onCopyAll = { copyToClipboard(context, accountCopyableText(account), sensitive = true, clearAfterSeconds = clipboardClearSeconds) }
+            onCopyAll = { copyToClipboard(context, accountCopyableText(account, context), sensitive = true, clearAfterSeconds = clipboardClearSeconds) }
         )
     }
     deleteConfirmAccount?.let { account ->
         DeleteConfirmDialog(
-            title = "删除账号",
-            message = "确定删除「${account.name}」吗？此操作不可撤销。",
+            title = deleteAccountTitle,
+            message = stringResource(R.string.home_delete_account_message, account.name),
             onConfirm = {
                 onDeleteAccount(account.id)
                 if (previewAccountId == account.id) onPreviewAccountIdChange(null)
@@ -278,26 +285,26 @@ internal fun HomeScreen(
         val source = batchSourceGroup
         if (source != null) AlertDialog(
             onDismissRequest = { moveTargetGroup = null },
-            title = { Text("转移账号") },
+            title = { Text(moveTargetTitle) },
             text = {
                 Text(
-                    "把已选 ${batchSelectedIds.size} 个账号转移到「${target.name}」" +
-                        if (target.kind == GroupKind.DEFAULT) "？（移入默认分组将清空其全部自定义分组归属）" else "？"
+                    if (target.kind == GroupKind.DEFAULT) stringResource(R.string.home_move_message, batchSelectedIds.size, target.name)
+                    else stringResource(R.string.home_move_message_simple, batchSelectedIds.size, target.name)
                 )
             },
             confirmButton = {
-                TextActionButton("确认", onClick = {
+                TextActionButton(moveConfirmText, onClick = {
                     onMoveAccounts(batchSelectedIds, source.id, target.id)
                     cancelBatchMove()
                 }, textColor = MaterialTheme.colorScheme.primary)
             },
-            dismissButton = { TextActionButton("取消", onClick = { moveTargetGroup = null }) }
+            dismissButton = { TextActionButton(cancelText, onClick = { moveTargetGroup = null }) }
         )
     }
     deleteConfirmIds?.let { ids ->
         DeleteConfirmDialog(
-            title = "删除账号",
-            message = "确定删除已选 ${ids.size} 个账号吗？此操作不可撤销。",
+            title = deleteAccountTitle,
+            message = stringResource(R.string.home_delete_batch_message, ids.size),
             onConfirm = {
                 onDeleteAccounts(ids)
                 deleteConfirmIds = null
@@ -388,8 +395,8 @@ internal fun AccountCard(
                 }
                 val subtitle = when {
                     !(showTotp && account.hasTotp) -> account.username
-                    hotp -> "${totpCode(account, nowMillis)}  ·  HOTP"
-                    else -> "${totpCode(account, nowMillis)}  ·  ${account.totpPeriod - (nowMillis / 1000L % account.totpPeriod)} 秒"
+                    hotp -> stringResource(R.string.home_card_totp_hotp, totpCode(account, nowMillis))
+                    else -> stringResource(R.string.home_card_totp_line, totpCode(account, nowMillis), account.totpPeriod - (nowMillis / 1000L % account.totpPeriod))
                 }
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -408,10 +415,10 @@ internal fun accountMatchesSearch(account: Account, groups: List<Group>, query: 
         account.groups.any { gid -> groups.firstOrNull { it.id == gid }?.name?.contains(q, true) == true }
 }
 
-internal fun accountCopyableText(account: Account): String = buildList {
-    add("名称：${account.name}")
-    add("用户名：${account.username}")
-    add("密码：${account.password}")
+internal fun accountCopyableText(account: Account, context: android.content.Context): String = buildList {
+    add(context.getString(R.string.home_card_field_name, account.name))
+    add(context.getString(R.string.home_card_field_username, account.username))
+    add(context.getString(R.string.home_card_field_password, account.password))
     account.customFields.forEach { add("${it.label}：${it.value}") }
 }.joinToString("\n")
 

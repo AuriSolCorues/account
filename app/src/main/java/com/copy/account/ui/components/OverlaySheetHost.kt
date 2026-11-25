@@ -15,8 +15,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.copy.account.R
 import com.copy.account.data.config.ACCENT_THEME_SETTING
 import com.copy.account.data.config.CUSTOM_THEME_JSON_SETTING
 import com.copy.account.data.config.THEME_MODE_SETTING
@@ -75,7 +77,7 @@ internal fun OverlaySheetItems(
         )
         extraContent()
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            TextActionButton("取消", onClick = onCancel, modifier = Modifier.weight(1f))
+            TextActionButton(stringResource(R.string.action_cancel), onClick = onCancel, modifier = Modifier.weight(1f))
             PrimaryButton(confirmText, onClick = onConfirm, modifier = Modifier.weight(2f))
         }
     }
@@ -86,10 +88,10 @@ internal fun AutofillPasswordSheetItems(onConfirm: (String) -> Unit, onCancel: (
     var pwd by remember { mutableStateOf("") }
     var submitting by remember { mutableStateOf(false) }
     OverlaySheetItems(
-        title = "验证主密码",
-        headline = "验证后向目标应用填充所选账号",
-        description = "本设备未配置指纹，输入主密码完成验证",
-        confirmText = "验证并填充",
+        title = stringResource(R.string.overlay_verify_title),
+        headline = stringResource(R.string.overlay_verify_headline),
+        description = stringResource(R.string.overlay_verify_description),
+        confirmText = stringResource(R.string.overlay_verify_action),
         onConfirm = {
             if (!submitting) {
                 submitting = true
@@ -98,7 +100,7 @@ internal fun AutofillPasswordSheetItems(onConfirm: (String) -> Unit, onCancel: (
         },
         onCancel = onCancel,
         extraContent = {
-            PasswordField("主密码", pwd, { pwd = it }, showPasswordToggle = true)
+            PasswordField(stringResource(R.string.unlock_password_label), pwd, { pwd = it }, showPasswordToggle = true)
         }
     )
 }

@@ -34,6 +34,8 @@ import com.copy.account.security.ACCOUNTBOX_MAGIC
 import com.copy.account.security.ExportPasswordRequiredException
 import com.copy.account.security.MASTER_PASSWORD_RULE_HINT
 import com.copy.account.security.isMasterPasswordValid
+import com.copy.account.R
+import androidx.compose.ui.res.stringResource
 import com.copy.account.data.backup.backupLocationDisplay
 import com.copy.account.data.backup.normalizeBackupLocation
 import com.copy.account.data.backup.normalizeBackupNameTag
@@ -87,6 +89,24 @@ internal fun BackupScreen(
     var showPlainConfirm by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<PendingDelete?>(null) }
     var nameTagInput by remember(directory.backupNameTag) { mutableStateOf(directory.backupNameTag) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val readFailedMsg = context.getString(R.string.backup_read_failed)
+    val plainParseFailedMsg = context.getString(R.string.backup_plain_parse_failed)
+    val exportOkFmt = context.getString(R.string.backup_export_ok)
+    val exportErrorDefaultMsg = context.getString(R.string.backup_export_error_default)
+    val plainExportOkFmt = context.getString(R.string.backup_plain_export_ok)
+    val plainExportErrorMsg = context.getString(R.string.backup_plain_export_error)
+    val deleteRowFailedMsg = context.getString(R.string.backup_delete_row_failed)
+    val exportUpgradeTitle = stringResource(R.string.export_upgrade_title)
+    val exportUpgradeHint = stringResource(R.string.export_upgrade_hint)
+    val exportUpgradeVerify = stringResource(R.string.export_upgrade_verify)
+    val exportUpgradePasswordError = stringResource(R.string.export_upgrade_password_error)
+    val cancelLabel = stringResource(R.string.action_cancel)
+    val importPasswordTitle = stringResource(R.string.backup_import_password_title)
+    val importPasswordHint = stringResource(R.string.backup_import_password_hint)
+    val importPasswordInvalid = stringResource(R.string.backup_import_password_invalid)
+    val importBytesMissing = stringResource(R.string.backup_import_bytes_missing)
+    val importFailedDefault = stringResource(R.string.backup_import_failed_default)
     val nameTagNormalized = normalizeBackupNameTag(nameTagInput)
     fun saveNameTag() {
         val normalized = nameTagNormalized ?: return
@@ -102,7 +122,7 @@ internal fun BackupScreen(
     fun beginImport(read: ByteArray?) {
         pendingImportBytes?.fill(0)
         pendingImportBytes = read
-        importError = if (read == null) "无法读取备份" else ""
+        importError = if (read == null) readFailedMsg else ""
         importPassword = ""
         val isPlainAccountBox = read != null &&
                 read.toString(Charsets.UTF_8).lineSequence().firstOrNull()?.trim() == ACCOUNTBOX_MAGIC
@@ -111,7 +131,7 @@ internal fun BackupScreen(
                 val bytes = pendingImportBytes ?: return@launch
                 val result = withContext(Dispatchers.Default) { onImport(bytes, "") }
                 if (result == null || result.isFailure) {
-                    importError = result?.exceptionOrNull()?.message ?: "account 文件解析失败"
+                    importError = result?.exceptionOrNull()?.message ?: plainParseFailedMsg
                     bytes.fill(0); pendingImportBytes = null
                 } else {
                     bytes.fill(0); pendingImportBytes = null
@@ -128,14 +148,14 @@ internal fun BackupScreen(
         exporter.exportEncrypted { result ->
             exportSucceeded = result.isSuccess
             if (result.isSuccess) {
-                exportError = "导出成功：${result.getOrThrow()}"
+                exportError = exportOkFmt.format(result.getOrThrow())
                 refreshFiles()
             } else if (result.exceptionOrNull() is ExportPasswordRequiredException) {
                 exportPassword = ""
                 exportPasswordError = ""
                 showExportPasswordDialog = true
             } else {
-                exportError = result.exceptionOrNull()?.message ?: "备份生成失败"
+                exportError = result.exceptionOrNull()?.message ?: exportErrorDefaultMsg
             }
         }
     }
@@ -145,49 +165,49 @@ internal fun BackupScreen(
         exporter.exportPlaintext { result ->
             exportSucceeded = result.isSuccess
             exportError = if (result.isSuccess) {
-                "已导出明文到下载目录：${result.getOrThrow()}（请自行妥善保管并及时删除）"
+                plainExportOkFmt.format(result.getOrThrow())
             } else {
-                result.exceptionOrNull()?.message ?: "明文导出失败"
+                result.exceptionOrNull()?.message ?: plainExportErrorMsg
             }
         }
     }
     fun requestDelete(row: BackupRowUi) {
         pendingDelete = PendingDelete(row.name) {
             fileStore.delete(row) { ok ->
-                if (ok) refreshFiles() else exportError = "删除失败"
+                if (ok) refreshFiles() else exportError = deleteRowFailedMsg
             }
         }
     }
     LaunchedEffect(directory.directBackup, directory.storageAccessGranted, directory.backupTreeUri, directory.backupFolder) { refreshFiles() }
 
-    AppScreen(title = "加密备份", onBack = onBack, actions = { TopBarTextButton("刷新", onClick = { refreshFiles() }) }) { padding ->
+    AppScreen(title = stringResource(R.string.backup_title), onBack = onBack, actions = { TopBarTextButton(stringResource(R.string.backup_action_refresh), onClick = { refreshFiles() }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(start = 20.dp, end = 20.dp, top = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            CollapsibleSection(title = "备份设置", expanded = directory.directoryExpanded, onToggle = directory::toggleDirectoryExpanded) {
+            CollapsibleSection(title = stringResource(R.string.backup_settings_section), expanded = directory.directoryExpanded, onToggle = directory::toggleDirectoryExpanded) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SettingsRow("备份位置", backupLocationDisplay(directory.backupLocation), onClick = { showLocationDialog = true })
+                    SettingsRow(stringResource(R.string.backup_location_row), backupLocationDisplay(directory.backupLocation), onClick = { showLocationDialog = true })
                     val nameTagInvalid = nameTagNormalized == null
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
                                 value = nameTagInput,
                                 onValueChange = { nameTagInput = it },
-                                label = { Text("文件名标签（可选）") },
+                                label = { Text(stringResource(R.string.backup_name_tag_label)) },
                                 singleLine = true,
                                 isError = nameTagInvalid,
                                 supportingText = if (nameTagInvalid) {
-                                    { Text("含无法用于文件名的字符，改一下再存", color = MaterialTheme.colorScheme.error) }
+                                    { Text(stringResource(R.string.backup_name_tag_invalid), color = MaterialTheme.colorScheme.error) }
                                 } else {
-                                    { Text("例：pixel8 → 20261022-101530-pixel8.acc；留空 = 20261022-101530.acc") }
+                                    { Text(stringResource(R.string.backup_name_tag_example)) }
                                 },
                                 modifier = Modifier.weight(1f)
                             )
-                            TextActionButton("保存", enabled = !nameTagInvalid, onClick = ::saveNameTag)
+                            TextActionButton(stringResource(R.string.action_save), enabled = !nameTagInvalid, onClick = ::saveNameTag)
                         }
                     }
                     if (directory.directBackup) {
-                        TextActionButton(if (directory.storageAccessGranted) "授予权限" else "授予文件访问权限", directory::requestStorageAccess)
+                        TextActionButton(if (directory.storageAccessGranted) stringResource(R.string.backup_grant_access) else stringResource(R.string.backup_grant_all_files), directory::requestStorageAccess)
                     } else {
-                        TextActionButton(if (directory.backupTreeUri == null) "授权并创建目录" else "重新授权目录", directory::chooseDirectory)
+                        TextActionButton(if (directory.backupTreeUri == null) stringResource(R.string.backup_grant_create_dir) else stringResource(R.string.backup_regrant_dir), directory::chooseDirectory)
                     }
                     if (directory.directoryMessage.isNotBlank()) Text(directory.directoryMessage, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                 }
@@ -195,16 +215,16 @@ internal fun BackupScreen(
             val ready = if (directory.directBackup) directory.storageAccessGranted else directory.backupTreeUri != null
             if (ready) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    TextActionButton("导出备份", onClick = { if (exportError.isBlank()) showExportConfirm = true })
-                    TextActionButton("导出明文", onClick = { showPlainConfirm = true })
+                    TextActionButton(stringResource(R.string.backup_action_export), onClick = { if (exportError.isBlank()) showExportConfirm = true })
+                    TextActionButton(stringResource(R.string.backup_action_export_plain), onClick = { showPlainConfirm = true })
                 }
             }
             if (exportError.isNotBlank()) Text(exportError, color = if (exportSucceeded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            Text("已保存的备份", style = MaterialTheme.typography.titleMedium)
-            if (!ready) EmptyState(if (directory.directBackup) "请先授予「所有文件访问」权限" else "请先授权备份目录", Modifier.fillMaxWidth().weight(1f))
-            else if (refreshing) EmptyState("正在加载备份…", Modifier.fillMaxWidth().weight(1f))
-            else if (backupRows.isEmpty()) EmptyState("暂无 .acc 文件，点击右上角「刷新」", Modifier.fillMaxWidth().weight(1f))
+            Text(stringResource(R.string.backup_saved_header), style = MaterialTheme.typography.titleMedium)
+            if (!ready) EmptyState(if (directory.directBackup) stringResource(R.string.backup_need_all_files) else stringResource(R.string.backup_need_dir), Modifier.fillMaxWidth().weight(1f))
+            else if (refreshing) EmptyState(stringResource(R.string.backup_loading), Modifier.fillMaxWidth().weight(1f))
+            else if (backupRows.isEmpty()) EmptyState(stringResource(R.string.backup_empty_list), Modifier.fillMaxWidth().weight(1f))
             else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                 items(backupRows, key = { it.key }) { row ->
                     BackupRow(row.name, row.size, row.modified, { scope.launch { beginImport(withContext(Dispatchers.IO) { fileStore.read(row) }) } }, { requestDelete(row) })
@@ -213,24 +233,24 @@ internal fun BackupScreen(
         }
     }
     if (showLocationDialog) TextInputDialog(
-        title = "备份位置",
-        label = "内部存储下的位置前缀",
+        title = stringResource(R.string.backup_location_dialog_title),
+        label = stringResource(R.string.backup_location_dialog_label),
         initial = directory.backupLocation,
         validate = { normalizeBackupLocation(it) != null },
-        supportingText = "结构固定为 <位置>/Account/account；0 或留空 = 内部存储根。不要以 / 开头，不支持 ..。例：Download",
+        supportingText = stringResource(R.string.backup_location_dialog_hint),
         onDismiss = { showLocationDialog = false },
         onConfirm = { raw ->
             if (directory.changeBackupLocation(raw)) showLocationDialog = false
         }
     )
-    if (showExportPasswordDialog) AlertDialog(onDismissRequest = { showExportPasswordDialog = false }, title = { Text("完成导出升级") }, text = {
+    if (showExportPasswordDialog) AlertDialog(onDismissRequest = { showExportPasswordDialog = false }, title = { Text(exportUpgradeTitle) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("首次导出需要验证一次主密码。之后指纹或主密码解锁都可直接导出。", style = MaterialTheme.typography.bodySmall)
-            PasswordField("主密码", exportPassword, { exportPassword = it; exportPasswordError = "" }, showPasswordToggle = true)
+            Text(exportUpgradeHint, style = MaterialTheme.typography.bodySmall)
+            PasswordField(stringResource(R.string.unlock_password_label), exportPassword, { exportPassword = it; exportPasswordError = "" }, showPasswordToggle = true)
             if (exportPasswordError.isNotBlank()) Text(exportPasswordError, color = MaterialTheme.colorScheme.error)
         }
     }, confirmButton = {
-        TextActionButton("验证并导出", onClick = {
+        TextActionButton(exportUpgradeVerify, onClick = {
             if (!isMasterPasswordValid(exportPassword)) {
                 exportPasswordError = MASTER_PASSWORD_RULE_HINT
             } else {
@@ -241,54 +261,54 @@ internal fun BackupScreen(
                         showExportPasswordDialog = false
                         exportBackup()
                     } else {
-                        exportPasswordError = result.exceptionOrNull()?.message ?: "主密码验证失败"
+                        exportPasswordError = result.exceptionOrNull()?.message ?: exportUpgradePasswordError
                     }
                 }
             }
         }, textColor = MaterialTheme.colorScheme.primary)
-    }, dismissButton = { TextActionButton("取消", onClick = { showExportPasswordDialog = false }, textColor = MaterialTheme.colorScheme.primary) })
+    }, dismissButton = { TextActionButton(cancelLabel, onClick = { showExportPasswordDialog = false }, textColor = MaterialTheme.colorScheme.primary) })
     if (showPlainConfirm) AlertDialog(
         onDismissRequest = { showPlainConfirm = false },
-        title = { Text("导出明文文件？") },
+        title = { Text(stringResource(R.string.backup_plain_confirm_title)) },
         text = {
             Text(
                 buildAnnotatedString {
-                    append("将把 $accountCount 个账号、$groupCount 个分组的")
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("全部密码与两步验证密钥") }
-                    append("以 account 明文格式（ACCOUNTBOX_JSON_13）写入系统下载目录（Download）。\n\n")
-                    append("该文件没有任何加密，任何人拿到即可登录你的所有账号，且应用内无法删除它。绑定关系（网址/应用）不会随明文导出保留。确认导出？")
+                    append(stringResource(R.string.backup_plain_confirm_intro, accountCount, groupCount))
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(stringResource(R.string.backup_plain_confirm_bold)) }
+                    append(stringResource(R.string.backup_plain_confirm_tail1))
+                    append(stringResource(R.string.backup_plain_confirm_tail2))
                 }
             )
         },
         confirmButton = {
-            TextActionButton("确认导出", onClick = {
+            TextActionButton(stringResource(R.string.backup_plain_confirm_action), onClick = {
                 showPlainConfirm = false
                 exportPlaintext()
             }, textColor = MaterialTheme.colorScheme.error)
         },
-        dismissButton = { TextActionButton("取消", onClick = { showPlainConfirm = false }, textColor = MaterialTheme.colorScheme.primary) }
+        dismissButton = { TextActionButton(cancelLabel, onClick = { showPlainConfirm = false }, textColor = MaterialTheme.colorScheme.primary) }
     )
     if (showImportPasswordDialog) AlertDialog(onDismissRequest = {
         showImportPasswordDialog = false
         pendingImportBytes?.fill(0)
         pendingImportBytes = null
-    }, title = { Text("恢复加密备份") }, text = {
+    }, title = { Text(importPasswordTitle) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("文件已选择，请输入该备份设置的密码以验证并解密。", style = MaterialTheme.typography.bodySmall)
-            PasswordField("备份密码（4-20 个字符）", importPassword, { importPassword = it; importError = "" })
+            Text(importPasswordHint, style = MaterialTheme.typography.bodySmall)
+            PasswordField(stringResource(R.string.backup_import_password_label), importPassword, { importPassword = it; importError = "" })
             if (importError.isNotBlank()) Text(importError, color = MaterialTheme.colorScheme.error)
         }
     }, confirmButton = {
-        TextActionButton("验证并继续", onClick = {
-            if (!isMasterPasswordValid(importPassword)) importError = "备份密码长度需为 4-20 个字符"
+        TextActionButton(stringResource(R.string.backup_import_verify_action), onClick = {
+            if (!isMasterPasswordValid(importPassword)) importError = importPasswordInvalid
             else {
                 val bytes = pendingImportBytes
                 if (bytes == null) {
-                    if (importError.isBlank()) importError = "备份文件读取失败，请刷新后重试"
+                    if (importError.isBlank()) importError = importBytesMissing
                 } else {
                     scope.launch {
                         val result = withContext(Dispatchers.Default) { onImport(bytes, importPassword) }
-                        if (result == null || result.isFailure) importError = result?.exceptionOrNull()?.message ?: "备份密码错误或文件已损坏"
+                        if (result == null || result.isFailure) importError = result?.exceptionOrNull()?.message ?: importFailedDefault
                         else {
                             bytes.fill(0); pendingImportBytes = null; showImportPasswordDialog = false
                             pendingImportResult = result.getOrThrow(); showImportConfirmDialog = true
@@ -297,14 +317,14 @@ internal fun BackupScreen(
                 }
             }
         }, textColor = MaterialTheme.colorScheme.primary)
-    }, dismissButton = { TextActionButton("取消", onClick = {
+    }, dismissButton = { TextActionButton(cancelLabel, onClick = {
         showImportPasswordDialog = false; pendingImportBytes?.fill(0); pendingImportBytes = null
     }, textColor = MaterialTheme.colorScheme.primary) })
 
     pendingImportResult?.let { result ->
-        if (showImportConfirmDialog) AlertDialog(onDismissRequest = { showImportConfirmDialog = false; pendingImportResult = null }, title = { Text("确认恢复") }, text = { Text("将替换当前密码库，导入 ${result.vault.accounts.size} 个账号和 ${result.vault.groups.size} 个分组，并应用备份中的软件设置。") }, confirmButton = {
-            TextActionButton("确认恢复", onClick = { onApplyImport(result); showImportConfirmDialog = false; pendingImportResult = null }, textColor = MaterialTheme.colorScheme.primary)
-        }, dismissButton = { TextActionButton("取消", onClick = { showImportConfirmDialog = false; pendingImportResult = null }) })
+        if (showImportConfirmDialog) AlertDialog(onDismissRequest = { showImportConfirmDialog = false; pendingImportResult = null }, title = { Text(stringResource(R.string.backup_import_confirm_title)) }, text = { Text(stringResource(R.string.backup_import_confirm_message, result.vault.accounts.size, result.vault.groups.size)) }, confirmButton = {
+            TextActionButton(stringResource(R.string.backup_import_confirm_action), onClick = { onApplyImport(result); showImportConfirmDialog = false; pendingImportResult = null }, textColor = MaterialTheme.colorScheme.primary)
+        }, dismissButton = { TextActionButton(cancelLabel, onClick = { showImportConfirmDialog = false; pendingImportResult = null }) })
     }
 
     LaunchedEffect(exportError) {
@@ -324,8 +344,8 @@ internal fun BackupScreen(
 
     pendingDelete?.let { target ->
         DeleteConfirmDialog(
-            title = "删除备份",
-            message = "确定删除「${target.name}」吗？此操作不可撤销。",
+            title = stringResource(R.string.backup_delete_title),
+            message = stringResource(R.string.backup_delete_message, target.name),
             onConfirm = { target.delete(); pendingDelete = null },
             onDismiss = { pendingDelete = null }
         )
@@ -336,14 +356,15 @@ private class PendingDelete(val name: String, val delete: () -> Unit)
 
 @Composable
 private fun BackupRow(name: String, size: Long, modified: Long, onImport: () -> Unit, onRequestDelete: () -> Unit) {
+    val rowContext = androidx.compose.ui.platform.LocalContext.current
     SurfaceCard(modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${formatBackupSize(size)} · ${formatBackupTime(modified)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${formatBackupSize(size)} · ${formatBackupTime(modified, rowContext)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            TextActionButton("导入", onClick = onImport)
-            DangerButton("删除", onClick = onRequestDelete)
+            TextActionButton(stringResource(R.string.backup_row_import), onClick = onImport)
+            DangerButton(stringResource(R.string.action_delete), onClick = onRequestDelete)
         }
     }
 }
@@ -354,7 +375,7 @@ internal fun formatBackupSize(size: Long): String = when {
     else -> "${size / (1024 * 1024)} MB"
 }
 
-internal fun formatBackupTime(time: Long): String = if (time <= 0) "未知时间" else java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(time))
+internal fun formatBackupTime(time: Long, context: android.content.Context): String = if (time <= 0) context.getString(R.string.backup_time_unknown) else java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(time))
 
 @Preview(showBackground = true)
 @Composable

@@ -42,6 +42,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
+import com.copy.account.R
+import androidx.compose.ui.res.stringResource
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.QRCodeReader
@@ -71,6 +73,9 @@ internal fun ScanQrOverlay(onScanned: (String) -> Unit, onClose: () -> Unit) {
     val decodeExecutor = remember { Executors.newSingleThreadExecutor() }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val scanning = remember { AtomicBoolean(true) }
+    val cameraUnavailableMsg = stringResource(R.string.scan_camera_unavailable)
+    val cameraFailFmt = stringResource(R.string.scan_camera_start_failed)
+    val unknownReasonMsg = stringResource(R.string.scan_unknown_reason)
 
     DisposableEffect(Unit) {
         val hadSecure = window?.attributes?.flags?.and(WindowManager.LayoutParams.FLAG_SECURE) != 0
@@ -92,7 +97,7 @@ internal fun ScanQrOverlay(onScanned: (String) -> Unit, onClose: () -> Unit) {
             runCatching { ProcessCameraProvider.getInstance(context).get() }.getOrNull()
         }
         if (instance == null) {
-            scanError = "相机不可用，请改用手动输入密钥。"
+            scanError = cameraUnavailableMsg
             return@LaunchedEffect
         }
         val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
@@ -119,7 +124,7 @@ internal fun ScanQrOverlay(onScanned: (String) -> Unit, onClose: () -> Unit) {
             instance.unbindAll()
             instance.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
         }.onSuccess { provider = instance }
-            .onFailure { scanError = "相机启动失败：${it.message ?: "未知原因"}" }
+            .onFailure { scanError = cameraFailFmt.format(it.message ?: unknownReasonMsg) }
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -128,9 +133,9 @@ internal fun ScanQrOverlay(onScanned: (String) -> Unit, onClose: () -> Unit) {
                 Modifier.align(Alignment.Center).padding(horizontal = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("需要相机权限", color = Color.White)
+                Text(stringResource(R.string.scan_need_permission), color = Color.White)
                 Text(
-                    "扫码读取两步验证二维码需要相机权限。\n拒绝后仍可手动粘贴密钥。",
+                    stringResource(R.string.scan_permission_rationale),
                     color = Color.White.copy(alpha = 0.7f),
                     modifier = Modifier.padding(top = 8.dp)
                 )
@@ -138,8 +143,8 @@ internal fun ScanQrOverlay(onScanned: (String) -> Unit, onClose: () -> Unit) {
                     Modifier.padding(top = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    TextActionButton("取消", onClick = onClose, textColor = Color.White)
-                    TextActionButton("授予权限", onClick = { requestPermission.launch(Manifest.permission.CAMERA) }, textColor = Color.White)
+                    TextActionButton(stringResource(R.string.action_cancel), onClick = onClose, textColor = Color.White)
+                    TextActionButton(stringResource(R.string.scan_grant), onClick = { requestPermission.launch(Manifest.permission.CAMERA) }, textColor = Color.White)
                 }
             }
             scanError != null -> Column(
@@ -147,7 +152,7 @@ internal fun ScanQrOverlay(onScanned: (String) -> Unit, onClose: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(scanError.orEmpty(), color = Color.White)
-                TextActionButton("关闭", onClick = onClose, modifier = Modifier.padding(top = 16.dp), textColor = Color.White)
+                TextActionButton(stringResource(R.string.action_close), onClick = onClose, modifier = Modifier.padding(top = 16.dp), textColor = Color.White)
             }
             else -> {
                 AndroidView(
@@ -161,12 +166,12 @@ internal fun ScanQrOverlay(onScanned: (String) -> Unit, onClose: () -> Unit) {
                         .border(2.dp, Color.White.copy(alpha = 0.85f))
                 )
                 Text(
-                    "将两步验证二维码对准框内",
+                    stringResource(R.string.scan_align_hint),
                     color = Color.White,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 60.dp)
                 )
                 TextActionButton(
-                    "关闭",
+                    stringResource(R.string.action_close),
                     onClick = onClose,
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp),
                     textColor = Color.White
